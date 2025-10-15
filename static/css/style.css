@@ -1681,6 +1681,18 @@ input:checked + .toggle-slider:before {
     background: var(--border-color);
 }
 
+/* Force orange background for debugging */
+.tasks-grid .task-card {
+    background: linear-gradient(135deg, #ff8c42 0%, #ffa726 50%, #ffffff 100%) !important;
+    border-radius: 20px !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: 0 8px 25px rgba(255, 140, 66, 0.2) !important;
+    overflow: hidden !important;
+    position: relative !important;
+    min-height: 200px !important;
+}
+
 /* Grid Layout */
 .tasks-grid {
     display: grid;
@@ -1690,16 +1702,16 @@ input:checked + .toggle-slider:before {
 }
 
 .task-card {
-    background: linear-gradient(135deg, #ff8c42 0%, #ffa726 50%, #ffffff 100%);
-    border-radius: calc(20px * var(--dpi-scale));
-    padding: 0;
-    border: none;
-    transition: all 0.3s ease;
-    cursor: pointer;
-    box-shadow: 0 calc(8px * var(--dpi-scale)) calc(25px * var(--dpi-scale)) rgba(255, 140, 66, 0.2);
-    overflow: hidden;
-    position: relative;
-    min-height: calc(200px * var(--dpi-scale));
+    background: linear-gradient(135deg, #ff8c42 0%, #ffa726 50%, #ffffff 100%) !important;
+    border-radius: calc(20px * var(--dpi-scale)) !important;
+    padding: 0 !important;
+    border: none !important;
+    transition: all 0.3s ease !important;
+    cursor: pointer !important;
+    box-shadow: 0 calc(8px * var(--dpi-scale)) calc(25px * var(--dpi-scale)) rgba(255, 140, 66, 0.2) !important;
+    overflow: hidden !important;
+    position: relative !important;
+    min-height: calc(200px * var(--dpi-scale)) !important;
 }
 
 .task-card::before {
@@ -1721,13 +1733,13 @@ input:checked + .toggle-slider:before {
 }
 
 .task-card.completed {
-    background: linear-gradient(135deg, #4caf50 0%, #66bb6a 50%, #ffffff 100%);
-    box-shadow: 0 calc(8px * var(--dpi-scale)) calc(25px * var(--dpi-scale)) rgba(76, 175, 80, 0.2);
+    background: linear-gradient(135deg, #4caf50 0%, #66bb6a 50%, #ffffff 100%) !important;
+    box-shadow: 0 calc(8px * var(--dpi-scale)) calc(25px * var(--dpi-scale)) rgba(76, 175, 80, 0.2) !important;
 }
 
 .task-card.struck-today {
-    background: linear-gradient(135deg, #ff7043 0%, #ff8a65 50%, #ffffff 100%);
-    box-shadow: 0 calc(8px * var(--dpi-scale)) calc(25px * var(--dpi-scale)) rgba(255, 112, 67, 0.2);
+    background: linear-gradient(135deg, #ff7043 0%, #ff8a65 50%, #ffffff 100%) !important;
+    box-shadow: 0 calc(8px * var(--dpi-scale)) calc(25px * var(--dpi-scale)) rgba(255, 112, 67, 0.2) !important;
 }
 
 .task-card.struck-today .task-title.struck-today {

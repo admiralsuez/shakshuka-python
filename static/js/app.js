@@ -796,7 +796,8 @@ function renderTasks(filter = currentFilter) {
     }
 
     if (currentLayout === 'grid') {
-        tasksList.innerHTML = `
+        console.log('Rendering grid layout with', sortedTasks.length, 'tasks');
+        const gridHTML = `
             <div class="tasks-grid">
                 ${sortedTasks.map(task => {
                     // Calculate progress based on strikes and completion
@@ -806,7 +807,7 @@ function renderTasks(filter = currentFilter) {
                     const progressStep = task.completed ? maxStrikes : Math.min(currentStrikes + 1, maxStrikes);
                     
                     return `
-                        <div class="task-card ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${task.strike_count > 1 ? 'restrike' : ''}" data-task-id="${task.id}">
+                        <div class="task-card ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${task.strike_count > 1 ? 'restrike' : ''}" data-task-id="${task.id}" style="background: linear-gradient(135deg, #ff8c42 0%, #ffa726 50%, #ffffff 100%); border-radius: 20px; padding: 0; border: none; box-shadow: 0 8px 25px rgba(255, 140, 66, 0.2); overflow: hidden; position: relative; min-height: 200px;">
                             <div class="task-actions">
                                 ${task.struck_today && !task.completed ? `
                                     <button class="task-action undo-action" onclick="undoStrike('${task.id}')" title="Undo Strike">
@@ -843,6 +844,8 @@ function renderTasks(filter = currentFilter) {
                 }).join('')}
             </div>
         `;
+        console.log('Generated grid HTML:', gridHTML);
+        tasksList.innerHTML = gridHTML;
     } else {
         tasksList.innerHTML = sortedTasks.map(task => `
         <div class="task-item ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${task.strike_count > 1 ? 'restrike' : ''}" data-task-id="${task.id}">
