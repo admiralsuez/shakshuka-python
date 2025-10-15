@@ -502,6 +502,13 @@ function setupEventListeners() {
         });
     });
 
+    // Import tasks functionality
+    safeAddEventListener('import-tasks-btn', 'click', openImportModal);
+    safeAddEventListener('close-import-modal', 'click', closeImportModal);
+    safeAddEventListener('cancel-import', 'click', closeImportModal);
+    safeAddEventListener('confirm-import', 'click', confirmImport);
+    safeAddEventListener('import-file', 'change', previewImportFile);
+
     // Close modals on outside click
     document.querySelectorAll('.modal').forEach(modal => {
         modal.addEventListener('click', function(e) {
@@ -585,7 +592,7 @@ async function loadTasks() {
         if (error.message && error.message.toLowerCase().includes('login')) {
             showNotification('Please log in to access your tasks', 'error');
         } else {
-            showNotification('Error loading tasks', 'error');
+        showNotification('Error loading tasks', 'error');
         }
         
         // Ensure tasks is always an array even on error
@@ -669,7 +676,7 @@ async function updateTask(taskId, taskData) {
         if (error.message && error.message.toLowerCase().includes('login')) {
             showNotification('Please log in to update tasks', 'error');
         } else {
-            showNotification('Error updating task', 'error');
+        showNotification('Error updating task', 'error');
         }
     }
 }
@@ -699,7 +706,7 @@ async function deleteTask(taskId) {
         if (error.message && error.message.toLowerCase().includes('login')) {
             showNotification('Please log in to delete tasks', 'error');
         } else {
-            showNotification('Error deleting task', 'error');
+        showNotification('Error deleting task', 'error');
         }
     }
 }
@@ -734,7 +741,7 @@ async function completeTask(taskId) {
         if (error.message && error.message.toLowerCase().includes('login')) {
             showNotification('Please log in to complete tasks', 'error');
         } else {
-            showNotification('Error completing task', 'error');
+        showNotification('Error completing task', 'error');
         }
     }
 }
@@ -784,13 +791,13 @@ function renderTasks(filter = currentFilter) {
                 </div>
             `;
         } else {
-            tasksList.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-tasks" style="font-size: 3rem; color: #FFB6C1; margin-bottom: 1rem;"></i>
-                    <h3>No tasks found</h3>
-                    <p>Create your first task to get started!</p>
-                </div>
-            `;
+        tasksList.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-tasks" style="font-size: 3rem; color: #FFB6C1; margin-bottom: 1rem;"></i>
+                <h3>No tasks found</h3>
+                <p>Create your first task to get started!</p>
+            </div>
+        `;
         }
         return;
     }
@@ -808,30 +815,30 @@ function renderTasks(filter = currentFilter) {
                     
                     return `
                         <div class="task-card ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${task.strike_count > 1 ? 'restrike' : ''}" data-task-id="${task.id}" style="background: linear-gradient(135deg, #ff8c42 0%, #ffa726 50%, #ffffff 100%); border-radius: 20px; padding: 0; border: none; box-shadow: 0 8px 25px rgba(255, 140, 66, 0.2); overflow: hidden; position: relative; min-height: 200px;">
-                            <div class="task-actions">
-                                ${task.struck_today && !task.completed ? `
-                                    <button class="task-action undo-action" onclick="undoStrike('${task.id}')" title="Undo Strike">
-                                        <i class="fas fa-undo"></i>
-                                    </button>
-                                ` : ''}
-                                ${!task.completed ? `
-                                    <button class="task-action strike-btn" onclick="openStrikeModal('${task.id}')" title="Strike Task">
-                                        <i class="fas fa-check"></i>
-                                    </button>
-                                ` : ''}
-                                <button class="task-action" onclick="editTask('${task.id}')" title="Edit">
-                                    <i class="fas fa-edit"></i>
+                        <div class="task-actions">
+                            ${task.struck_today && !task.completed ? `
+                                <button class="task-action undo-action" onclick="undoStrike('${task.id}')" title="Undo Strike">
+                                    <i class="fas fa-undo"></i>
                                 </button>
-                                <button class="task-action" onclick="deleteTask('${task.id}')" title="Delete">
-                                    <i class="fas fa-trash"></i>
+                            ` : ''}
+                            ${!task.completed ? `
+                                <button class="task-action strike-btn" onclick="openStrikeModal('${task.id}')" title="Strike Task">
+                                    <i class="fas fa-check"></i>
                                 </button>
-                            </div>
+                            ` : ''}
+                            <button class="task-action" onclick="editTask('${task.id}')" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="task-action" onclick="deleteTask('${task.id}')" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
                             
                             <div class="task-header">
                                 <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">${task.title.toUpperCase()}</h3>
                                 ${task.description ? `<p class="task-description">${task.description}</p>` : ''}
                                 ${task.project ? `<span class="task-project">${task.project}</span>` : ''}
-                            </div>
+                    </div>
                             
                             <div class="task-progress">
                                 <div class="progress-text">STEP ${progressStep} OF ${maxStrikes}</div>
@@ -839,8 +846,8 @@ function renderTasks(filter = currentFilter) {
                                     <div class="progress-fill" style="width: ${progressPercentage}%"></div>
                                 </div>
                             </div>
-                        </div>
-                    `;
+            </div>
+        `;
                 }).join('')}
             </div>
         `;
@@ -1240,12 +1247,12 @@ function loadAvailableTasks() {
     if (unscheduledTasks.length === 0) {
         availableTasks.innerHTML = '<p>No available tasks to schedule.</p>';
     } else {
-        availableTasks.innerHTML = unscheduledTasks.map(task => `
-            <div class="draggable-task" data-task-id="${task.id}">
-                <h4>${task.title}</h4>
+    availableTasks.innerHTML = unscheduledTasks.map(task => `
+        <div class="draggable-task" data-task-id="${task.id}">
+            <h4>${task.title}</h4>
                 <p>${task.project || 'No Project'} • ${task.estimated_duration || 30}min</p>
-            </div>
-        `).join('');
+        </div>
+    `).join('');
     }
     
     setupDragAndDrop();
@@ -2376,5 +2383,158 @@ async function saveQuickTask() {
         closeQuickAddModal();
     } catch (error) {
         console.error('Error saving quick task:', error);
+    }
+}
+// Import Tasks Functions
+function openImportModal() {
+    const modal = document.getElementById('import-modal');
+    modal.classList.add('active');
+    
+    // Reset form
+    document.getElementById('import-form').reset();
+    document.getElementById('import-preview').style.display = 'none';
+    document.getElementById('preview-content').innerHTML = '';
+}
+
+function closeImportModal() {
+    const modal = document.getElementById('import-modal');
+    modal.classList.remove('active');
+}
+
+function previewImportFile() {
+    const fileInput = document.getElementById('import-file');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        document.getElementById('import-preview').style.display = 'none';
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const content = e.target.result;
+        const preview = document.getElementById('preview-content');
+        
+        try {
+            let previewHtml = '';
+            const fileExtension = file.name.toLowerCase().split('.').pop();
+            
+            if (fileExtension === 'csv') {
+                previewHtml = parseCSVPreview(content);
+            } else if (fileExtension === 'txt') {
+                previewHtml = parseTXTPreview(content);
+            } else {
+                previewHtml = '<p style="color: red;">Unsupported file format</p>';
+            }
+            
+            preview.innerHTML = previewHtml;
+            document.getElementById('import-preview').style.display = 'block';
+        } catch (error) {
+            preview.innerHTML = `<p style="color: red;">Error parsing file: ${error.message}</p>`;
+            document.getElementById('import-preview').style.display = 'block';
+        }
+    };
+    
+    reader.readAsText(file);
+}
+
+function parseCSVPreview(content) {
+    const lines = content.split('\n');
+    const header = lines[0].split(',').map(h => h.trim());
+    
+    let html = '<div class="preview-table">';
+    html += '<table style="width: 100%; border-collapse: collapse;">';
+    html += '<thead><tr>';
+    header.forEach(h => {
+        html += `<th style="border: 1px solid #ddd; padding: 8px; background: #f5f5f5;">${h}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+    
+    // Show first 5 rows
+    for (let i = 1; i < Math.min(6, lines.length); i++) {
+        if (lines[i].trim()) {
+            const row = lines[i].split(',').map(c => c.trim());
+            html += '<tr>';
+            row.forEach(cell => {
+                html += `<td style="border: 1px solid #ddd; padding: 8px;">${cell}</td>`;
+            });
+            html += '</tr>';
+        }
+    }
+    
+    html += '</tbody></table>';
+    html += `<p><em>Showing first ${Math.min(5, lines.length - 1)} rows of ${lines.length - 1} total rows</em></p>`;
+    html += '</div>';
+    
+    return html;
+}
+
+function parseTXTPreview(content) {
+    const lines = content.split('\n').filter(line => line.trim() && !line.trim().startsWith('#'));
+    
+    let html = '<div class="preview-list">';
+    html += '<ul>';
+    
+    // Show first 5 lines
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+        const parts = lines[i].split('|').map(p => p.trim());
+        html += `<li><strong>${parts[0]}</strong>`;
+        if (parts[1]) html += ` - ${parts[1]}`;
+        if (parts[2]) html += ` (${parts[2]})`;
+        html += '</li>';
+    }
+    
+    html += '</ul>';
+    html += `<p><em>Showing first ${Math.min(5, lines.length)} tasks of ${lines.length} total tasks</em></p>`;
+    html += '</div>';
+    
+    return html;
+}
+
+async function confirmImport() {
+    const fileInput = document.getElementById('import-file');
+    const file = fileInput.files[0];
+    const overwrite = document.getElementById('import-overwrite').checked;
+    
+    if (!file) {
+        showNotification('Please select a file to import', 'error');
+        return;
+    }
+    
+    try {
+        showLoading(true);
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('overwrite', overwrite);
+        
+        const response = await fetch('/api/tasks/import', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            showNotification(result.message, 'success');
+            
+            // Reload tasks
+            await loadTasks();
+            
+            // Show errors if any
+            if (result.errors && result.errors.length > 0) {
+                console.warn('Import warnings:', result.errors);
+                showNotification(`${result.errors.length} warnings during import`, 'warning');
+            }
+            
+            closeImportModal();
+        } else {
+            showNotification(result.error || 'Import failed', 'error');
+        }
+    } catch (error) {
+        console.error('Import error:', error);
+        showNotification('Import failed: ' + error.message, 'error');
+    } finally {
+        showLoading(false);
     }
 }

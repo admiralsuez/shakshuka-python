@@ -156,10 +156,16 @@
                                 <i class="fas fa-th"></i>
                             </button>
                         </div>
-                        <button class="btn-primary" id="add-task-btn-2">
-                            <i class="fas fa-plus"></i>
-                            Add Task
-                        </button>
+                        <div class="header-actions">
+                            <button class="btn-secondary" id="import-tasks-btn" title="Import Tasks">
+                                <i class="fas fa-file-import"></i>
+                                Import Tasks
+                            </button>
+                            <button class="btn-primary" id="add-task-btn-2">
+                                <i class="fas fa-plus"></i>
+                                Add Task
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -687,6 +693,50 @@
                 <button type="button" class="btn-primary" id="download-update">
                     <i class="fas fa-download"></i>
                     Download & Install
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Tasks Modal -->
+    <div class="modal" id="import-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Import Tasks</h3>
+                <button class="modal-close" id="close-import-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="import-info">
+                    <p>Import tasks from CSV or TXT files. Supported formats:</p>
+                    <ul>
+                        <li><strong>CSV:</strong> title, description, project, duration, due_date, priority</li>
+                        <li><strong>TXT:</strong> Title | Description | Project | Duration | Due Date</li>
+                    </ul>
+                </div>
+                <form id="import-form" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="import-file">Select File:</label>
+                        <input type="file" id="import-file" name="file" accept=".csv,.txt" required>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="import-overwrite" checked>
+                            Replace existing tasks (uncheck to add to existing tasks)
+                        </label>
+                    </div>
+                </form>
+                <div id="import-preview" style="display: none;">
+                    <h4>Preview:</h4>
+                    <div id="preview-content"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-import">Cancel</button>
+                <button type="button" class="btn-primary" id="confirm-import">
+                    <i class="fas fa-file-import"></i>
+                    Import Tasks
                 </button>
             </div>
         </div>

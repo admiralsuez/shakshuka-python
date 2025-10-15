@@ -8,9 +8,13 @@ import schedule
 from datetime import datetime, timedelta
 import json
 import os
+import csv
+import io
+from werkzeug.utils import secure_filename
 from data_manager import EncryptedDataManager
 from autostart import WindowsAutostart
 from update_manager import UpdateManager
+from security_manager import security_manager
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generate random secret key
@@ -34,6 +38,25 @@ def require_auth(f):
         return f(*args, **kwargs)
     decorated_function.__name__ = f.__name__
     return decorated_function
+
+def rate_limit(f):
+    """Decorator to implement rate limiting"""
+    def decorated_function(*args, **kwargs):
+        client_ip = request.remote_addr or 'unknown'
+        if not security_manager.check_rate_limit(client_ip):
+            return jsonify({'error': 'Rate limit exceeded. Please try again later.'}), 429
+        return f(*args, **kwargs)
+    decorated_function.__name__ = f.__name__
+    return decorated_function
+
+def sanitize_input(data):
+    """Sanitize input data to prevent XSS"""
+    if isinstance(data, dict):
+        return {key: security_manager.sanitize_input(str(value)) if isinstance(value, str) else value 
+                for key, value in data.items()}
+    elif isinstance(data, str):
+        return security_manager.sanitize_input(data)
+    return data
 
 def initialize_data_manager(password):
     """Initialize data manager with password"""
@@ -158,6 +181,7 @@ def setup_password():
         return jsonify({'error': f'Setup failed: {str(e)}'}), 500
 
 @app.route('/api/auth/login', methods=['POST'])
+@rate_limit
 def login():
     """Login with password"""
     password_data = request.json
@@ -176,8 +200,13 @@ def login():
         data_manager = temp_manager
         password_set = True
         session['authenticated'] = True
+        session['user_id'] = str(uuid.uuid4())
         
-        return jsonify({'success': True, 'message': 'Login successful'})
+        # Generate session secret
+        session_secret = security_manager.generate_session_secret(session['user_id'])
+        session['session_secret'] = session_secret
+        
+        return jsonify({'success': True, 'message': 'Login successful', 'session_secret': session_secret})
     except Exception:
         return jsonify({'error': 'Invalid password'}), 401
 
@@ -202,12 +231,220 @@ def get_tasks():
     tasks = data_manager.load_tasks()
     return jsonify(tasks)
 
+@app.route('/api/tasks/import', methods=['POST'])
+@require_auth
+def import_tasks():
+    """Import tasks from CSV or TXT file"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if not file:
+        return jsonify({'error': 'Invalid file'}), 400
+    
+    try:
+        # Read file content
+        file_content = file.read().decode('utf-8')
+        file_extension = file.filename.lower().split('.')[-1]
+        
+        imported_tasks = []
+        errors = []
+        
+        if file_extension == 'csv':
+            imported_tasks, errors = parse_csv_tasks(file_content)
+        elif file_extension == 'txt':
+            imported_tasks, errors = parse_txt_tasks(file_content)
+        else:
+            return jsonify({'error': 'Unsupported file format. Please use CSV or TXT.'}), 400
+        
+        if not imported_tasks:
+            return jsonify({'error': 'No valid tasks found in file', 'details': errors}), 400
+        
+        # Load existing tasks
+        existing_tasks = data_manager.load_tasks()
+        
+        # Add imported tasks
+        for task in imported_tasks:
+            task['id'] = str(uuid.uuid4())
+            task['created_at'] = datetime.now().isoformat()
+            task['completed'] = False
+            task['strike_count'] = 0
+            task['struck_today'] = False
+            existing_tasks.append(task)
+        
+        # Save all tasks
+        if data_manager.save_tasks(existing_tasks):
+            return jsonify({
+                'success': True,
+                'message': f'Successfully imported {len(imported_tasks)} tasks',
+                'imported_count': len(imported_tasks),
+                'errors': errors
+            })
+        else:
+            return jsonify({'error': 'Failed to save imported tasks'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'Import failed: {str(e)}'}), 500
+
+def parse_csv_tasks(content):
+    """Parse CSV content and return tasks and errors"""
+    tasks = []
+    errors = []
+    
+    try:
+        # Use StringIO to read CSV content
+        csv_file = io.StringIO(content)
+        reader = csv.DictReader(csv_file)
+        
+        for row_num, row in enumerate(reader, start=2):  # Start at 2 because header is row 1
+            try:
+                # Sanitize input
+                row = sanitize_input(row)
+                
+                # Extract task data
+                title = row.get('title', '').strip()
+                if not title:
+                    errors.append(f"Row {row_num}: Title is required")
+                    continue
+                
+                description = row.get('description', '').strip()
+                project = row.get('project', '').strip()
+                
+                # Parse duration
+                duration_str = row.get('duration', '60').strip()
+                try:
+                    duration = int(duration_str) if duration_str else 60
+                except ValueError:
+                    duration = 60
+                
+                # Parse due date
+                due_date = row.get('due_date', '').strip()
+                if due_date:
+                    try:
+                        # Try to parse various date formats
+                        datetime.fromisoformat(due_date)
+                    except ValueError:
+                        try:
+                            datetime.strptime(due_date, '%Y-%m-%d')
+                        except ValueError:
+                            try:
+                                datetime.strptime(due_date, '%m/%d/%Y')
+                            except ValueError:
+                                errors.append(f"Row {row_num}: Invalid date format for '{due_date}'")
+                                due_date = None
+                
+                # Parse priority
+                priority = row.get('priority', 'medium').strip().lower()
+                if priority not in ['low', 'medium', 'high']:
+                    priority = 'medium'
+                
+                task = {
+                    'title': title,
+                    'description': description,
+                    'project': project,
+                    'estimated_duration': duration,
+                    'due_date': due_date,
+                    'priority': priority
+                }
+                
+                tasks.append(task)
+                
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
+                
+    except Exception as e:
+        errors.append(f"CSV parsing error: {str(e)}")
+    
+    return tasks, errors
+
+def parse_txt_tasks(content):
+    """Parse TXT content and return tasks and errors"""
+    tasks = []
+    errors = []
+    
+    try:
+        lines = content.strip().split('\n')
+        
+        for line_num, line in enumerate(lines, start=1):
+            line = line.strip()
+            if not line or line.startswith('#'):  # Skip empty lines and comments
+                continue
+            
+            try:
+                # Sanitize input
+                line = sanitize_input(line)
+                
+                # Simple format: Title | Description | Project | Duration | Due Date
+                parts = [part.strip() for part in line.split('|')]
+                
+                if len(parts) < 1:
+                    errors.append(f"Line {line_num}: At least title is required")
+                    continue
+                
+                title = parts[0]
+                if not title:
+                    errors.append(f"Line {line_num}: Title is required")
+                    continue
+                
+                description = parts[1] if len(parts) > 1 else ''
+                project = parts[2] if len(parts) > 2 else ''
+                
+                # Parse duration
+                duration = 60
+                if len(parts) > 3 and parts[3]:
+                    try:
+                        duration = int(parts[3])
+                    except ValueError:
+                        errors.append(f"Line {line_num}: Invalid duration '{parts[3]}'")
+                
+                # Parse due date
+                due_date = None
+                if len(parts) > 4 and parts[4]:
+                    try:
+                        datetime.fromisoformat(parts[4])
+                        due_date = parts[4]
+                    except ValueError:
+                        try:
+                            datetime.strptime(parts[4], '%Y-%m-%d')
+                            due_date = parts[4]
+                        except ValueError:
+                            try:
+                                datetime.strptime(parts[4], '%m/%d/%Y')
+                                due_date = parts[4]
+                            except ValueError:
+                                errors.append(f"Line {line_num}: Invalid date format '{parts[4]}'")
+                
+                task = {
+                    'title': title,
+                    'description': description,
+                    'project': project,
+                    'estimated_duration': duration,
+                    'due_date': due_date,
+                    'priority': 'medium'
+                }
+                
+                tasks.append(task)
+                
+            except Exception as e:
+                errors.append(f"Line {line_num}: {str(e)}")
+                
+    except Exception as e:
+        errors.append(f"TXT parsing error: {str(e)}")
+    
+    return tasks, errors
+
 @app.route('/api/tasks', methods=['POST'])
 @require_auth
 def create_task():
     """Create a new task"""
     task_data = request.json
     tasks = data_manager.load_tasks()
+    
+    # Sanitize input data
+    task_data = sanitize_input(task_data)
     
     # Input validation
     title = task_data.get('title', '').strip()
