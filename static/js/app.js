@@ -492,6 +492,15 @@ function setupEventListeners() {
     // Quick actions
     safeAddEventListener('focus-mode-btn', 'click', () => navigateToPage('planner'));
     safeAddEventListener('schedule-btn', 'click', () => navigateToPage('planner'));
+    
+    // Layout buttons
+    document.querySelectorAll('.layout-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const layout = btn.getAttribute('data-layout');
+            console.log('Layout button clicked:', layout);
+            setLayout(layout);
+        });
+    });
 
     // Close modals on outside click
     document.querySelectorAll('.modal').forEach(modal => {
@@ -789,34 +798,49 @@ function renderTasks(filter = currentFilter) {
     if (currentLayout === 'grid') {
         tasksList.innerHTML = `
             <div class="tasks-grid">
-                ${sortedTasks.map(task => `
-                    <div class="task-card ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${task.strike_count > 1 ? 'restrike' : ''}" data-task-id="${task.id}">
-                        <div class="task-header">
-                            <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">${task.title}</h3>
-                        </div>
-                        ${task.description ? `<p class="task-description">${task.description}</p>` : ''}
-                        ${task.strike_report ? `<p class="strike-report"><em>Last strike: ${task.strike_report}</em></p>` : ''}
-                        ${task.project ? `<span class="task-project">${task.project}</span>` : ''}
-                        <div class="task-actions">
-                            ${task.struck_today && !task.completed ? `
-                                <button class="task-action undo-action" onclick="undoStrike('${task.id}')" title="Undo Strike">
-                                    <i class="fas fa-undo"></i>
+                ${sortedTasks.map(task => {
+                    // Calculate progress based on strikes and completion
+                    const maxStrikes = 8; // Maximum strikes before completion
+                    const currentStrikes = task.strike_count || 0;
+                    const progressPercentage = task.completed ? 100 : Math.min((currentStrikes / maxStrikes) * 100, 100);
+                    const progressStep = task.completed ? maxStrikes : Math.min(currentStrikes + 1, maxStrikes);
+                    
+                    return `
+                        <div class="task-card ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${task.strike_count > 1 ? 'restrike' : ''}" data-task-id="${task.id}">
+                            <div class="task-actions">
+                                ${task.struck_today && !task.completed ? `
+                                    <button class="task-action undo-action" onclick="undoStrike('${task.id}')" title="Undo Strike">
+                                        <i class="fas fa-undo"></i>
+                                    </button>
+                                ` : ''}
+                                ${!task.completed ? `
+                                    <button class="task-action strike-btn" onclick="openStrikeModal('${task.id}')" title="Strike Task">
+                                        <i class="fas fa-check"></i>
+                                    </button>
+                                ` : ''}
+                                <button class="task-action" onclick="editTask('${task.id}')" title="Edit">
+                                    <i class="fas fa-edit"></i>
                                 </button>
-                            ` : ''}
-                            ${!task.completed ? `
-                                <button class="task-action strike-btn" onclick="openStrikeModal('${task.id}')" title="Strike Task">
-                                    <i class="fas fa-check"></i>
+                                <button class="task-action" onclick="deleteTask('${task.id}')" title="Delete">
+                                    <i class="fas fa-trash"></i>
                                 </button>
-                            ` : ''}
-                            <button class="task-action" onclick="editTask('${task.id}')" title="Edit">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button class="task-action" onclick="deleteTask('${task.id}')" title="Delete">
-                                <i class="fas fa-trash"></i>
-                            </button>
+                            </div>
+                            
+                            <div class="task-header">
+                                <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">${task.title.toUpperCase()}</h3>
+                                ${task.description ? `<p class="task-description">${task.description}</p>` : ''}
+                                ${task.project ? `<span class="task-project">${task.project}</span>` : ''}
+                            </div>
+                            
+                            <div class="task-progress">
+                                <div class="progress-text">STEP ${progressStep} OF ${maxStrikes}</div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${progressPercentage}%"></div>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                `).join('')}
+                    `;
+                }).join('')}
             </div>
         `;
     } else {
