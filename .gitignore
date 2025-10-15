@@ -1,2 +1,8 @@
 node_modules/
 .env
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+data/*.enc
