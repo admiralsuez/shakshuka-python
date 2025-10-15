@@ -1189,7 +1189,8 @@ async function handleDrop(e) {
         });
         
         if (response.ok) {
-            loadPlannerData(); // Refresh both available and scheduled tasks
+            await loadTasks(); // Reload tasks from server first
+            loadPlannerData(); // Then refresh both available and scheduled tasks
             showNotification('Task scheduled! 📅', 'success');
         } else {
             throw new Error('Failed to schedule task');
@@ -1741,7 +1742,8 @@ async function unscheduleTask(taskId) {
         });
         
         if (response.ok) {
-            loadScheduledTasks();
+            await loadTasks(); // Reload tasks from server first
+            loadPlannerData(); // Then refresh both available and scheduled tasks
             showNotification('Task removed from planner! ↩️', 'success');
             addLog('success', `Task ${taskId} unscheduled`);
         } else {
