@@ -1,0 +1,10 @@
+# Sample Tasks Import File
+# Format: Title | Description | Project | Duration | Due Date
+
+Complete project proposal | Write detailed project proposal for Q1 | Work | 120 | 2024-01-15
+Review code changes | Review pull requests from team | Development | 60 | 2024-01-12
+Update documentation | Update API documentation | Documentation | 90 | 2024-01-20
+Team meeting prep | Prepare agenda for weekly team meeting | Meetings | 30 | 2024-01-10
+Fix bug in login | Resolve authentication issue | Development | 180 | 2024-01-08
+Plan vacation | Research and book vacation destination | Personal | 60 | 2024-02-01
+Clean workspace | Organize desk and files | Personal | 45 | 2024-01-14
