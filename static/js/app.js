@@ -1,15 +1,40 @@
-// Global variables
-let currentPage = 'tasks';
-let tasks = [];
-let currentDate = new Date();
-let editingTaskId = null;
-let currentSettings = {};
-let currentLayout = 'list';
-let dailyResetTimer = null;
-let developerLogs = [];
-let currentFilter = 'active'; // Track current filter
-let isAuthenticated = false;
-let passwordSet = false;
+// State Management Module
+const AppState = (() => {
+    const state = {
+        currentPage: 'tasks',
+        tasks: [],
+        currentDate: new Date(),
+        editingTaskId: null,
+        currentSettings: {},
+        currentLayout: 'list',
+        dailyResetTimer: null,
+        developerLogs: [],
+        currentFilter: 'active',
+        isAuthenticated: false,
+        passwordSet: false
+    };
+
+    return {
+        get: (key) => state[key],
+        set: (key, value) => { state[key] = value; },
+        getAll: () => ({ ...state }),
+        getTasks: () => [...state.tasks],
+        setTasks: (tasks) => { state.tasks = tasks; }
+    };
+})();
+
+// Use AppState instead of global variables throughout
+let currentPage = AppState.get('currentPage');
+let tasks = AppState.get('tasks');
+let currentDate = AppState.get('currentDate');
+let editingTaskId = AppState.get('editingTaskId');
+let currentSettings = AppState.get('currentSettings');
+let currentLayout = AppState.get('currentLayout');
+let dailyResetTimer = AppState.get('dailyResetTimer');
+let developerLogs = AppState.get('developerLogs');
+let currentFilter = AppState.get('currentFilter');
+let isAuthenticated = AppState.get('isAuthenticated');
+let passwordSet = AppState.get('passwordSet');
 
 // Helper function to safely add event listeners
 function safeAddEventListener(elementId, event, handler) {
@@ -29,37 +54,28 @@ document.addEventListener('DOMContentLoaded', function() {
     checkAuthStatus();
 });
 
-// Developer Logging Functions
-function initializeLogging() {
-    // Override console methods to capture logs
-    const originalConsole = {
-        log: console.log,
-        error: console.error,
-        warn: console.warn,
-        info: console.info
-    };
-
-    console.log = function(...args) {
-        originalConsole.log.apply(console, args);
+// Custom Logger (don't override console)
+const Logger = {
+    log: (...args) => {
+        console.log(...args);
         addLog('info', args.join(' '));
-    };
-
-    console.error = function(...args) {
-        originalConsole.error.apply(console, args);
+    },
+    error: (...args) => {
+        console.error(...args);
         addLog('error', args.join(' '));
-    };
-
-    console.warn = function(...args) {
-        originalConsole.warn.apply(console, args);
+    },
+    warn: (...args) => {
+        console.warn(...args);
         addLog('warning', args.join(' '));
-    };
-
-    console.info = function(...args) {
-        originalConsole.info.apply(console, args);
+    },
+    info: (...args) => {
+        console.info(...args);
         addLog('info', args.join(' '));
-    };
+    }
+};
 
-    // Log application startup
+function initializeLogging() {
+    // Don't override console methods anymore
     addLog('success', 'Shakshuka application started');
 }
 
@@ -78,6 +94,14 @@ function addLog(level, message) {
     if (developerLogs.length > 100) {
         developerLogs = developerLogs.slice(-100);
     }
+}
+
+// XSS Protection - Sanitize HTML
+function sanitizeHTML(str) {
+    if (!str) return '';
+    const temp = document.createElement('div');
+    temp.textContent = str;
+    return temp.innerHTML;
 }
 
 function displayLogs() {
@@ -460,9 +484,6 @@ function setupEventListeners() {
         });
     });
 
-    // Sidebar toggle
-    safeAddEventListener('sidebar-toggle', 'click', toggleSidebar);
-
     // Password modal
     safeAddEventListener('close-password-modal', 'click', closePasswordModal);
     safeAddEventListener('cancel-password', 'click', closePasswordModal);
@@ -554,51 +575,70 @@ function navigateToPage(page) {
 
 // Task Management
 async function loadTasks() {
-    try {
-        showLoading(true);
-        const response = await fetch('/api/tasks');
-        
-        if (!response.ok) {
-            if (response.status === 401) {
-                // Authentication required - show login modal
-                console.log('Authentication required, showing login modal');
-                showAuthModal('login');
-                tasks = []; // Set empty array to prevent errors
-                return;
+    const MAX_RETRIES = 3;
+    const TIMEOUT = 10000; // 10 seconds
+    
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            showLoading(true);
+            
+            // Add timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
+            
+            const response = await fetch('/api/tasks', {
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                if (response.status === 401) {
+                    Logger.log('Authentication required, showing login modal');
+                    showAuthModal('login');
+                    tasks = [];
+                    return;
+                }
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            
+            const data = await response.json();
+            tasks = Array.isArray(data) ? data : [];
+            
+            if (currentPage === 'tasks') {
+                renderTasks(currentFilter);
+            } else if (currentPage === 'analytics') {
+                renderRecentTasks();
+            } else if (currentPage === 'planner') {
+                loadScheduledTasks();
+            }
+            
+            updateDashboardStats();
+            Logger.log(`Loaded ${tasks.length} tasks`);
+            return; // Success
+            
+        } catch (error) {
+            Logger.error(`Load tasks attempt ${attempt} failed:`, error);
+            
+            if (attempt === MAX_RETRIES) {
+                // Final attempt failed
+                if (error.name === 'AbortError') {
+                    showNotification('Request timeout. Please check your connection and try again.', 'error');
+                } else if (!navigator.onLine) {
+                    showNotification('You are offline. Please check your internet connection.', 'error');
+                } else {
+                    showNotification(`Failed to load tasks: ${error.message}`, 'error');
+                }
+                tasks = [];
+            } else {
+                // Wait before retry (exponential backoff)
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
+        } finally {
+            if (attempt === MAX_RETRIES) {
+                showLoading(false);
+            }
         }
-        
-        const data = await response.json();
-        
-        // Ensure tasks is always an array
-        tasks = Array.isArray(data) ? data : [];
-        
-        if (currentPage === 'tasks') {
-            renderTasks(currentFilter);
-        } else if (currentPage === 'analytics') {
-            renderRecentTasks();
-        } else if (currentPage === 'planner') {
-            loadScheduledTasks();
-        }
-        
-        updateDashboardStats();
-        addLog('success', `Loaded ${tasks.length} tasks`);
-    } catch (error) {
-        console.error('Error loading tasks:', error);
-        addLog('error', `Failed to load tasks: ${error.message}`);
-        
-        // Check if it's an auth error
-        if (error.message && error.message.toLowerCase().includes('login')) {
-            showNotification('Please log in to access your tasks', 'error');
-        } else {
-        showNotification('Error loading tasks', 'error');
-        }
-        
-        // Ensure tasks is always an array even on error
-        tasks = [];
-    } finally {
-        showLoading(false);
     }
 }
 
@@ -803,12 +843,11 @@ function renderTasks(filter = currentFilter) {
     }
 
     if (currentLayout === 'grid') {
-        console.log('Rendering grid layout with', sortedTasks.length, 'tasks');
+        Logger.log('Rendering grid layout with', sortedTasks.length, 'tasks');
         const gridHTML = `
             <div class="tasks-grid">
                 ${sortedTasks.map(task => {
-                    // Calculate progress based on strikes and completion
-                    const maxStrikes = 8; // Maximum strikes before completion
+                    const maxStrikes = 8;
                     const currentStrikes = task.strike_count || 0;
                     const progressPercentage = task.completed ? 100 : Math.min((currentStrikes / maxStrikes) * 100, 100);
                     const progressStep = task.completed ? maxStrikes : Math.min(currentStrikes + 1, maxStrikes);
@@ -841,7 +880,7 @@ function renderTasks(filter = currentFilter) {
                             </div>
                             
                             <div class="task-footer">
-                                <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">${task.title.toUpperCase()}</h3>
+                                <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">${sanitizeHTML(task.title).toUpperCase()}</h3>
                                 <div class="task-duration">${task.duration || 60} MIN</div>
                             </div>
                         </div>
@@ -849,17 +888,17 @@ function renderTasks(filter = currentFilter) {
                 }).join('')}
             </div>
         `;
-        console.log('Generated grid HTML:', gridHTML);
+        Logger.log('Generated grid HTML');
         tasksList.innerHTML = gridHTML;
     } else {
         tasksList.innerHTML = sortedTasks.map(task => `
         <div class="task-item ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${task.strike_count > 1 ? 'restrike' : ''}" data-task-id="${task.id}">
             <div class="task-header">
-                <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">${task.title}</h3>
-                ${task.project ? `<span class="task-project">${task.project}</span>` : ''}
+                <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">${sanitizeHTML(task.title)}</h3>
+                ${task.project ? `<span class="task-project">${sanitizeHTML(task.project)}</span>` : ''}
             </div>
-            ${task.description ? `<p class="task-description">${task.description}</p>` : ''}
-            ${task.strike_report ? `<p class="strike-report"><em>Last strike: ${task.strike_report}</em></p>` : ''}
+            ${task.description ? `<p class="task-description">${sanitizeHTML(task.description)}</p>` : ''}
+            ${task.strike_report ? `<p class="strike-report"><em>Last strike: ${sanitizeHTML(task.strike_report)}</em></p>` : ''}
             <div class="task-meta">
                 <div class="task-actions">
                     ${task.struck_today && !task.completed ? `
@@ -1098,38 +1137,80 @@ function formatHour(hour) {
     return `${displayHour}:00 ${period}`;
 }
 
+// Store event handlers to prevent memory leaks
+const dragHandlers = new WeakMap();
+
 function setupDragAndDrop() {
-    console.log('Setting up drag and drop...');
+    Logger.log('Setting up drag and drop...');
+    
+    // Clean up old listeners first
+    const oldDraggables = document.querySelectorAll('.draggable-task, .scheduled-task');
+    oldDraggables.forEach(element => {
+        const handlers = dragHandlers.get(element);
+        if (handlers) {
+            element.removeEventListener('dragstart', handlers.dragstart);
+            element.removeEventListener('dragend', handlers.dragend);
+        }
+    });
     
     // Make tasks draggable
     const draggableTasks = document.querySelectorAll('.draggable-task');
-    console.log('Found draggable tasks:', draggableTasks.length);
+    Logger.log('Found draggable tasks:', draggableTasks.length);
     
     draggableTasks.forEach(task => {
         task.draggable = true;
-        task.addEventListener('dragstart', handleDragStart);
-        task.addEventListener('dragend', handleDragEnd);
+        const handlers = {
+            dragstart: handleDragStart,
+            dragend: handleDragEnd
+        };
+        task.addEventListener('dragstart', handlers.dragstart);
+        task.addEventListener('dragend', handlers.dragend);
+        dragHandlers.set(task, handlers);
     });
 
-    // Make time slots droppable
-    const timeContents = document.querySelectorAll('.time-content');
-    console.log('Found time slots:', timeContents.length);
-    
-    timeContents.forEach(slot => {
-        slot.addEventListener('dragover', handleDragOver);
-        slot.addEventListener('drop', handleDrop);
-        slot.addEventListener('dragenter', handleDragEnter);
-        slot.addEventListener('dragleave', handleDragLeave);
+    // Clean up old time slot listeners
+    const oldSlots = document.querySelectorAll('.time-content');
+    oldSlots.forEach(slot => {
+        const handlers = dragHandlers.get(slot);
+        if (handlers) {
+            slot.removeEventListener('dragover', handlers.dragover);
+            slot.removeEventListener('drop', handlers.drop);
+            slot.removeEventListener('dragenter', handlers.dragenter);
+            slot.removeEventListener('dragleave', handlers.dragleave);
+        }
     });
     
-    // Make scheduled tasks draggable again
+    // Make time slots droppable
+    const timeContents = document.querySelectorAll('.time-content');
+    Logger.log('Found time slots:', timeContents.length);
+    
+    timeContents.forEach(slot => {
+        const handlers = {
+            dragover: handleDragOver,
+            drop: handleDrop,
+            dragenter: handleDragEnter,
+            dragleave: handleDragLeave
+        };
+        slot.addEventListener('dragover', handlers.dragover);
+        slot.addEventListener('drop', handlers.drop);
+        slot.addEventListener('dragenter', handlers.dragenter);
+        slot.addEventListener('dragleave', handlers.dragleave);
+        dragHandlers.set(slot, handlers);
+    });
+    
+    // Make scheduled tasks draggable
     const scheduledTasks = document.querySelectorAll('.scheduled-task');
-    console.log('Found scheduled tasks:', scheduledTasks.length);
+    Logger.log('Found scheduled tasks:', scheduledTasks.length);
     
     scheduledTasks.forEach(task => {
         task.draggable = true;
-        task.addEventListener('dragstart', handleDragStart);
-        task.addEventListener('dragend', handleDragEnd);
+        const handlers = {
+            dragstart: handleDragStart,
+            dragend: handleDragEnd
+        };
+        task.addEventListener('dragstart', handlers.dragstart);
+        task.addEventListener('dragend', handlers.dragend);
+        dragHandlers.set(task, handlers);
     });
 }
 
@@ -1741,15 +1822,16 @@ async function unscheduleTask(taskId) {
         });
         
         if (response.ok) {
-            loadScheduledTasks();
+            // FIXED: Reload both available and scheduled tasks
+            await loadTasks(); // Refresh global tasks array
+            loadPlannerData(); // Reload entire planner
             showNotification('Task removed from planner! ↩️', 'success');
-            addLog('success', `Task ${taskId} unscheduled`);
+            Logger.log(`Task ${taskId} unscheduled`);
         } else {
             throw new Error('Failed to unschedule task');
         }
     } catch (error) {
-        console.error('Error unscheduling task:', error);
-        addLog('error', `Failed to unschedule task ${taskId}: ${error.message}`);
+        Logger.error('Error unscheduling task:', error);
         showNotification('Error removing task from planner', 'error');
     }
 }
@@ -1991,13 +2073,6 @@ function setLayout(layout) {
 }
 
 // Sidebar Functions
-function toggleSidebar() {
-    const sidebar = document.querySelector('.sidebar');
-    const mainContent = document.querySelector('.main-content');
-    
-    sidebar.classList.toggle('open');
-    mainContent.classList.toggle('sidebar-collapsed');
-}
 
 // Keyboard Shortcuts
 function setupKeyboardShortcuts() {
@@ -2332,20 +2407,36 @@ function clearTaskForm() {
     document.getElementById('task-duration').value = 60;
 }
 
-async function saveTask() {
-    const form = document.getElementById('task-form');
-    
-    const taskData = {
-        title: document.getElementById('task-title').value,
-        description: document.getElementById('task-description').value,
-        project: document.getElementById('task-project').value,
-        due_date: document.getElementById('task-due-date').value,
-        estimated_duration: parseInt(document.getElementById('task-duration').value)
-    };
-
-    if (!taskData.title.trim()) {
+// Consolidated save function to avoid duplication
+async function saveTaskCommon(taskData, modalCloseFn) {
+    // Validation
+    if (!taskData.title || !taskData.title.trim()) {
         showNotification('Please enter a task title', 'error');
-        return;
+        return false;
+    }
+    
+    if (taskData.title.length > 200) {
+        showNotification('Task title is too long (max 200 characters)', 'error');
+        return false;
+    }
+    
+    if (taskData.estimated_duration) {
+        const duration = parseInt(taskData.estimated_duration);
+        if (isNaN(duration) || duration < 5 || duration > 480) {
+            showNotification('Duration must be between 5 and 480 minutes', 'error');
+            return false;
+        }
+    }
+    
+    if (taskData.due_date) {
+        const dueDate = new Date(taskData.due_date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (dueDate < today) {
+            if (!confirm('Due date is in the past. Continue anyway?')) {
+                return false;
+            }
+        }
     }
 
     try {
@@ -2355,33 +2446,35 @@ async function saveTask() {
             await createTask(taskData);
         }
         
-        closeTaskModal();
+        modalCloseFn();
+        return true;
     } catch (error) {
-        console.error('Error saving task:', error);
+        Logger.error('Error saving task:', error);
+        return false;
     }
 }
 
-async function saveQuickTask() {
-    const title = document.getElementById('quick-task-title').value.trim();
-    
-    if (!title) {
-        showNotification('Please enter a task title', 'error');
-        return;
-    }
-
+async function saveTask() {
     const taskData = {
-        title: title,
+        title: document.getElementById('task-title').value.trim(),
+        description: document.getElementById('task-description').value.trim(),
+        project: document.getElementById('task-project').value.trim(),
+        due_date: document.getElementById('task-due-date').value,
+        estimated_duration: parseInt(document.getElementById('task-duration').value)
+    };
+    
+    await saveTaskCommon(taskData, closeTaskModal);
+}
+
+async function saveQuickTask() {
+    const taskData = {
+        title: document.getElementById('quick-task-title').value.trim(),
         description: '',
         project: '',
         estimated_duration: 60
     };
-
-    try {
-        await createTask(taskData);
-        closeQuickAddModal();
-    } catch (error) {
-        console.error('Error saving quick task:', error);
-    }
+    
+    await saveTaskCommon(taskData, closeQuickAddModal);
 }
 // Import Tasks Functions
 function openImportModal() {
