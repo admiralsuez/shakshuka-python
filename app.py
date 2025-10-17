@@ -12,6 +12,7 @@ import csv
 import io
 import hashlib
 import hmac
+import html
 import re
 import secrets
 from werkzeug.utils import secure_filename
@@ -40,6 +41,7 @@ class AppContext:
         self._auto_save_enabled = True
         self._auto_save_thread = None
         self._session_secrets = {}
+        self._csrf_tokens = {}  # Store CSRF tokens with expiration
 
     @property
     def data_manager(self):
@@ -96,15 +98,33 @@ class AppContext:
         return self._session_secrets.get(user_id) == secret
 
     def generate_csrf_token(self):
-        """Generate CSRF token for forms"""
+        """Generate CSRF token for forms with expiration"""
         token = secrets.token_urlsafe(32)
+        # Store token with 1 hour expiration
+        self._csrf_tokens[token] = {
+            'created': time.time(),
+            'expires': time.time() + 3600  # 1 hour
+        }
         return token
 
     def validate_csrf_token(self, token):
-        """Validate CSRF token (basic validation - in production use proper timing-safe comparison)"""
-        # For this implementation, we'll just check if token exists and is not empty
-        # In production, implement proper CSRF token validation with proper storage
-        return token and len(token) > 10
+        """Validate CSRF token with proper expiration check"""
+        if not token or len(token) < 10:
+            return False
+        
+        if token not in self._csrf_tokens:
+            return False
+            
+        token_data = self._csrf_tokens[token]
+        current_time = time.time()
+        
+        # Check if token has expired
+        if current_time > token_data['expires']:
+            # Remove expired token
+            del self._csrf_tokens[token]
+            return False
+            
+        return True
 
     def hash_password(self, password):
         """Hash password using bcrypt if available, otherwise PBKDF2"""
@@ -150,25 +170,27 @@ CORS(app, supports_credentials=True)
 def log_request_info():
     """Log incoming requests for debugging and monitoring"""
     try:
-        # Log request details
-        print(f"Request: {request.method} {request.url}")
-        print(f"Client IP: {request.remote_addr}")
-        print(f"User Agent: {request.headers.get('User-Agent', 'Unknown')}")
+        # Only log in debug mode to avoid performance impact
+        if app.debug:
+            print(f"Request: {request.method} {request.url}")
+            print(f"Client IP: {request.remote_addr}")
+            print(f"User Agent: {request.headers.get('User-Agent', 'Unknown')}")
 
-        # Log request body for debugging (be careful with sensitive data)
-        if request.method in ['POST', 'PUT'] and request.content_type and 'application/json' in request.content_type:
-            try:
-                # Only log if request is small and not authentication-related
-                if request.content_length and request.content_length < 1000:
-                    body = request.get_json(silent=True)
-                    if body and 'password' not in str(body).lower():
-                        print(f"Request body: {body}")
-            except:
-                pass  # Ignore JSON parsing errors for logging
+            # Log request body for debugging (be careful with sensitive data)
+            if request.method in ['POST', 'PUT'] and request.content_type and 'application/json' in request.content_type:
+                try:
+                    # Only log if request is small and not authentication-related
+                    if request.content_length and request.content_length < 1000:
+                        body = request.get_json(silent=True)
+                        if body and 'password' not in str(body).lower():
+                            print(f"Request body: {body}")
+                except:
+                    pass  # Ignore JSON parsing errors for logging
 
-        print("---")
+            print("---")
     except Exception as e:
-        print(f"Error in request logging: {e}")
+        if app.debug:
+            print(f"Error in request logging: {e}")
 
 @app.after_request
 def log_response_info(response):
@@ -710,6 +732,7 @@ def parse_txt_tasks(content):
 @app.route('/api/tasks', methods=['POST'])
 @require_auth
 @require_csrf
+@rate_limit
 def create_task():
     """Create a new task"""
     task_data = request.json
