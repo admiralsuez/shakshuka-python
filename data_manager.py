@@ -1,11 +1,16 @@
 import os
 import json
 import sys
+import tempfile
+import shutil
+import threading
 from datetime import datetime, timedelta
 import logging
+from typing import List, Dict, Any, Optional
+import uuid
 
 class SimpleDataManager:
-    """Simple data manager without encryption for password-free operation"""
+    """Thread-safe data manager with atomic writes, validation, and user-specific data"""
     def __init__(self, data_dir="data"):
         # Handle PyInstaller bundle path
         if getattr(sys, 'frozen', False):
@@ -16,12 +21,21 @@ class SimpleDataManager:
             base_path = os.path.dirname(os.path.abspath(__file__))
         
         self.data_dir = os.path.join(base_path, data_dir)
-        self.tasks_file = os.path.join(self.data_dir, "tasks.json")
-        self.settings_file = os.path.join(self.data_dir, "settings.json")
+        self.users_dir = os.path.join(self.data_dir, "users")
+        
+        # Thread safety
+        self._lock = threading.RLock()
+        self._write_lock = threading.Lock()
+        
+        # Caching per user
+        self._user_caches = {}
+        self._cache_ttl = 60  # seconds
+        self._dirty_flags = {}
         
         # Create data directory if it doesn't exist
         try:
             os.makedirs(self.data_dir, exist_ok=True)
+            os.makedirs(self.users_dir, exist_ok=True)
             print(f"Data directory ensured: {os.path.abspath(self.data_dir)}")
         except Exception as e:
             raise Exception(f"Failed to create data directory '{self.data_dir}': {e}")
@@ -30,259 +44,332 @@ class SimpleDataManager:
         self._setup_logging()
     
     def _setup_logging(self):
-        """Setup logging"""
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
+        """Setup logging for the data manager"""
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
     
-    def save_tasks(self, tasks):
-        """Save tasks to JSON file"""
+    def _get_default_user_id(self) -> str:
+        """Get the first available user ID for system operations"""
         try:
-            with open(self.tasks_file, 'w') as f:
-                json.dump(tasks, f, indent=2, default=str)
-            self.logger.info("Tasks saved successfully")
-            return True
+            users_file = os.path.join(self.data_dir, "users.json")
+            if os.path.exists(users_file):
+                with open(users_file, 'r') as f:
+                    users = json.load(f)
+                    if users:
+                        # Return the first user ID
+                        return list(users.keys())[0]
+            return "default"
         except Exception as e:
-            self.logger.error(f"Error saving tasks: {e}")
+            self.logger.error(f"Error getting default user ID: {e}")
+            return "default"
+    
+    def _get_user_files(self, user_id: str) -> Dict[str, str]:
+        """Get file paths for a specific user"""
+        user_dir = os.path.join(self.users_dir, user_id)
+        os.makedirs(user_dir, exist_ok=True)
+        
+        return {
+            'tasks': os.path.join(user_dir, "tasks.json"),
+            'settings': os.path.join(user_dir, "settings.json"),
+            'user_dir': user_dir
+        }
+    
+    def _get_user_cache(self, user_id: str) -> Dict[str, Any]:
+        """Get or create cache for a specific user"""
+        if user_id not in self._user_caches:
+            self._user_caches[user_id] = {
+                'tasks': None,
+                'settings': None,
+                'cache_expiry': None,
+                'dirty': False
+            }
+        return self._user_caches[user_id]
+    
+    def _mark_user_dirty(self, user_id: str):
+        """Mark user data as needing save"""
+        with self._lock:
+            cache = self._get_user_cache(user_id)
+            cache['dirty'] = True
+    
+    def _is_user_dirty(self, user_id: str) -> bool:
+        """Check if user data needs saving"""
+        with self._lock:
+            cache = self._get_user_cache(user_id)
+            return cache['dirty']
+    
+    def _clear_user_dirty(self, user_id: str):
+        """Clear dirty flag for user"""
+        with self._lock:
+            cache = self._get_user_cache(user_id)
+            cache['dirty'] = False
+    
+    def _validate_task(self, task: Dict[str, Any]) -> bool:
+        """Validate a single task"""
+        required_fields = ['id', 'title']
+        for field in required_fields:
+            if field not in task:
+                self.logger.error(f"Task missing required field: {field}")
+                return False
+        
+        # Validate title
+        if not isinstance(task['title'], str) or len(task['title']) > 200:
+            self.logger.error(f"Invalid title: {task['title']}")
             return False
     
-    def load_tasks(self):
-        """Load tasks from JSON file"""
+        # Validate ID
+        if not isinstance(task['id'], str) or len(task['id']) == 0:
+            self.logger.error(f"Invalid task ID: {task['id']}")
+            return False
+    
+        # Validate completion status
+        if 'completed' in task and not isinstance(task['completed'], bool):
+            self.logger.error(f"Invalid completion status: {task['completed']}")
+            return False
+        
+        return True
+
+    def _validate_tasks(self, tasks: List[Dict[str, Any]]) -> bool:
+        """Validate all tasks"""
+        if not isinstance(tasks, list):
+            self.logger.error("Tasks must be a list")
+            return False
+        
+        # Check for duplicate IDs
+        task_ids = set()
+        for task in tasks:
+            if not self._validate_task(task):
+                return False
+            
+            if task['id'] in task_ids:
+                self.logger.error(f"Duplicate task ID: {task['id']}")
+                return False
+            task_ids.add(task['id'])
+        
+        return True
+    
+    def _atomic_save(self, data: Any, file_path: str) -> bool:
+        """Atomically save data to file"""
         try:
-            if os.path.exists(self.tasks_file):
-                with open(self.tasks_file, 'r') as f:
-                    return json.load(f)
+            # Write to temporary file first
+            temp_fd, temp_path = tempfile.mkstemp(dir=self.data_dir, suffix='.tmp')
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    json.dump(data, f, indent=2, default=str)
+                
+                # Create backup of current file
+                if os.path.exists(file_path):
+                    backup_path = f"{file_path}.bak"
+                    shutil.copy2(file_path, backup_path)
+                
+                # Atomic rename
+                shutil.move(temp_path, file_path)
+                
+                self.logger.info(f"Data saved successfully to {file_path}")
+                return True
+            except Exception as e:
+                # Clean up temp file on error
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                raise
+        except Exception as e:
+            self.logger.error(f"Error saving data to {file_path}: {e}")
+            return False
+    
+    def mark_dirty(self):
+        """Mark data as needing save"""
+        with self._lock:
+            self._dirty = True
+    
+    def save_if_dirty(self) -> bool:
+        """Only save if data has changed"""
+        with self._lock:
+            if not self._dirty:
+                return True
+            
+            if self._task_cache is not None:
+                success = self.save_tasks(self._task_cache)
+                if success:
+                    self._dirty = False
+                return success
+            return True
+    
+    def save_tasks_for_user(self, user_id: str, tasks):
+        """Save tasks for a specific user to JSON file with validation and atomic writes"""
+        with self._write_lock:
+            # Validate data first
+            if not self._validate_tasks(tasks):
+                self.logger.error(f"Task validation failed for user {user_id}")
+                return False
+            
+            # Get user-specific file path
+            user_files = self._get_user_files(user_id)
+            tasks_file = user_files['tasks']
+            
+            # Use atomic save
+            success = self._atomic_save(tasks, tasks_file)
+            if success:
+                # Update cache
+                with self._lock:
+                    cache = self._get_user_cache(user_id)
+                    cache['tasks'] = tasks.copy()
+                    cache['cache_expiry'] = datetime.now() + timedelta(seconds=self._cache_ttl)
+                    cache['dirty'] = False
+            
+            return success
+    
+    def load_tasks_for_user(self, user_id: str, use_cache=True):
+        """Load tasks for a specific user from JSON file with caching"""
+        with self._lock:
+            now = datetime.now()
+            cache = self._get_user_cache(user_id)
+            
+            # Check cache
+            if use_cache and cache['tasks'] and cache['cache_expiry']:
+                if now < cache['cache_expiry']:
+                    return cache['tasks'].copy()
+            
+            # Load from disk
+            tasks = self._load_from_file(user_id)
+            
+            # Update cache
+            cache['tasks'] = tasks.copy()
+            cache['cache_expiry'] = now + timedelta(seconds=self._cache_ttl)
+            
+            return tasks
+    
+    def _load_from_file(self, user_id: str):
+        """Load tasks from file for a specific user without caching"""
+        try:
+            user_files = self._get_user_files(user_id)
+            tasks_file = user_files['tasks']
+            
+            if os.path.exists(tasks_file):
+                with open(tasks_file, 'r') as f:
+                    tasks = json.load(f)
+                self.logger.info(f"Loaded {len(tasks)} tasks for user {user_id}")
+                return tasks
+            else:
+                self.logger.info(f"Tasks file not found for user {user_id}, returning empty list")
+                return []
+        except json.JSONDecodeError as e:
+            self.logger.error(f"JSON decode error for user {user_id}: {e}")
+            # Try to restore from backup
+            user_files = self._get_user_files(user_id)
+            backup_file = f"{user_files['tasks']}.bak"
+            if os.path.exists(backup_file):
+                self.logger.info(f"Attempting to restore from backup for user {user_id}")
+                try:
+                    with open(backup_file, 'r') as f:
+                        tasks = json.load(f)
+                    self.logger.info(f"Successfully restored from backup for user {user_id}")
+                    return tasks
+                except Exception as backup_error:
+                    self.logger.error(f"Backup restore failed for user {user_id}: {backup_error}")
             return []
         except Exception as e:
-            self.logger.error(f"Error loading tasks: {e}")
+            self.logger.error(f"Error loading tasks for user {user_id}: {e}")
             return []
     
-    def save_settings(self, settings):
-        """Save settings to JSON file"""
+    def save_settings_for_user(self, user_id: str, settings):
+        """Save settings for a specific user to JSON file"""
         try:
-            with open(self.settings_file, 'w') as f:
+            user_files = self._get_user_files(user_id)
+            settings_file = user_files['settings']
+            
+            with open(settings_file, 'w') as f:
                 json.dump(settings, f, indent=2, default=str)
-            self.logger.info("Settings saved successfully")
+            
+            # Update cache
+            with self._lock:
+                cache = self._get_user_cache(user_id)
+                cache['settings'] = settings.copy()
+            
+            self.logger.info(f"Settings saved successfully for user {user_id}")
             return True
         except Exception as e:
-            self.logger.error(f"Error saving settings: {e}")
+            self.logger.error(f"Error saving settings for user {user_id}: {e}")
             return False
     
-    def load_settings(self):
-        """Load settings from JSON file"""
+    def load_settings_for_user(self, user_id: str):
+        """Load settings for a specific user from JSON file"""
         try:
-            if os.path.exists(self.settings_file):
-                with open(self.settings_file, 'r') as f:
-                    return json.load(f)
-            return {}
+            user_files = self._get_user_files(user_id)
+            settings_file = user_files['settings']
+            
+            if os.path.exists(settings_file):
+                with open(settings_file, 'r') as f:
+                    settings = json.load(f)
+                
+                # Update cache
+                with self._lock:
+                    cache = self._get_user_cache(user_id)
+                    cache['settings'] = settings.copy()
+                
+                return settings
+            else:
+                # Return default settings for new user
+                default_settings = {
+                    'theme': 'orange',
+                    'dpi_scale': 100,
+                    'autosave_interval': 30,
+                    'notifications': True
+                }
+                
+                # Save default settings
+                self.save_settings(user_id, default_settings)
+                return default_settings
         except Exception as e:
-            self.logger.error(f"Error loading settings: {e}")
-            return {}
+            self.logger.error(f"Error loading settings for user {user_id}: {e}")
+            return {
+                'theme': 'orange',
+                'dpi_scale': 100,
+                'autosave_interval': 30,
+                'notifications': True
+            }
     
     def change_password(self, new_password):
         """Password change not needed in simple mode"""
         return True
+    
+    # Backward compatibility methods for system operations
+    def load_settings(self, user_id: str = None):
+        """Load settings with optional user_id (uses default user if not provided)"""
+        if user_id is None:
+            user_id = self._get_default_user_id()
+        return self.load_settings_for_user(user_id)
+    
+    def save_settings(self, *args):
+        """Save settings with flexible parameter handling"""
+        if len(args) == 1:
+            # Called with one argument: save_settings(settings)
+            settings = args[0]
+            user_id = self._get_default_user_id()
+        elif len(args) == 2:
+            # Called with two arguments: save_settings(user_id, settings)
+            user_id, settings = args
+        else:
+            raise TypeError("save_settings() takes 1 or 2 arguments")
+        
+        return self.save_settings_for_user(user_id, settings)
+    
+    def load_tasks(self, user_id: str = None):
+        """Load tasks with optional user_id (uses default user if not provided)"""
+        if user_id is None:
+            user_id = self._get_default_user_id()
+        return self.load_tasks_for_user(user_id)
+    
+    def save_tasks(self, tasks, user_id: str = None):
+        """Save tasks with optional user_id (uses default user if not provided)"""
+        if user_id is None:
+            user_id = self._get_default_user_id()
+        return self.save_tasks_for_user(user_id, tasks)
 
 # Keep the old EncryptedDataManager for backward compatibility
-import base64
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+# Removed unused encryption imports - were only used by EncryptedDataManager
 
-class EncryptedDataManager:
-    def __init__(self, data_dir="data", password=None):
-        self.data_dir = data_dir
-        self.key_file = os.path.join(data_dir, ".key")
-        self.salt_file = os.path.join(data_dir, ".salt")
-        self.tasks_file = os.path.join(data_dir, "tasks.enc")
-        self.settings_file = os.path.join(data_dir, "settings.enc")
-        
-        if password is None:
-            raise ValueError("Password is required for data encryption. Please set a password.")
-        
-        self.password = password
-        
-        # Create data directory if it doesn't exist
-        try:
-            os.makedirs(data_dir, exist_ok=True)
-            print(f"Data directory ensured: {os.path.abspath(data_dir)}")
-        except Exception as e:
-            raise Exception(f"Failed to create data directory '{data_dir}': {e}")
-        
-        # Initialize encryption key
-        try:
-            self.cipher = self._get_or_create_cipher()
-            print("Encryption cipher initialized successfully")
-        except Exception as e:
-            raise Exception(f"Failed to initialize encryption: {e}")
-        
-        # Setup logging
-        self._setup_logging()
-    
-    def is_first_run(self):
-        """Check if this is the first run (no existing encrypted files)"""
-        return not (os.path.exists(self.key_file) and os.path.exists(self.salt_file))
-    
-    def _setup_logging(self):
-        """Setup logging"""
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-    
-    def _get_or_create_cipher(self):
-        """Get existing encryption key or create a new one"""
-        if os.path.exists(self.key_file) and os.path.exists(self.salt_file):
-            # Load existing key and salt, then validate password
-            try:
-                with open(self.salt_file, 'rb') as f:
-                    salt = f.read()
-                
-                # Generate key from provided password and stored salt
-                password_bytes = self.password.encode('utf-8')
-                kdf = PBKDF2HMAC(
-                    algorithm=hashes.SHA256(),
-                    length=32,
-                    salt=salt,
-                    iterations=100000,
-                )
-                key = base64.urlsafe_b64encode(kdf.derive(password_bytes))
-                
-                # Verify the generated key matches the stored key
-                with open(self.key_file, 'rb') as f:
-                    stored_key = f.read()
-                
-                if key != stored_key:
-                    raise Exception("Invalid password - key mismatch")
-                
-                print("Password validated successfully")
-            except Exception as e:
-                if "Invalid password" in str(e):
-                    raise e
-                raise Exception(f"Failed to validate password: {e}")
-        else:
-            # Generate a new key with user password
-            try:
-                password_bytes = self.password.encode('utf-8')
-                salt = os.urandom(16)
-                kdf = PBKDF2HMAC(
-                    algorithm=hashes.SHA256(),
-                    length=32,
-                    salt=salt,
-                    iterations=100000,
-                )
-                key = base64.urlsafe_b64encode(kdf.derive(password_bytes))
-                
-                # Save key and salt
-                with open(self.key_file, 'wb') as f:
-                    f.write(key)
-                with open(self.salt_file, 'wb') as f:
-                    f.write(salt)
-                print("Generated and saved new encryption key and salt")
-            except Exception as e:
-                raise Exception(f"Failed to generate and save encryption key: {e}")
-        
-        try:
-            return Fernet(key)
-        except Exception as e:
-            raise Exception(f"Failed to create Fernet cipher: {e}")
-    
-    def _encrypt_data(self, data):
-        """Encrypt data before storing"""
-        json_data = json.dumps(data, default=str)
-        encrypted_data = self.cipher.encrypt(json_data.encode())
-        return encrypted_data
-    
-    def _decrypt_data(self, encrypted_data):
-        """Decrypt data after reading"""
-        try:
-            decrypted_data = self.cipher.decrypt(encrypted_data)
-            return json.loads(decrypted_data.decode())
-        except Exception as e:
-            self.logger.error(f"Decryption error: {e}")
-            return None
-    
-    def save_tasks(self, tasks):
-        """Save tasks to encrypted file"""
-        try:
-            encrypted_data = self._encrypt_data(tasks)
-            with open(self.tasks_file, 'wb') as f:
-                f.write(encrypted_data)
-            self.logger.info("Tasks saved successfully")
-            return True
-        except Exception as e:
-            self.logger.error(f"Error saving tasks: {e}")
-            return False
-    
-    def load_tasks(self):
-        """Load tasks from encrypted file"""
-        try:
-            if os.path.exists(self.tasks_file):
-                with open(self.tasks_file, 'rb') as f:
-                    encrypted_data = f.read()
-                return self._decrypt_data(encrypted_data) or []
-            return []
-        except Exception as e:
-            self.logger.error(f"Error loading tasks: {e}")
-            return []
-    
-    def save_settings(self, settings):
-        """Save settings to encrypted file"""
-        try:
-            encrypted_data = self._encrypt_data(settings)
-            with open(self.settings_file, 'wb') as f:
-                f.write(encrypted_data)
-            self.logger.info("Settings saved successfully")
-            return True
-        except Exception as e:
-            self.logger.error(f"Error saving settings: {e}")
-            return False
-    
-    def load_settings(self):
-        """Load settings from encrypted file"""
-        try:
-            if os.path.exists(self.settings_file):
-                with open(self.settings_file, 'rb') as f:
-                    encrypted_data = f.read()
-                return self._decrypt_data(encrypted_data) or {}
-            return {"autostart": False, "autosave_interval": 30, "theme": "orange", "dpi_scale": 100, "daily_reset_time": "09:00"}
-        except Exception as e:
-            self.logger.error(f"Error loading settings: {e}")
-            return {"autostart": False, "autosave_interval": 30, "theme": "orange", "dpi_scale": 100, "daily_reset_time": "09:00"}
-    
-    def change_password(self, new_password):
-        """Change the encryption password"""
-        try:
-            # Load existing data
-            tasks = self.load_tasks()
-            settings = self.load_settings()
-            
-            # Update password
-            self.password = new_password
-            
-            # Generate new key with new password
-            password_bytes = self.password.encode('utf-8')
-            salt = os.urandom(16)
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                iterations=100000,
-            )
-            key = base64.urlsafe_b64encode(kdf.derive(password_bytes))
-            
-            # Save new key and salt
-            with open(self.key_file, 'wb') as f:
-                f.write(key)
-            with open(self.salt_file, 'wb') as f:
-                f.write(salt)
-            
-            # Re-encrypt data with new key
-            self.cipher = Fernet(key)
-            
-            # Save data with new encryption
-            self.save_tasks(tasks)
-            self.save_settings(settings)
-            
-            self.logger.info("Password changed successfully")
-            return True
-        except Exception as e:
-            self.logger.error(f"Error changing password: {e}")
-            return False
+# EncryptedDataManager class removed - was unused dead code (199 lines)

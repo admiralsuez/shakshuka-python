@@ -1,0 +1,8 @@
+{
+  "theme": "orange",
+  "dpi_scale": 100,
+  "autosave_interval": 30,
+  "notifications": true,
+  "autostart": true,
+  "intensity": "10"
+}

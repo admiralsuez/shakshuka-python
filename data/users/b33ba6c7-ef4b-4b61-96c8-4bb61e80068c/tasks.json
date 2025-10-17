@@ -1,0 +1,37 @@
+[
+  {
+    "id": "dab2f4e9-4b96-48a8-b46e-44d314da00de",
+    "title": "test 3",
+    "description": "",
+    "completed": false,
+    "created_at": "2025-10-18T00:59:02.283748",
+    "due_date": "",
+    "project": "test",
+    "scheduled_hour": "undefined:undefined",
+    "estimated_duration": 60,
+    "struck_today": true,
+    "struck_date": "2025-10-18",
+    "scheduled_date": "2025-10-17",
+    "duration": 60,
+    "daily_strikes": {
+      "2025-10-18": 1
+    },
+    "strike_report": "nothing much",
+    "strike_count": 1
+  },
+  {
+    "id": "325035b6-d4a9-45d9-ad3c-c69c6b810836",
+    "title": "kuhkj",
+    "description": "",
+    "completed": false,
+    "created_at": "2025-10-18T02:10:00.828063",
+    "due_date": "",
+    "project": "",
+    "scheduled_hour": "undefined:undefined",
+    "estimated_duration": 60,
+    "struck_today": false,
+    "struck_date": null,
+    "scheduled_date": "2025-10-17",
+    "duration": 60
+  }
+]

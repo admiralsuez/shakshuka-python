@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 from flask_cors import CORS
 import threading
 import time
@@ -20,6 +20,7 @@ from data_manager import SimpleDataManager
 from autostart import WindowsAutostart
 from update_manager import UpdateManager
 from security_manager import security_manager
+from user_manager import user_manager
 
 # Try to import bcrypt for proper password hashing
 try:
@@ -126,25 +127,7 @@ class AppContext:
             
         return True
 
-    def hash_password(self, password):
-        """Hash password using bcrypt if available, otherwise PBKDF2"""
-        if BCRYPT_AVAILABLE:
-            return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-        else:
-            # Fallback to PBKDF2
-            salt = os.urandom(32)
-            key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
-            return salt + key
-
-    def verify_password(self, password, hashed):
-        """Verify password against hash"""
-        if BCRYPT_AVAILABLE:
-            return bcrypt.checkpw(password.encode('utf-8'), hashed)
-        else:
-            # Fallback PBKDF2 verification
-            salt = hashed[:32]
-            key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
-            return hashed[32:] == key
+    # Password hashing functions removed - were unused dead code
 
 # Initialize application context
 app_context = AppContext()
@@ -165,42 +148,30 @@ else:
 
 CORS(app, supports_credentials=True)
 
-# Request logging middleware
+# Configure Content Security Policy to allow data: URIs for images (needed for Font Awesome icons)
+@app.after_request
+def after_request(response):
+    response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com"
+    return response
+
+# Configure session
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = os.path.join(app_dir, 'sessions')
+app.config['SESSION_PERMANENT'] = True
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
+
+# Request logging middleware - simplified for now
 @app.before_request
 def log_request_info():
     """Log incoming requests for debugging and monitoring"""
-    try:
-        # Only log in debug mode to avoid performance impact
-        if app.debug:
-            print(f"Request: {request.method} {request.url}")
-            print(f"Client IP: {request.remote_addr}")
-            print(f"User Agent: {request.headers.get('User-Agent', 'Unknown')}")
-
-            # Log request body for debugging (be careful with sensitive data)
-            if request.method in ['POST', 'PUT'] and request.content_type and 'application/json' in request.content_type:
-                try:
-                    # Only log if request is small and not authentication-related
-                    if request.content_length and request.content_length < 1000:
-                        body = request.get_json(silent=True)
-                        if body and 'password' not in str(body).lower():
-                            print(f"Request body: {body}")
-                except:
-                    pass  # Ignore JSON parsing errors for logging
-
-            print("---")
-    except Exception as e:
-        if app.debug:
-            print(f"Error in request logging: {e}")
+    if app.debug:
+        print(f"Request: {request.method} {request.url}")
 
 @app.after_request
 def log_response_info(response):
     """Log response details"""
-    try:
-        print(f"Response: {response.status_code} - {len(response.get_data())} bytes")
-        print("---")
-    except Exception as e:
-        print(f"Error in response logging: {e}")
-
+    if app.debug:
+        print(f"Response: {response.status_code}")
     return response
 
 # Health check endpoints
@@ -261,60 +232,23 @@ def detailed_health_check():
             'timestamp': datetime.now().isoformat()
         }), 500
 
-def validate_input(data, schema):
-    """Validate input data against a schema"""
-    errors = []
-
-    for field, rules in schema.items():
-        value = data.get(field)
-
-        # Required field check
-        if rules.get('required') and (value is None or value == ''):
-            errors.append(f"Field '{field}' is required")
-            continue
-
-        # Skip further validation if field is not required and empty
-        if value is None or value == '':
-            continue
-
-        # Type validation
-        expected_type = rules.get('type')
-        if expected_type:
-            if expected_type == 'string' and not isinstance(value, str):
-                errors.append(f"Field '{field}' must be a string")
-            elif expected_type == 'int' and not isinstance(value, int):
-                errors.append(f"Field '{field}' must be an integer")
-            elif expected_type == 'bool' and not isinstance(value, bool):
-                errors.append(f"Field '{field}' must be a boolean")
-
-        # Length validation
-        min_length = rules.get('min_length')
-        max_length = rules.get('max_length')
-        if min_length and len(str(value)) < min_length:
-            errors.append(f"Field '{field}' must be at least {min_length} characters")
-        if max_length and len(str(value)) > max_length:
-            errors.append(f"Field '{field}' must be at most {max_length} characters")
-
-        # Pattern validation
-        pattern = rules.get('pattern')
-        if pattern and not re.match(pattern, str(value)):
-            errors.append(f"Field '{field}' format is invalid")
-
-    return errors
+# validate_input function removed - was unused dead code (40 lines)
 
 def require_auth(f):
     """Decorator to require authentication"""
     def decorated_function(*args, **kwargs):
-        if not session.get('authenticated'):
+        session_id = session.get('session_id')
+        if not session_id:
             return jsonify({'error': 'Authentication required'}), 401
 
-        # Validate session secret for additional security
-        user_id = session.get('user_id')
-        session_secret = session.get('session_secret')
-        if user_id and session_secret:
-            if not app_context.validate_session_secret(user_id, session_secret):
-                return jsonify({'error': 'Invalid session'}), 401
-
+        # Validate session
+        user_data = user_manager.validate_session(session_id)
+        if not user_data:
+            session.clear()
+            return jsonify({'error': 'Session expired'}), 401
+        
+        # Add user data to request context
+        request.user = user_data
         return f(*args, **kwargs)
     decorated_function.__name__ = f.__name__
     return decorated_function
@@ -486,27 +420,282 @@ def start_scheduler():
 @app.route('/')
 def index():
     """Serve the main application page"""
-    # Auto-authenticate user (no password required)
-    session['authenticated'] = True
-    session['user_id'] = str(uuid.uuid4())
-    session['session_secret'] = app_context.generate_session_secret(session['user_id'])
+    # Check if user is already authenticated
+    if not session.get('authenticated'):
+        return redirect(url_for('login'))
+    
     return render_template('index.html')
 
-# Password authentication removed - auto-authenticate all users
+# Authentication routes
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page with proper authentication"""
+    if request.method == 'POST':
+        data = request.json
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        
+        # Authenticate user
+        auth_result = user_manager.authenticate_user(username, password)
+        
+        if auth_result['success']:
+            # Set session data
+            session['authenticated'] = True
+            session['user_id'] = auth_result['user']['id']
+            session['username'] = auth_result['user']['username']
+            session['session_id'] = auth_result['session_id']
+            
+            return jsonify({
+                'success': True, 
+                'message': 'Login successful',
+                'user': auth_result['user']
+            })
+        else:
+            return jsonify({'error': auth_result['error']}), 401
+    
+    # Return login form HTML for GET requests
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Shakshuka Login</title>
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 400px; margin: 100px auto; padding: 20px; background: #f5f5f5; }
+            .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .form-group { margin-bottom: 15px; }
+            label { display: block; margin-bottom: 5px; font-weight: bold; }
+            input[type="text"], input[type="password"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+            button { background: #FF8C42; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; margin-bottom: 10px; }
+            button:hover { background: #e67e22; }
+            .error { color: red; margin-top: 10px; text-align: center; }
+            .info { background: #e8f4fd; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #2196F3; }
+            .signup-link { text-align: center; margin-top: 20px; }
+            .signup-link a { color: #FF8C42; text-decoration: none; }
+            .signup-link a:hover { text-decoration: underline; }
+            .form-toggle { text-align: center; margin-bottom: 20px; }
+            .form-toggle button { background: none; color: #FF8C42; border: none; cursor: pointer; text-decoration: underline; width: auto; padding: 5px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2 style="text-align: center; color: #333;">Shakshuka Login</h2>
+            
+            <div class="info">
+                <strong>Welcome to Shakshuka!</strong><br>
+                Secure task management application. Login or create a new account.
+            </div>
+            
+            <div class="form-toggle">
+                <button onclick="toggleForm()" id="toggleBtn">Don't have an account? Sign up</button>
+            </div>
+            
+            <!-- Login Form -->
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="login-username">Username:</label>
+                    <input type="text" id="login-username" name="username" required placeholder="Enter your username">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password:</label>
+                    <input type="password" id="login-password" name="password" required placeholder="Enter your password">
+                </div>
+                <button type="submit">Login</button>
+                <div id="login-error" class="error" style="display: none;"></div>
+            </form>
+            
+            <!-- Signup Form -->
+            <form id="signupForm" style="display: none;">
+                <div class="form-group">
+                    <label for="signup-username">Username:</label>
+                    <input type="text" id="signup-username" name="username" required placeholder="Choose a username (min 3 chars)">
+                </div>
+                <div class="form-group">
+                    <label for="signup-password">Password:</label>
+                    <input type="password" id="signup-password" name="password" required placeholder="Choose a password (min 6 chars)">
+                </div>
+                <div class="form-group">
+                    <label for="signup-confirm">Confirm Password:</label>
+                    <input type="password" id="signup-confirm" name="confirm_password" required placeholder="Confirm your password">
+                </div>
+                <button type="submit">Sign Up</button>
+                <div id="signup-error" class="error" style="display: none;"></div>
+            </form>
+        </div>
+        
+        <script>
+            function toggleForm() {
+                const loginForm = document.getElementById('loginForm');
+                const signupForm = document.getElementById('signupForm');
+                const toggleBtn = document.getElementById('toggleBtn');
+                
+                if (loginForm.style.display === 'none') {
+                    loginForm.style.display = 'block';
+                    signupForm.style.display = 'none';
+                    toggleBtn.textContent = "Don't have an account? Sign up";
+                } else {
+                    loginForm.style.display = 'none';
+                    signupForm.style.display = 'block';
+                    toggleBtn.textContent = "Already have an account? Login";
+                }
+            }
+            
+            // Login form handler
+            document.getElementById('loginForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const username = document.getElementById('login-username').value;
+                const password = document.getElementById('login-password').value;
+                const errorDiv = document.getElementById('login-error');
+                
+                try {
+                    const response = await fetch('/login', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({username: username, password: password})
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        window.location.href = '/';
+                    } else {
+                        errorDiv.textContent = data.error || 'Login failed';
+                        errorDiv.style.display = 'block';
+                    }
+                } catch (error) {
+                    errorDiv.textContent = 'Network error. Please try again.';
+                    errorDiv.style.display = 'block';
+                }
+            });
+            
+            // Signup form handler
+            document.getElementById('signupForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const username = document.getElementById('signup-username').value;
+                const password = document.getElementById('signup-password').value;
+                const confirmPassword = document.getElementById('signup-confirm').value;
+                const errorDiv = document.getElementById('signup-error');
+                
+                if (password !== confirmPassword) {
+                    errorDiv.textContent = 'Passwords do not match';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/register', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({username: username, password: password})
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        errorDiv.textContent = 'Registration successful! Please login.';
+                        errorDiv.style.display = 'block';
+                        errorDiv.style.color = 'green';
+                        toggleForm(); // Switch to login form
+                    } else {
+                        errorDiv.textContent = data.error || 'Registration failed';
+                        errorDiv.style.display = 'block';
+                    }
+                } catch (error) {
+                    errorDiv.textContent = 'Network error. Please try again.';
+                    errorDiv.style.display = 'block';
+                }
+            });
+        </script>
+    </body>
+    </html>
+    '''
+
+@app.route('/register', methods=['POST'])
+def register():
+    """User registration endpoint - username and password only"""
+    data = request.json
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    
+    # Register user
+    result = user_manager.register_user(username, password)
+    
+    if result['success']:
+        return jsonify({
+            'success': True,
+            'message': 'Registration successful! Please login with your credentials.'
+        })
+    else:
+        return jsonify({'error': result['error']}), 400
 
 @app.route('/api/auth/status', methods=['GET'])
 def auth_status():
-    """Check authentication status - always authenticated"""
+    """Check authentication status"""
+    session_id = session.get('session_id')
+    if session_id:
+        user_data = user_manager.validate_session(session_id)
+        if user_data:
+            return jsonify({
+                'authenticated': True,
+                'user': user_data
+            })
+
     return jsonify({
-        'authenticated': True,
-        'password_set': True
+        'authenticated': False,
+        'user': None
     })
 
-@app.route('/api/auth/logout', methods=['POST'])
+@app.route('/logout', methods=['POST'])
 def logout():
-    """Logout"""
-    session.pop('authenticated', None)
+    """Logout user"""
+    session_id = session.get('session_id')
+    if session_id:
+        user_manager.logout_user(session_id)
+    
+    session.clear()
     return jsonify({'success': True, 'message': 'Logged out successfully'})
+
+@app.route('/api/auth/logout', methods=['POST'])
+@require_auth
+def api_logout():
+    """API logout endpoint"""
+    session_id = session.get('session_id')
+    if session_id:
+        user_manager.logout_user(session_id)
+    
+    session.clear()
+    return jsonify({'success': True, 'message': 'Logged out successfully'})
+
+@app.route('/api/auth/change-password', methods=['POST'])
+@require_auth
+def change_password():
+    """Change user password"""
+    data = request.json
+    current_password = data.get('currentPassword')
+    new_password = data.get('newPassword')
+    
+    if not current_password or not new_password:
+        return jsonify({'error': 'Current password and new password are required'}), 400
+    
+    if len(new_password) < 8:
+        return jsonify({'error': 'New password must be at least 8 characters long'}), 400
+    
+    session_id = session.get('session_id')
+    user_data = user_manager.validate_session(session_id)
+    
+    if not user_data:
+        return jsonify({'error': 'Invalid session'}), 401
+    
+    # Verify current password
+    if not user_manager.verify_password(current_password, user_data['password_hash']):
+        return jsonify({'error': 'Current password is incorrect'}), 400
+    
+    # Update password
+    result = user_manager.update_password(user_data['user_id'], new_password)
+    
+    if result['success']:
+        return jsonify({'success': True, 'message': 'Password changed successfully'})
+    else:
+        return jsonify({'error': result['error']}), 400
 
 @app.route('/api/csrf-token', methods=['GET'])
 def get_csrf_token():
@@ -520,8 +709,9 @@ def get_csrf_token():
 @app.route('/api/tasks', methods=['GET'])
 @require_auth
 def get_tasks():
-    """Get all tasks"""
-    tasks = app_context.data_manager.load_tasks()
+    """Get all tasks for the authenticated user"""
+    user_id = request.user['user_id']
+    tasks = app_context.data_manager.load_tasks(user_id)
     return jsonify(tasks)
 
 @app.route('/api/tasks/import', methods=['POST'])
@@ -556,8 +746,9 @@ def import_tasks():
         if not imported_tasks:
             return jsonify({'error': 'No valid tasks found in file', 'details': errors}), 400
         
-        # Load existing tasks
-        existing_tasks = app_context.data_manager.load_tasks()
+        # Load existing tasks for the user
+        user_id = request.user['user_id']
+        existing_tasks = app_context.data_manager.load_tasks(user_id)
         
         # Add imported tasks
         for task in imported_tasks:
@@ -568,8 +759,8 @@ def import_tasks():
             task['struck_today'] = False
             existing_tasks.append(task)
         
-        # Save all tasks
-        if app_context.data_manager.save_tasks(existing_tasks):
+        # Save all tasks for the user
+        if app_context.data_manager.save_tasks(user_id, existing_tasks):
             return jsonify({
                 'success': True,
                 'message': f'Successfully imported {len(imported_tasks)} tasks',
@@ -734,9 +925,10 @@ def parse_txt_tasks(content):
 @require_csrf
 @rate_limit
 def create_task():
-    """Create a new task"""
+    """Create a new task for the authenticated user"""
+    user_id = request.user['user_id']
     task_data = request.json
-    tasks = app_context.data_manager.load_tasks()
+    tasks = app_context.data_manager.load_tasks(user_id)
     
     # Sanitize input data
     task_data = sanitize_input(task_data)
@@ -784,7 +976,7 @@ def create_task():
     
     tasks.append(new_task)
     
-    if app_context.data_manager.save_tasks(tasks):
+    if app_context.data_manager.save_tasks(tasks, user_id):
         return jsonify(new_task), 201
     else:
         return jsonify({'error': 'Failed to save task'}), 500
@@ -793,14 +985,15 @@ def create_task():
 @require_auth
 @require_csrf
 def update_task(task_id):
-    """Update an existing task"""
+    """Update an existing task for the authenticated user"""
+    user_id = request.user['user_id']
     task_data = request.json
-    tasks = app_context.data_manager.load_tasks()
+    tasks = app_context.data_manager.load_tasks(user_id)
     
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
             tasks[i].update(task_data)
-            if app_context.data_manager.save_tasks(tasks):
+            if app_context.data_manager.save_tasks(tasks, user_id):
                 return jsonify(tasks[i])
             else:
                 return jsonify({'error': 'Failed to save task'}), 500
@@ -811,13 +1004,14 @@ def update_task(task_id):
 @require_auth
 @require_csrf
 def delete_task(task_id):
-    """Delete a task"""
-    tasks = app_context.data_manager.load_tasks()
+    """Delete a task for the authenticated user"""
+    user_id = request.user['user_id']
+    tasks = app_context.data_manager.load_tasks(user_id)
     
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
             deleted_task = tasks.pop(i)
-            if app_context.data_manager.save_tasks(tasks):
+            if app_context.data_manager.save_tasks(tasks, user_id):
                 return jsonify(deleted_task)
             else:
                 return jsonify({'error': 'Failed to save tasks'}), 500
@@ -827,14 +1021,15 @@ def delete_task(task_id):
 @app.route('/api/tasks/<task_id>/complete', methods=['POST'])
 @require_auth
 def complete_task(task_id):
-    """Mark a task as completed"""
-    tasks = app_context.data_manager.load_tasks()
+    """Mark a task as completed for the authenticated user"""
+    user_id = request.user['user_id']
+    tasks = app_context.data_manager.load_tasks(user_id)
     
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
             tasks[i]['completed'] = True
             tasks[i]['completed_at'] = datetime.now().isoformat()
-            if app_context.data_manager.save_tasks(tasks):
+            if app_context.data_manager.save_tasks(tasks, user_id):
                 return jsonify(tasks[i])
             else:
                 return jsonify({'error': 'Failed to save task'}), 500
@@ -845,6 +1040,7 @@ def complete_task(task_id):
 @require_auth
 def strike_task(task_id):
     """Unified strike endpoint for both today and forever"""
+    user_id = request.user['user_id']
     strike_data = request.json
     strike_type = strike_data.get('type')
     report = strike_data.get('report', '')
@@ -852,7 +1048,7 @@ def strike_task(task_id):
     if not strike_type or strike_type not in ['today', 'forever']:
         return jsonify({'error': 'Invalid strike type'}), 400
     
-    tasks = app_context.data_manager.load_tasks()
+    tasks = app_context.data_manager.load_tasks(user_id)
     today = datetime.now().strftime('%Y-%m-%d')
     
     for i, task in enumerate(tasks):
@@ -880,7 +1076,7 @@ def strike_task(task_id):
                 tasks[i]['strike_report'] = report
                 tasks[i]['strike_count'] = tasks[i].get('strike_count', 0) + 1
             
-            if app_context.data_manager.save_tasks(tasks):
+            if app_context.data_manager.save_tasks(tasks, user_id):
                 return jsonify(tasks[i])
             else:
                 return jsonify({'error': 'Failed to save tasks'}), 500
@@ -890,8 +1086,9 @@ def strike_task(task_id):
 @app.route('/api/tasks/<task_id>/undo-strike', methods=['POST'])
 @require_auth
 def undo_strike(task_id):
-    """Undo a strike for today"""
-    tasks = app_context.data_manager.load_tasks()
+    """Undo a strike for today for the authenticated user"""
+    user_id = request.user['user_id']
+    tasks = app_context.data_manager.load_tasks(user_id)
     today = datetime.now().strftime('%Y-%m-%d')
     
     for i, task in enumerate(tasks):
@@ -911,7 +1108,7 @@ def undo_strike(task_id):
                     tasks[i]["strike_report"] = None
                 # Don't decrease strike_count as it tracks total strikes
                 
-                if app_context.data_manager.save_tasks(tasks):
+                if app_context.data_manager.save_tasks(tasks, user_id):
                     return jsonify(tasks[i])
                 else:
                     return jsonify({'error': 'Failed to save tasks'}), 500
@@ -923,8 +1120,9 @@ def undo_strike(task_id):
 @app.route('/api/tasks/<task_id>/unschedule', methods=['POST'])
 @require_auth
 def unschedule_task(task_id):
-    """Remove a task from the daily planner"""
-    tasks = app_context.data_manager.load_tasks()
+    """Remove a task from the daily planner for the authenticated user"""
+    user_id = request.user['user_id']
+    tasks = app_context.data_manager.load_tasks(user_id)
     
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
@@ -933,7 +1131,7 @@ def unschedule_task(task_id):
             tasks[i]['scheduled_date'] = None
             tasks[i]['duration'] = None
             
-            if app_context.data_manager.save_tasks(tasks):
+            if app_context.data_manager.save_tasks(tasks, user_id):
                 return jsonify(tasks[i])
             else:
                 return jsonify({'error': 'Failed to save tasks'}), 500
@@ -943,7 +1141,8 @@ def unschedule_task(task_id):
 @app.route('/api/tasks/<task_id>/schedule', methods=['POST'])
 @require_auth
 def schedule_task(task_id):
-    """Schedule a task for a specific hour and duration"""
+    """Schedule a task for a specific hour and duration for the authenticated user"""
+    user_id = request.user['user_id']
     schedule_data = request.json
     hour = schedule_data.get('hour')
     duration = schedule_data.get('duration', 30)  # Default 30 minutes
@@ -952,7 +1151,7 @@ def schedule_task(task_id):
     if not hour:
         return jsonify({'error': 'Hour is required'}), 400
     
-    tasks = app_context.data_manager.load_tasks()
+    tasks = app_context.data_manager.load_tasks(user_id)
     
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
@@ -960,7 +1159,7 @@ def schedule_task(task_id):
             tasks[i]['scheduled_date'] = date
             tasks[i]['duration'] = duration
             
-            if app_context.data_manager.save_tasks(tasks):
+            if app_context.data_manager.save_tasks(tasks, user_id):
                 return jsonify(tasks[i])
             else:
                 return jsonify({'error': 'Failed to save tasks'}), 500
@@ -970,8 +1169,9 @@ def schedule_task(task_id):
 @app.route('/api/tasks/reset-daily-strikes', methods=['POST'])
 @require_auth
 def reset_daily_strikes():
-    """Reset all daily strikes (called by daily reset timer)"""
-    tasks = app_context.data_manager.load_tasks()
+    """Reset all daily strikes for the authenticated user (called by daily reset timer)"""
+    user_id = request.user['user_id']
+    tasks = app_context.data_manager.load_tasks(user_id)
     today = datetime.now().strftime('%Y-%m-%d')
     
     for i, task in enumerate(tasks):
@@ -990,7 +1190,7 @@ def reset_daily_strikes():
             tasks[i]['struck_today'] = False
             tasks[i]['struck_date'] = None
     
-    if app_context.data_manager.save_tasks(tasks):
+    if app_context.data_manager.save_tasks(tasks, user_id):
         return jsonify({'success': True, 'message': 'Daily strikes reset'})
     else:
         return jsonify({'error': 'Failed to reset daily strikes'}), 500
@@ -998,8 +1198,9 @@ def reset_daily_strikes():
 @app.route('/api/settings', methods=['GET'])
 @require_auth
 def get_settings():
-    """Get application settings"""
-    settings = app_context.data_manager.load_settings()
+    """Get application settings for the authenticated user"""
+    user_id = request.user['user_id']
+    settings = app_context.data_manager.load_settings(user_id)
     settings['autostart_enabled'] = app_context.autostart_manager.is_autostart_enabled()
     # Ensure default values for new settings
     if 'theme' not in settings:
@@ -1013,9 +1214,10 @@ def get_settings():
 @app.route('/api/settings', methods=['PUT'])
 @require_auth
 def update_settings():
-    """Update application settings"""
+    """Update application settings for the authenticated user"""
+    user_id = request.user['user_id']
     settings_data = request.json
-    current_settings = app_context.data_manager.load_settings()
+    current_settings = app_context.data_manager.load_settings(user_id)
     current_settings.update(settings_data)
     
     # Handle autostart setting
@@ -1030,7 +1232,7 @@ def update_settings():
         else:
             app_context.autostart_manager.disable_autostart()
     
-    if app_context.data_manager.save_settings(current_settings):
+    if app_context.data_manager.save_settings(user_id, current_settings):
         return jsonify(current_settings)
     else:
         return jsonify({'error': 'Failed to save settings'}), 500
@@ -1040,9 +1242,10 @@ def update_settings():
 @app.route('/api/planner/schedule', methods=['GET'])
 @require_auth
 def get_schedule():
-    """Get daily schedule"""
+    """Get daily schedule for the authenticated user"""
+    user_id = request.user['user_id']
     date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
-    tasks = app_context.data_manager.load_tasks()
+    tasks = app_context.data_manager.load_tasks(user_id)
     
     # Filter tasks for the specific date
     scheduled_tasks = []
@@ -1171,43 +1374,9 @@ def update_update_config():
     
     return jsonify({'success': True, 'message': 'Configuration updated successfully'})
 
-# Kill App Endpoint
-@app.route('/api/kill-app', methods=['POST'])
-@require_auth
-def kill_app():
-    """Stop the Shakshuka server"""
-    try:
-        print("Kill app request received from user")
-        
-        # Try to run Stop-Shakshuka.bat
-        import subprocess
-        import os
-        
-        # Look for Stop-Shakshuka.bat in the current directory
-        stop_script = os.path.join(os.getcwd(), 'Stop-Shakshuka.bat')
-        
-        if os.path.exists(stop_script):
-            print(f"Running stop script: {stop_script}")
-            # Run the stop script in a separate process
-            subprocess.Popen([stop_script], shell=True)
-            return jsonify({'success': True, 'message': 'Server stop initiated'})
-        else:
-            print("Stop-Shakshuka.bat not found, trying alternative method")
-            # Alternative: try to kill the current process
-            try:
-                import signal
-                import sys
-                # Send SIGTERM to current process
-                os.kill(os.getpid(), signal.SIGTERM)
-                return jsonify({'success': True, 'message': 'Server stop initiated'})
-            except Exception as sig_error:
-                print(f"Signal method failed: {sig_error}")
-                # Final fallback: just return success and let the frontend handle it
-                return jsonify({'success': True, 'message': 'Server stop requested'})
-                
-    except Exception as e:
-        print(f"Error in kill app: {e}")
-        return jsonify({'error': 'Failed to stop server'}), 500
+# Kill App Endpoint - REMOVED FOR SECURITY
+# This endpoint was a critical security vulnerability
+# Use proper process management instead
 
 # Backup Management Endpoints
 @app.route('/api/backups', methods=['GET'])

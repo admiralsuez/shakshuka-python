@@ -1146,24 +1146,57 @@ body[data-theme="anxiety"][data-intensity="10"] {
 }
 
 /* Task Continuation for Multi-Slot Tasks */
+.scheduled-task.has-continuation {
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: calc(8px * var(--dpi-scale));
+    position: relative;
+}
+
+.scheduled-task.has-continuation::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    right: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent-color), transparent);
+    border-radius: 1px;
+}
+
 .scheduled-task-continuation {
-    background: rgba(255, 255, 255, 0.1);
-    border-left: 3px solid var(--accent-color);
-    padding: calc(4px * var(--dpi-scale)) calc(8px * var(--dpi-scale));
-    margin: calc(2px * var(--dpi-scale)) 0;
+    background: rgba(255, 255, 255, 0.95);
+    border-left: 4px solid var(--accent-color);
     border-radius: 0 calc(8px * var(--dpi-scale)) calc(8px * var(--dpi-scale)) 0;
+    padding: calc(8px * var(--dpi-scale)) calc(12px * var(--dpi-scale));
+    margin: calc(2px * var(--dpi-scale)) 0;
+    position: relative;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    color: #333;
+}
+
+.scheduled-task-continuation::before {
+    content: '';
+    position: absolute;
+    left: -4px;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--accent-color);
+    border-radius: 2px 0 0 2px;
 }
 
 .task-continuation-line {
-    height: 1px;
-    background: var(--accent-color);
-    margin-bottom: calc(2px * var(--dpi-scale));
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent-color), transparent);
+    margin-bottom: calc(4px * var(--dpi-scale));
+    border-radius: 1px;
 }
 
 .task-continuation-text {
-    font-size: calc(10px * var(--dpi-scale));
-    color: rgba(255, 255, 255, 0.8);
+    font-size: calc(11px * var(--dpi-scale));
+    color: #333;
     font-style: italic;
+    font-weight: 500;
 }
 /* Schedule Modal Styling */
 #schedule-modal .form-group {
@@ -1377,6 +1410,14 @@ input[type="checkbox"]:checked + .toggle-slider::before {
 }
 input[type="checkbox"] {
     display: none;
+}
+
+/* Show regular checkboxes in forms */
+.form-group input[type="checkbox"] {
+    display: inline-block;
+    margin-right: 8px;
+    width: auto;
+    height: auto;
 }
 /* Form Elements */
 select, input[type="text"], input[type="date"], input[type="number"], textarea {
@@ -2266,11 +2307,20 @@ select:focus {
 }
 
 .task-card.completed {
-    background: linear-gradient(135deg, #4caf50, #66bb6a) !important;
+    background: var(--primary-gradient) !important;
+    opacity: 0.8;
+    filter: saturate(0.7) brightness(1.1);
 }
 
 .task-card.struck-today {
-    background: linear-gradient(135deg, #ff7043, #ff8a65) !important;
+    background: var(--secondary-gradient) !important;
+    opacity: 0.6;
+    border: 2px solid var(--accent-color);
+    filter: grayscale(0.3) brightness(0.8);
+}
+
+.task-card.struck-today .task-title-main.struck-today {
+    text-decoration: line-through;
 }
 
 /* Action buttons in top left corner */

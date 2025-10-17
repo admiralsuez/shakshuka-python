@@ -35,7 +35,7 @@
                     <i class="fas fa-chart-line" aria-hidden="true"></i>
                     <span>Analytics</span>
                 </div>
-                <div class="nav-item" id="import-tasks-btn" title="Import Tasks from CSV" role="menuitem" tabindex="0">
+                <div class="nav-item" id="import-tasks-btn" data-page="import" title="Import Tasks from CSV" role="menuitem" tabindex="0">
                     <i class="fas fa-file-import" aria-hidden="true"></i>
                     <span>Import Tasks</span>
                 </div>
@@ -43,11 +43,11 @@
                     <i class="fas fa-cog" aria-hidden="true"></i>
                     <span>Settings</span>
                 </div>
-                <div class="nav-item sidebar-toggle-item" id="sidebar-toggle" title="Toggle Sidebar" role="menuitem" tabindex="0">
+                <div class="nav-item sidebar-toggle-item" id="sidebar-toggle" data-page="toggle" title="Toggle Sidebar" role="menuitem" tabindex="0">
                     <i class="fas fa-bars" aria-hidden="true"></i>
                     <span>Toggle Sidebar</span>
                 </div>
-                <div class="nav-item kill-app-item" id="kill-app-btn" title="Stop Shakshuka Server" role="menuitem" tabindex="0">
+                <div class="nav-item kill-app-item" id="kill-app-btn" data-page="kill" title="Stop Shakshuka Server" role="menuitem" tabindex="0">
                     <i class="fas fa-power-off" aria-hidden="true"></i>
                     <span>Kill App</span>
                 </div>
@@ -376,7 +376,18 @@
                     
                     <div class="settings-section">
                         <h3>Account</h3>
-                        <!-- Logout functionality removed - no authentication needed -->
+                        <div class="setting-item">
+                            <button class="btn-secondary" id="change-password-btn">
+                                <i class="fas fa-key"></i>
+                                Change Password
+                            </button>
+                        </div>
+                        <div class="setting-item">
+                            <button class="btn-danger" id="logout-btn">
+                                <i class="fas fa-sign-out-alt"></i>
+                                Logout
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -448,9 +459,39 @@
         </div>
     </div>
 
-    <!-- Password Change Modal removed - no authentication needed -->
+    <!-- Change Password Modal -->
+    <div id="change-password-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Change Password</h3>
+                <button class="modal-close" id="close-change-password-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="change-password-form">
+                    <div class="form-group">
+                        <label for="current-password">Current Password</label>
+                        <input type="password" id="current-password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-password">New Password</label>
+                        <input type="password" id="new-password" required minlength="8">
+                    </div>
+                    <div class="form-group">
+                        <label for="confirm-password">Confirm New Password</label>
+                        <input type="password" id="confirm-password" required minlength="8">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-change-password">Cancel</button>
+                <button type="submit" class="btn-primary" id="save-change-password">Change Password</button>
+            </div>
+        </div>
+    </div>
 
-        <!-- Schedule Modal -->
+    <!-- Schedule Modal -->
         <div id="schedule-modal" class="modal">
             <div class="modal-content">
                 <div class="modal-header">
@@ -570,63 +611,7 @@
         </div>
     </div>
 
-    <!-- Authentication Modal -->
-    <div id="auth-modal" class="modal">
-        <div class="modal-content auth-modal">
-            <div class="modal-header">
-                <h3 id="auth-modal-title">Welcome to Shakshuka</h3>
-                <button class="modal-close" id="close-auth-modal">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <!-- Setup Form (First Run) -->
-                <form id="setup-form" class="auth-form">
-                    <div class="form-group">
-                        <label for="setup-password">Set Password</label>
-                        <input type="password" id="setup-password" required minlength="6" placeholder="Enter a secure password">
-                    </div>
-                    <div class="form-group">
-                        <label for="setup-confirm-password">Confirm Password</label>
-                        <input type="password" id="setup-confirm-password" required minlength="6" placeholder="Confirm your password">
-                    </div>
-                    <div class="form-group">
-                        <button type="submit" class="btn-primary" id="setup-btn">
-                            <i class="fas fa-shield-alt"></i>
-                            Setup Account
-                        </button>
-                    </div>
-                </form>
-
-                <!-- Login Form -->
-                <form id="login-form" class="auth-form" style="display: none;">
-                    <div class="form-group">
-                        <label for="login-password">Password</label>
-                        <input type="password" id="login-password" required placeholder="Enter your password">
-                    </div>
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="remember-password">
-                            <span class="checkmark"></span>
-                            Remember password
-                        </label>
-                    </div>
-                    <div class="form-group">
-                        <button type="submit" class="btn-primary" id="login-btn">
-                            <i class="fas fa-sign-in-alt"></i>
-                            Login
-                        </button>
-                    </div>
-                </form>
-
-                <!-- Switch Forms -->
-                <div class="auth-switch">
-                    <p id="auth-switch-text">Already have an account?</p>
-                    <button type="button" class="btn-link" id="auth-switch-btn">Login</button>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- Authentication Modal removed - was unused dead code (55 lines) -->
 
     <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay">
@@ -741,6 +726,6 @@
 
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ range(1000, 9999) | random }}"></script>
 </body>
 </html>

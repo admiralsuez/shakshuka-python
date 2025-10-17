@@ -11,7 +11,8 @@ const AppState = (() => {
         developerLogs: [],
         currentFilter: 'active',
         isAuthenticated: false,
-        passwordSet: false
+        user: null,
+        sessionId: null
     };
 
     return {
@@ -392,6 +393,7 @@ async function login() {
 // Logout functionality removed - no authentication needed
 
 function loadAppData() {
+    console.log('loadAppData called');
     // Load all app data after authentication
     loadTasks();
     loadSettings();
@@ -401,6 +403,14 @@ function loadAppData() {
     setupDailyReset();
     setupKeyboardShortcuts();
     initializeLogging();
+    
+    // If we're on the planner page, make sure it's loaded
+    const currentPage = AppState.get('currentPage');
+    console.log('Current page after loadAppData:', currentPage);
+    if (currentPage === 'planner') {
+        console.log('Loading planner data after app data load');
+        loadPlannerData();
+    }
 }
 
 function clearLogs() {
@@ -417,39 +427,34 @@ function initializeApp() {
 
 // Setup event listeners
 function setupEventListeners() {
-    // Authentication
-    safeAddEventListener('setup-form', 'submit', (e) => {
+    // Authentication is disabled - no auth elements needed
+    
+    // Task form submission handler
+    safeAddEventListener('task-form', 'submit', (e) => {
         e.preventDefault();
-        setupPassword();
+        saveTask();
     });
     
-    safeAddEventListener('login-form', 'submit', (e) => {
+    // Quick task form submission handler
+    safeAddEventListener('quick-task-form', 'submit', (e) => {
         e.preventDefault();
-        login();
+        saveQuickTask();
     });
-    
-    safeAddEventListener('auth-switch-btn', 'click', () => {
-        const setupForm = document.getElementById('setup-form');
-        const loginForm = document.getElementById('login-form');
-        
-        if (setupForm.style.display === 'none') {
-            showAuthModal('setup');
-        } else {
-            showAuthModal('login');
-        }
-    });
-    
-    safeAddEventListener('close-auth-modal', 'click', hideAuthModal);
 
     // Logout functionality removed - no authentication needed
 
     // Navigation
+    console.log('Setting up navigation event listeners...');
     document.querySelectorAll('.nav-item').forEach(item => {
+        console.log('Adding click listener to nav item:', item);
         item.addEventListener('click', function() {
+            console.log('Nav item clicked:', this);
             const page = this.dataset.page;
+            console.log('Navigating to page:', page);
             navigateToPage(page);
         });
     });
+    console.log('Navigation event listeners set up complete');
 
     // Task modals
     safeAddEventListener('add-task-btn-2', 'click', () => openTaskModal());
@@ -542,6 +547,15 @@ function setupEventListeners() {
     safeAddEventListener('backup-before-update', 'change', updateUpdateSettings);
     safeAddEventListener('update-channel', 'change', updateUpdateSettings);
     safeAddEventListener('check-interval', 'change', updateUpdateSettings);
+    
+    // Account settings
+    safeAddEventListener('change-password-btn', 'click', openChangePasswordModal);
+    safeAddEventListener('logout-btn', 'click', logout);
+    
+    // Change password modal
+    safeAddEventListener('close-change-password-modal', 'click', closeChangePasswordModal);
+    safeAddEventListener('cancel-change-password', 'click', closeChangePasswordModal);
+    safeAddEventListener('save-change-password', 'click', changePassword);
 
     // Quick actions
     safeAddEventListener('focus-mode-btn', 'click', () => navigateToPage('planner'));
@@ -583,24 +597,50 @@ function setupEventListeners() {
 // Navigation
 function navigateToPage(page) {
     // Authentication check disabled - no authentication needed
-    console.log('Navigating to page:', page);
+    console.log('navigateToPage called with page:', page);
+    
+    if (!page) {
+        console.error('No page specified for navigation');
+        return;
+    }
+    
+    // Handle special navigation items
+    if (page === 'toggle') {
+        // Sidebar toggle - don't navigate, just toggle
+        toggleSidebar();
+        return;
+    }
+    
+    if (page === 'kill') {
+        // Kill app - don't navigate, just kill
+        killApp();
+        return;
+    }
     
     // Update navigation
+    console.log('Updating navigation for page:', page);
     document.querySelectorAll('.nav-item').forEach(item => {
         item.classList.remove('active');
     });
     const activeNavItem = document.querySelector(`[data-page="${page}"]`);
     if (activeNavItem) {
         activeNavItem.classList.add('active');
+        console.log('Set active nav item:', activeNavItem);
+    } else {
+        console.error('Could not find nav item with data-page:', page);
     }
 
     // Update pages
+    console.log('Updating pages for page:', page);
     document.querySelectorAll('.page').forEach(pageEl => {
         pageEl.classList.remove('active');
     });
     const targetPage = document.getElementById(`${page}-page`);
     if (targetPage) {
         targetPage.classList.add('active');
+        console.log('Set active page:', targetPage);
+    } else {
+        console.error('Could not find page element with id:', `${page}-page`);
     }
 
     AppState.set('currentPage', page);
@@ -609,7 +649,8 @@ function navigateToPage(page) {
     if (page === 'tasks') {
         loadTasks();
     } else if (page === 'planner') {
-        loadPlannerData();
+        // Load tasks first, then planner data will be loaded automatically
+        loadTasks();
     } else if (page === 'analytics') {
         updateDashboardStats();
     }
@@ -653,7 +694,7 @@ async function loadTasks() {
             } else if (AppState.get('currentPage') === 'analytics') {
                 renderRecentTasks();
             } else if (AppState.get('currentPage') === 'planner') {
-                loadScheduledTasks();
+                loadPlannerData(); // Load both available and scheduled tasks
             }
             
             updateDashboardStats();
@@ -874,6 +915,8 @@ function renderTasks(filter = AppState.get('currentFilter')) {
                     const progressPercentage = task.completed ? 100 : Math.min((currentStrikes / maxStrikes) * 100, 100);
                     const progressStep = task.completed ? maxStrikes : Math.min(currentStrikes + 1, maxStrikes);
                     
+                    console.log(`Rendering task ${task.title}: struck_today=${task.struck_today}, completed=${task.completed}, strike_count=${task.strike_count}`);
+                    
                     return `
                         <div class="task-card ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${task.strike_count > 1 ? 'restrike' : ''}" data-task-id="${task.id}">
                             <div class="task-actions-top-left">
@@ -1057,6 +1100,7 @@ function openTaskModal(taskId = null) {
     const title = document.getElementById('modal-title');
     
     if (taskId) {
+        const tasks = AppState.getTasks();
         const task = tasks.find(t => t.id === taskId);
         if (task) {
             title.textContent = 'Edit Task';
@@ -1102,8 +1146,7 @@ async function saveTask() {
     const taskData = {
         title: document.getElementById('task-title').value,
         description: document.getElementById('task-description').value,
-        priority: document.getElementById('task-priority').value,
-        category: document.getElementById('task-category').value,
+        project: document.getElementById('task-project').value,
         due_date: document.getElementById('task-due-date').value,
         estimated_duration: parseInt(document.getElementById('task-duration').value)
     };
@@ -1317,11 +1360,18 @@ async function handleDrop(e) {
             },
             body: JSON.stringify({
                 hour: `${hour}:${minute}`,
-                duration: taskDuration
+                duration: taskDuration,
+                date: new Date().toISOString().split('T')[0] // Send current date
             })
         });
         
         if (response.ok) {
+            // Immediately remove the dragged task from available tasks for visual feedback
+            const draggedTask = document.querySelector(`.draggable-task[data-task-id="${taskId}"]`);
+            if (draggedTask) {
+                draggedTask.remove();
+            }
+            
             // Refresh tasks data from server
             await loadTasks();
             loadPlannerData(); // Refresh both available and scheduled tasks
@@ -1336,6 +1386,7 @@ async function handleDrop(e) {
 }
 
 async function scheduleTask(taskId, hour) {
+    const tasks = AppState.getTasks();
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
@@ -1356,6 +1407,10 @@ async function scheduleTask(taskId, hour) {
 }
 
 function loadPlannerData() {
+    console.log('loadPlannerData called');
+    console.log('Current page:', AppState.get('currentPage'));
+    console.log('Tasks available:', AppState.getTasks());
+    
     generateTimeSlots(); // Initialize the time grid first
     loadAvailableTasks();
     loadScheduledTasks();
@@ -1369,6 +1424,12 @@ function loadAvailableTasks() {
     console.log('Total tasks:', tasks.length);
     console.log('Tasks:', tasks);
     
+    if (!Array.isArray(tasks)) {
+        console.error('Tasks is not an array:', tasks);
+        availableTasks.innerHTML = '<p>Error loading tasks.</p>';
+        return;
+    }
+    
     const unscheduledTasks = tasks.filter(task => {
         const isUnscheduled = !task.scheduled_hour;
         const isNotCompleted = !task.completed;
@@ -1377,6 +1438,7 @@ function loadAvailableTasks() {
     });
     
     console.log('Unscheduled tasks:', unscheduledTasks);
+    console.log('Available tasks container:', availableTasks);
     
     if (unscheduledTasks.length === 0) {
         availableTasks.innerHTML = '<p>No available tasks to schedule.</p>';
@@ -1393,12 +1455,21 @@ function loadAvailableTasks() {
 }
 
 function loadScheduledTasks() {
-    const currentDate = AppState.get('currentDate');
+    const currentDate = new Date(); // Always use current date, not stored date
     const scheduledDate = currentDate.toISOString().split('T')[0];
     const tasks = AppState.getTasks();
+    
+    // Filter tasks scheduled for today OR tasks without a scheduled_date (legacy tasks)
     const scheduledTasks = tasks.filter(task => 
-        task.scheduled_date === scheduledDate && task.scheduled_hour
+        task.scheduled_hour && 
+        (task.scheduled_date === scheduledDate || !task.scheduled_date) &&
+        !task.completed
     );
+    
+    console.log('loadScheduledTasks - currentDate:', currentDate);
+    console.log('loadScheduledTasks - scheduledDate:', scheduledDate);
+    console.log('loadScheduledTasks - all tasks:', tasks);
+    console.log('loadScheduledTasks - scheduled tasks:', scheduledTasks);
     
     // Clear existing scheduled tasks and continuations
     document.querySelectorAll('.scheduled-task').forEach(task => task.remove());
@@ -1406,12 +1477,25 @@ function loadScheduledTasks() {
     
     // Add scheduled tasks to their time slots
     scheduledTasks.forEach(task => {
-        const [hour, minute] = task.scheduled_hour.split(':');
-        const taskDuration = task.duration || 60;
-        const startHour = parseInt(hour);
-        const startMinute = parseInt(minute);
+        // Parse the scheduled hour (format: "HH:MM")
+        const timeParts = task.scheduled_hour.split(':');
+        if (timeParts.length !== 2) {
+            console.error(`Invalid scheduled_hour format: ${task.scheduled_hour}`);
+            return;
+        }
+        
+        const startHour = parseInt(timeParts[0]);
+        const startMinute = parseInt(timeParts[1]);
+        const taskDuration = parseInt(task.duration) || 60;
+        
+        // Validate parsed values
+        if (isNaN(startHour) || isNaN(startMinute)) {
+            console.error(`Invalid time values: hour=${startHour}, minute=${startMinute}`);
+            return;
+        }
         
         console.log(`Loading task: ${task.title}, Duration: ${taskDuration}min, Start: ${startHour}:${startMinute}`);
+        console.log(`Looking for time slot with data-hour="${startHour}" data-minute="${startMinute}"`);
         
         // Calculate how many 30-minute slots this task spans
         const slotsNeeded = Math.ceil(taskDuration / 30);
@@ -1420,6 +1504,9 @@ function loadScheduledTasks() {
         // Create the task element
         const scheduledTaskEl = document.createElement('div');
         scheduledTaskEl.className = 'scheduled-task';
+        if (slotsNeeded > 1) {
+            scheduledTaskEl.classList.add('has-continuation');
+        }
         scheduledTaskEl.innerHTML = `
             <div class="scheduled-task-header">
                 <h4>${task.title}</h4>
@@ -1433,9 +1520,11 @@ function loadScheduledTasks() {
         scheduledTaskEl.dataset.taskId = task.id;
         
         // Add the task to the starting time slot
-        const startTimeContent = document.querySelector(`[data-hour="${startHour}"][data-minute="${startMinute}"]`);
+        const startTimeContent = document.querySelector(`.time-content[data-hour="${startHour}"][data-minute="${startMinute}"]`);
+        console.log(`Found time slot:`, startTimeContent);
         if (startTimeContent) {
             startTimeContent.appendChild(scheduledTaskEl);
+            console.log(`Successfully added task to time slot`);
             
             // If task spans multiple slots, add visual indicators to subsequent slots
             for (let i = 1; i < slotsNeeded; i++) {
@@ -1450,18 +1539,23 @@ function loadScheduledTasks() {
                 
                 // Don't go beyond 24 hours
                 if (nextHour < 24) {
-                    const nextTimeContent = document.querySelector(`[data-hour="${nextHour}"][data-minute="${nextMinute}"]`);
+                    const nextTimeContent = document.querySelector(`.time-content[data-hour="${nextHour}"][data-minute="${nextMinute}"]`);
                     if (nextTimeContent) {
                         const continuationEl = document.createElement('div');
                         continuationEl.className = 'scheduled-task-continuation';
                         continuationEl.innerHTML = `
                             <div class="task-continuation-line"></div>
-                            <span class="task-continuation-text">${task.title} (continued)</span>
+                            <span class="task-continuation-text">↳ ${task.title}</span>
                         `;
+                        continuationEl.dataset.taskId = task.id;
+                        continuationEl.dataset.isContinuation = 'true';
                         nextTimeContent.appendChild(continuationEl);
                     }
                 }
             }
+        } else {
+            console.error(`Time slot not found for hour: ${startHour}, minute: ${startMinute}`);
+            console.log('Available time slots:', document.querySelectorAll('.time-content'));
         }
     });
     
@@ -1492,6 +1586,11 @@ function updateCurrentDate() {
             day: 'numeric'
         });
     }
+}
+
+function updateDateDisplay() {
+    // Alias for updateCurrentDate to maintain compatibility
+    updateCurrentDate();
 }
 
 // Settings Functions
@@ -1807,6 +1906,7 @@ async function strikeTaskToday() {
     }
     
     // Check if task can still be struck today
+    const tasks = AppState.get('tasks');
     const task = tasks.find(t => t.id === currentStrikeTaskId);
     if (!canStrikeTask(task)) {
         showNotification('Maximum strikes reached for today', 'error');
@@ -1928,8 +2028,9 @@ async function undoStrike(taskId) {
 let currentScheduleTaskId = null;
 
 function openScheduleModal() {
-    // Get available tasks (not scheduled)
-    const availableTasks = tasks.filter(task => !task.completed && !task.scheduled_hour);
+    // Get available tasks (not scheduled) from AppState
+    const allTasks = AppState.get('tasks') || [];
+    const availableTasks = allTasks.filter(task => !task.completed && !task.scheduled_hour);
     
     if (availableTasks.length === 0) {
         showNotification('No available tasks to schedule', 'info');
@@ -2836,17 +2937,7 @@ async function saveTaskCommon(taskData, modalCloseFn) {
     }
 }
 
-async function saveTask() {
-    const taskData = {
-        title: document.getElementById('task-title').value.trim(),
-        description: document.getElementById('task-description').value.trim(),
-        project: document.getElementById('task-project').value.trim(),
-        due_date: document.getElementById('task-due-date').value,
-        estimated_duration: parseInt(document.getElementById('task-duration').value)
-    };
-    
-    await saveTaskCommon(taskData, closeTaskModal);
-}
+// Duplicate saveTask function removed - using the first one
 
 async function saveQuickTask() {
     const taskData = {
@@ -3034,4 +3125,121 @@ function downloadSampleCSV() {
     window.URL.revokeObjectURL(url);
     
     showNotification('Sample CSV template downloaded!', 'success');
+}
+
+// Duplicate functions removed - using the ones defined earlier in the file around line 414-420
+
+async function autoSave() {
+    // Auto-save functionality - just trigger a save of current tasks
+    if (AppState.get('isAuthenticated')) {
+        try {
+            const tasks = AppState.get('tasks') || [];
+            // Don't send empty tasks array - only save if there are actual tasks
+            if (tasks.length > 0) {
+                // The backend auto-save worker handles saving tasks automatically
+                // This frontend auto-save is mainly for UI state
+                console.log('Auto-save: Tasks are being saved by backend worker');
+            }
+        } catch (error) {
+            console.error('Auto-save failed:', error);
+        }
+    }
+}
+
+// Account Management Functions
+function openChangePasswordModal() {
+    const modal = document.getElementById('change-password-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        // Clear form
+        document.getElementById('change-password-form').reset();
+    }
+}
+
+function closeChangePasswordModal() {
+    const modal = document.getElementById('change-password-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+async function changePassword() {
+    const currentPassword = document.getElementById('current-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const confirmPassword = document.getElementById('confirm-password').value;
+    
+    if (!currentPassword || !newPassword || !confirmPassword) {
+        showNotification('Please fill in all password fields', 'error');
+        return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+        showNotification('New passwords do not match', 'error');
+        return;
+    }
+    
+    if (newPassword.length < 8) {
+        showNotification('New password must be at least 8 characters long', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/auth/change-password', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                currentPassword,
+                newPassword
+            })
+        });
+        
+        if (response.ok) {
+            showNotification('Password changed successfully!', 'success');
+            closeChangePasswordModal();
+        } else {
+            const error = await response.json();
+            showNotification(error.message || 'Failed to change password', 'error');
+        }
+    } catch (error) {
+        console.error('Error changing password:', error);
+        showNotification('Failed to change password', 'error');
+    }
+}
+
+async function logout() {
+    if (confirm('Are you sure you want to logout? All unsaved changes will be lost.')) {
+        try {
+            const response = await fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+            
+            if (response.ok) {
+                // Clear local state
+                AppState.set('isAuthenticated', false);
+                AppState.set('passwordSet', false);
+                AppState.set('tasks', []);
+                AppState.set('currentSettings', {});
+                
+                // Clear localStorage
+                localStorage.removeItem('shakshuka_password');
+                
+                showNotification('Logged out successfully!', 'success');
+                
+                // Redirect to login or reload page
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                throw new Error('Logout failed');
+            }
+        } catch (error) {
+            console.error('Error logging out:', error);
+            showNotification('Failed to logout', 'error');
+        }
+    }
 }

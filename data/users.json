@@ -1,0 +1,31 @@
+{
+  "b33ba6c7-ef4b-4b61-96c8-4bb61e80068c": {
+    "id": "b33ba6c7-ef4b-4b61-96c8-4bb61e80068c",
+    "username": "vibin",
+    "email": "vibin.inso@mail.com",
+    "password_hash": "$2b$12$VJzxPlUZALMuwxmDUmzmKOgkfRuG1cvwD3U/bBgCdImFtWchQgFVi",
+    "created_at": "2025-10-17T18:18:06.743608",
+    "last_login": "2025-10-18T00:34:12.170986",
+    "is_active": true,
+    "profile": {
+      "display_name": "vibin",
+      "theme": "orange",
+      "dpi_scale": 100,
+      "autosave_interval": 30
+    }
+  },
+  "bb6170a7-1b1a-4f52-9f3b-497b50ae4977": {
+    "id": "bb6170a7-1b1a-4f52-9f3b-497b50ae4977",
+    "username": "achkbar",
+    "password_hash": "$2b$12$w2lyDHwkW4j9E0M8l4d6CeA9nfuVrhlonKvfYtumQZwqGZmBC0SYG",
+    "created_at": "2025-10-18T01:05:28.247880",
+    "last_login": "2025-10-18T01:05:36.977502",
+    "is_active": true,
+    "profile": {
+      "display_name": "achkbar",
+      "theme": "orange",
+      "dpi_scale": 100,
+      "autosave_interval": 30
+    }
+  }
+}

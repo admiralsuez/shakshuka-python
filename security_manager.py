@@ -28,41 +28,12 @@ class SecurityManager:
     def __init__(self):
         self.rate_limit_requests = defaultdict(lambda: deque())
         self.rate_limit_window = 300  # 5 minutes
-        self.max_requests_per_window = 10
+        self.max_requests_per_window = 100  # Increased from 10 to 100 requests per 5 minutes
         self.session_secrets = {}
         
-    def store_encryption_key(self, key: bytes, service_name: str = "shakshuka") -> bool:
-        """Store encryption key in OS keyring"""
-        if not KEYRING_AVAILABLE:
-            logger.warning("Keyring not available, cannot store encryption key")
-            return False
-            
-        try:
-            # Convert bytes to base64 string for storage
-            import base64
-            key_str = base64.b64encode(key).decode('utf-8')
-            keyring.set_password(service_name, "encryption_key", key_str)
-            logger.info("Encryption key stored in OS keyring")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to store encryption key: {e}")
-            return False
-    
-    def retrieve_encryption_key(self, service_name: str = "shakshuka") -> Optional[bytes]:
-        """Retrieve encryption key from OS keyring"""
-        if not KEYRING_AVAILABLE:
-            logger.warning("Keyring not available, cannot retrieve encryption key")
-            return None
-            
-        try:
-            key_str = keyring.get_password(service_name, "encryption_key")
-            if key_str:
-                import base64
-                return base64.b64decode(key_str.encode('utf-8'))
-            return None
-        except Exception as e:
-            logger.error(f"Failed to retrieve encryption key: {e}")
-            return None
+    # Unused encryption key functions removed - were dead code
+    # Unused update signature verification removed - was dead code  
+    # Unused CSRF functions removed - duplicate implementations
     
     def sanitize_input(self, text: str, max_length: int = 1000) -> str:
         """Sanitize user input to prevent XSS attacks"""
@@ -144,28 +115,7 @@ class SecurityManager:
         for user_id in expired_users:
             del self.session_secrets[user_id]
     
-    def verify_update_signature(self, file_path: str, expected_signature: str) -> bool:
-        """Verify downloaded update file signature"""
-        try:
-            import hashlib
-            
-            # Calculate SHA256 hash of the file
-            with open(file_path, 'rb') as f:
-                file_hash = hashlib.sha256(f.read()).hexdigest()
-            
-            # Compare with expected signature
-            return hmac.compare_digest(file_hash, expected_signature)
-        except Exception as e:
-            logger.error(f"Failed to verify update signature: {e}")
-            return False
-    
-    def generate_csrf_token(self) -> str:
-        """Generate CSRF token"""
-        return secrets.token_urlsafe(32)
-    
-    def validate_csrf_token(self, token: str, session_token: str) -> bool:
-        """Validate CSRF token"""
-        return hmac.compare_digest(token, session_token)
+    # Unused update signature verification removed - was dead code
 
 # Global security manager instance
 security_manager = SecurityManager()

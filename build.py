@@ -39,7 +39,12 @@ def build_executable():
         '--hidden-import=charset_normalizer',
         '--collect-all=requests',
         '--add-data=update_manager.py;.',
-        '--add-data=installer.py;.',
+        '--add-data=user_manager.py;.',
+        '--add-data=security_manager.py;.',
+        '--add-data=data_manager.py;.',
+        '--add-data=autostart.py;.',
+        '--add-data=enhanced_logging.py;.',
+        '--add-data=graceful_shutdown.py;.',
         'app.py'
     ]
     
