@@ -1,0 +1,10 @@
+{
+  "backup_type": "weekly",
+  "created_at": "2025-10-17T04:40:54.222044",
+  "version": "1.0.0",
+  "files": [
+    "settings.enc",
+    "tasks.enc",
+    "update_config.json"
+  ]
+}
