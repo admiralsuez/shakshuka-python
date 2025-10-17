@@ -1,11 +1,92 @@
 import os
 import json
-import base64
+import sys
 from datetime import datetime, timedelta
+import logging
+
+class SimpleDataManager:
+    """Simple data manager without encryption for password-free operation"""
+    def __init__(self, data_dir="data"):
+        # Handle PyInstaller bundle path
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # Running as script
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        
+        self.data_dir = os.path.join(base_path, data_dir)
+        self.tasks_file = os.path.join(self.data_dir, "tasks.json")
+        self.settings_file = os.path.join(self.data_dir, "settings.json")
+        
+        # Create data directory if it doesn't exist
+        try:
+            os.makedirs(self.data_dir, exist_ok=True)
+            print(f"Data directory ensured: {os.path.abspath(self.data_dir)}")
+        except Exception as e:
+            raise Exception(f"Failed to create data directory '{self.data_dir}': {e}")
+        
+        # Setup logging
+        self._setup_logging()
+    
+    def _setup_logging(self):
+        """Setup logging"""
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
+    
+    def save_tasks(self, tasks):
+        """Save tasks to JSON file"""
+        try:
+            with open(self.tasks_file, 'w') as f:
+                json.dump(tasks, f, indent=2, default=str)
+            self.logger.info("Tasks saved successfully")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving tasks: {e}")
+            return False
+    
+    def load_tasks(self):
+        """Load tasks from JSON file"""
+        try:
+            if os.path.exists(self.tasks_file):
+                with open(self.tasks_file, 'r') as f:
+                    return json.load(f)
+            return []
+        except Exception as e:
+            self.logger.error(f"Error loading tasks: {e}")
+            return []
+    
+    def save_settings(self, settings):
+        """Save settings to JSON file"""
+        try:
+            with open(self.settings_file, 'w') as f:
+                json.dump(settings, f, indent=2, default=str)
+            self.logger.info("Settings saved successfully")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving settings: {e}")
+            return False
+    
+    def load_settings(self):
+        """Load settings from JSON file"""
+        try:
+            if os.path.exists(self.settings_file):
+                with open(self.settings_file, 'r') as f:
+                    return json.load(f)
+            return {}
+        except Exception as e:
+            self.logger.error(f"Error loading settings: {e}")
+            return {}
+    
+    def change_password(self, new_password):
+        """Password change not needed in simple mode"""
+        return True
+
+# Keep the old EncryptedDataManager for backward compatibility
+import base64
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-import logging
 
 class EncryptedDataManager:
     def __init__(self, data_dir="data", password=None):
@@ -49,15 +130,33 @@ class EncryptedDataManager:
     def _get_or_create_cipher(self):
         """Get existing encryption key or create a new one"""
         if os.path.exists(self.key_file) and os.path.exists(self.salt_file):
-            # Load existing key and salt
+            # Load existing key and salt, then validate password
             try:
-                with open(self.key_file, 'rb') as f:
-                    key = f.read()
                 with open(self.salt_file, 'rb') as f:
                     salt = f.read()
-                print("Loaded existing encryption key and salt")
+                
+                # Generate key from provided password and stored salt
+                password_bytes = self.password.encode('utf-8')
+                kdf = PBKDF2HMAC(
+                    algorithm=hashes.SHA256(),
+                    length=32,
+                    salt=salt,
+                    iterations=100000,
+                )
+                key = base64.urlsafe_b64encode(kdf.derive(password_bytes))
+                
+                # Verify the generated key matches the stored key
+                with open(self.key_file, 'rb') as f:
+                    stored_key = f.read()
+                
+                if key != stored_key:
+                    raise Exception("Invalid password - key mismatch")
+                
+                print("Password validated successfully")
             except Exception as e:
-                raise Exception(f"Failed to read existing encryption files: {e}")
+                if "Invalid password" in str(e):
+                    raise e
+                raise Exception(f"Failed to validate password: {e}")
         else:
             # Generate a new key with user password
             try:

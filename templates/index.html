@@ -263,6 +263,23 @@
                         </div>
                         <div class="setting-item">
                             <label>
+                                Color Intensity:
+                                <select id="intensity-selector">
+                                    <option value="1">1/10 - Neutral</option>
+                                    <option value="2">2/10 - Very Subtle</option>
+                                    <option value="3">3/10 - Subtle</option>
+                                    <option value="4">4/10 - Soft</option>
+                                    <option value="5" selected>5/10 - Current</option>
+                                    <option value="6">6/10 - Enhanced</option>
+                                    <option value="7">7/10 - Rich</option>
+                                    <option value="8">8/10 - Bold</option>
+                                    <option value="9">9/10 - Vibrant</option>
+                                    <option value="10">10/10 - Maximum</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
                                 DPI Scale:
                                 <select id="dpi-selector">
                                     <option value="75">75% (Compact)</option>
@@ -272,20 +289,20 @@
                                 </select>
                             </label>
                         </div>
-                    </div>
-
-                    <div class="settings-section">
-                        <h3>Security</h3>
                         <div class="setting-item">
-                            <button class="btn-secondary" id="change-password-btn">
-                                <i class="fas fa-key"></i>
-                                Change Password
-                            </button>
+                            <label>
+                                <button class="btn-secondary" id="export-data-btn">Export Data</button>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                <button class="btn-danger" id="clear-data-btn">Clear All Data</button>
+                            </label>
                         </div>
                     </div>
 
                     <div class="settings-section">
-                        <h3>Developer</h3>
+                        <h3>Data Management</h3>
                         <div class="setting-item">
                             <button class="btn-secondary" id="view-logs-btn">
                                 <i class="fas fa-bug"></i>
@@ -358,12 +375,7 @@
                     
                     <div class="settings-section">
                         <h3>Account</h3>
-                        <div class="setting-item">
-                            <button class="btn-secondary" id="logout-btn">
-                                <i class="fas fa-sign-out-alt"></i>
-                                Logout
-                            </button>
-                        </div>
+                        <!-- Logout functionality removed - no authentication needed -->
                     </div>
                 </div>
             </div>
@@ -435,37 +447,7 @@
         </div>
     </div>
 
-    <!-- Password Change Modal -->
-    <div id="password-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Change Password</h3>
-                <button class="modal-close" id="close-password-modal">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <form id="password-form">
-                    <div class="form-group">
-                        <label for="current-password">Current Password</label>
-                        <input type="password" id="current-password" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="new-password">New Password</label>
-                        <input type="password" id="new-password" required minlength="6">
-                    </div>
-                    <div class="form-group">
-                        <label for="confirm-password">Confirm New Password</label>
-                        <input type="password" id="confirm-password" required>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn-secondary" id="cancel-password">Cancel</button>
-                <button type="submit" class="btn-primary" id="save-password">Change Password</button>
-            </div>
-        </div>
-    </div>
+    <!-- Password Change Modal removed - no authentication needed -->
 
         <!-- Schedule Modal -->
         <div id="schedule-modal" class="modal">

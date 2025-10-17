@@ -102,3 +102,4 @@ The Shakshuka application is now **completely standalone** and ready for distrib
 **Bottom line: Users just need to double-click `Shakshuka.exe` and they're ready to go!**
 
 
+

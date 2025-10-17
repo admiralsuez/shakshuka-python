@@ -22,25 +22,25 @@
 /* DPI Scaling Support - Much more conservative */
 @media (-webkit-min-device-pixel-ratio: 1.25), (min-resolution: 120dpi) {
     :root {
-        --dpi-scale: 0.95;
+        --dpi-scale: 1;
         --base-font-size: 13px;
-        --base-spacing: 0.95rem;
+        --base-spacing: 1rem;
     }
 }
 
 @media (-webkit-min-device-pixel-ratio: 1.5), (min-resolution: 144dpi) {
     :root {
-        --dpi-scale: 0.9;
-        --base-font-size: 12px;
-        --base-spacing: 0.9rem;
+        --dpi-scale: 1;
+        --base-font-size: 13px;
+        --base-spacing: 1rem;
     }
 }
 
 @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
     :root {
-        --dpi-scale: 0.85;
-        --base-font-size: 11px;
-        --base-spacing: 0.85rem;
+        --dpi-scale: 1;
+        --base-font-size: 13px;
+        --base-spacing: 1rem;
     }
 }
 body {
@@ -143,6 +143,331 @@ body[data-theme="dark"][data-finish="matte"] {
     --surface-finish: rgba(35, 35, 35, 0.98);
     --surface-finish-gradient: linear-gradient(135deg, rgba(35, 35, 35, 0.98) 0%, rgba(35, 35, 35, 0.95) 100%);
     --border-finish: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Color Intensity Variables - Base (5/10) */
+body[data-intensity="1"] {
+    --intensity-multiplier: 0.2;
+    --intensity-saturation: 0.1;
+    --intensity-brightness: 0.8;
+}
+
+body[data-intensity="2"] {
+    --intensity-multiplier: 0.4;
+    --intensity-saturation: 0.2;
+    --intensity-brightness: 0.85;
+}
+
+body[data-intensity="3"] {
+    --intensity-multiplier: 0.6;
+    --intensity-saturation: 0.3;
+    --intensity-brightness: 0.9;
+}
+
+body[data-intensity="4"] {
+    --intensity-multiplier: 0.8;
+    --intensity-saturation: 0.4;
+    --intensity-brightness: 0.95;
+}
+
+body[data-intensity="5"] {
+    --intensity-multiplier: 1.0;
+    --intensity-saturation: 0.5;
+    --intensity-brightness: 1.0;
+}
+
+body[data-intensity="6"] {
+    --intensity-multiplier: 1.2;
+    --intensity-saturation: 0.6;
+    --intensity-brightness: 1.05;
+}
+
+body[data-intensity="7"] {
+    --intensity-multiplier: 1.4;
+    --intensity-saturation: 0.7;
+    --intensity-brightness: 1.1;
+}
+
+body[data-intensity="8"] {
+    --intensity-multiplier: 1.6;
+    --intensity-saturation: 0.8;
+    --intensity-brightness: 1.15;
+}
+
+body[data-intensity="9"] {
+    --intensity-multiplier: 1.8;
+    --intensity-saturation: 0.9;
+    --intensity-brightness: 1.2;
+}
+
+body[data-intensity="10"] {
+    --intensity-multiplier: 2.0;
+    --intensity-saturation: 1.0;
+    --intensity-brightness: 1.25;
+}
+
+/* Dynamic Color Generation Functions */
+:root {
+    --base-orange: #FF8C42;
+    --base-blue: #4A90E2;
+    --base-mint: #4ECDC4;
+    --base-sky: #74B9FF;
+}
+
+/* Orange Theme Intensity Adjustments */
+body[data-theme="orange"][data-intensity="1"] {
+    --primary-gradient: linear-gradient(135deg, #E6B8A0, #F0C4A0);
+    --accent-color: #E6B8A0;
+    --border-color: rgba(230, 184, 160, 0.2);
+    --shadow-color: rgba(230, 184, 160, 0.05);
+}
+
+body[data-theme="orange"][data-intensity="2"] {
+    --primary-gradient: linear-gradient(135deg, #F0A070, #F5B080);
+    --accent-color: #F0A070;
+    --border-color: rgba(240, 160, 112, 0.25);
+    --shadow-color: rgba(240, 160, 112, 0.08);
+}
+
+body[data-theme="orange"][data-intensity="3"] {
+    --primary-gradient: linear-gradient(135deg, #F59E42, #F7A855);
+    --accent-color: #F59E42;
+    --border-color: rgba(245, 158, 66, 0.3);
+    --shadow-color: rgba(245, 158, 66, 0.1);
+}
+
+body[data-theme="orange"][data-intensity="4"] {
+    --primary-gradient: linear-gradient(135deg, #FF8C42, #FF9A55);
+    --accent-color: #FF8C42;
+    --border-color: rgba(255, 140, 66, 0.35);
+    --shadow-color: rgba(255, 140, 66, 0.12);
+}
+
+body[data-theme="orange"][data-intensity="6"] {
+    --primary-gradient: linear-gradient(135deg, #FF7A2E, #FF8C42);
+    --accent-color: #FF7A2E;
+    --border-color: rgba(255, 122, 46, 0.45);
+    --shadow-color: rgba(255, 122, 46, 0.18);
+}
+
+body[data-theme="orange"][data-intensity="7"] {
+    --primary-gradient: linear-gradient(135deg, #FF6B1A, #FF7A2E);
+    --accent-color: #FF6B1A;
+    --border-color: rgba(255, 107, 26, 0.5);
+    --shadow-color: rgba(255, 107, 26, 0.2);
+}
+
+body[data-theme="orange"][data-intensity="8"] {
+    --primary-gradient: linear-gradient(135deg, #FF5C06, #FF6B1A);
+    --accent-color: #FF5C06;
+    --border-color: rgba(255, 92, 6, 0.55);
+    --shadow-color: rgba(255, 92, 6, 0.22);
+}
+
+body[data-theme="orange"][data-intensity="9"] {
+    --primary-gradient: linear-gradient(135deg, #FF4D00, #FF5C06);
+    --accent-color: #FF4D00;
+    --border-color: rgba(255, 77, 0, 0.6);
+    --shadow-color: rgba(255, 77, 0, 0.24);
+}
+
+body[data-theme="orange"][data-intensity="10"] {
+    --primary-gradient: linear-gradient(135deg, #FF3D00, #FF4D00);
+    --accent-color: #FF3D00;
+    --border-color: rgba(255, 61, 0, 0.65);
+    --shadow-color: rgba(255, 61, 0, 0.26);
+}
+
+/* Dark Theme Intensity Adjustments */
+body[data-theme="dark"][data-intensity="1"] {
+    --primary-gradient: linear-gradient(135deg, #6B9BC7, #8BB3D7);
+    --accent-color: #6B9BC7;
+    --border-color: rgba(107, 155, 199, 0.2);
+    --shadow-color: rgba(107, 155, 199, 0.05);
+}
+
+body[data-theme="dark"][data-intensity="2"] {
+    --primary-gradient: linear-gradient(135deg, #5A8BC2, #7BA3D2);
+    --accent-color: #5A8BC2;
+    --border-color: rgba(90, 139, 194, 0.25);
+    --shadow-color: rgba(90, 139, 194, 0.08);
+}
+
+body[data-theme="dark"][data-intensity="3"] {
+    --primary-gradient: linear-gradient(135deg, #4A90E2, #6BA0E7);
+    --accent-color: #4A90E2;
+    --border-color: rgba(74, 144, 226, 0.3);
+    --shadow-color: rgba(74, 144, 226, 0.1);
+}
+
+body[data-theme="dark"][data-intensity="4"] {
+    --primary-gradient: linear-gradient(135deg, #3A80D2, #5B90D7);
+    --accent-color: #3A80D2;
+    --border-color: rgba(58, 128, 210, 0.35);
+    --shadow-color: rgba(58, 128, 210, 0.12);
+}
+
+body[data-theme="dark"][data-intensity="6"] {
+    --primary-gradient: linear-gradient(135deg, #2A70C2, #4B80C7);
+    --accent-color: #2A70C2;
+    --border-color: rgba(42, 112, 194, 0.45);
+    --shadow-color: rgba(42, 112, 194, 0.18);
+}
+
+body[data-theme="dark"][data-intensity="7"] {
+    --primary-gradient: linear-gradient(135deg, #1A60B2, #3B70B7);
+    --accent-color: #1A60B2;
+    --border-color: rgba(26, 96, 178, 0.5);
+    --shadow-color: rgba(26, 96, 178, 0.2);
+}
+
+body[data-theme="dark"][data-intensity="8"] {
+    --primary-gradient: linear-gradient(135deg, #0A50A2, #2B60A7);
+    --accent-color: #0A50A2;
+    --border-color: rgba(10, 80, 162, 0.55);
+    --shadow-color: rgba(10, 80, 162, 0.22);
+}
+
+body[data-theme="dark"][data-intensity="9"] {
+    --primary-gradient: linear-gradient(135deg, #004092, #1B5097);
+    --accent-color: #004092;
+    --border-color: rgba(0, 64, 146, 0.6);
+    --shadow-color: rgba(0, 64, 146, 0.24);
+}
+
+body[data-theme="dark"][data-intensity="10"] {
+    --primary-gradient: linear-gradient(135deg, #003082, #0B4087);
+    --accent-color: #003082;
+    --border-color: rgba(0, 48, 130, 0.65);
+    --shadow-color: rgba(0, 48, 130, 0.26);
+}
+
+/* Self-Esteem Theme Intensity Adjustments */
+body[data-theme="self-esteem"][data-intensity="1"] {
+    --primary-gradient: linear-gradient(135deg, #7ED4C7, #8ED9CC);
+    --accent-color: #7ED4C7;
+    --border-color: rgba(126, 212, 199, 0.2);
+    --shadow-color: rgba(126, 212, 199, 0.05);
+}
+
+body[data-theme="self-esteem"][data-intensity="2"] {
+    --primary-gradient: linear-gradient(135deg, #6EC9BC, #7ECEC1);
+    --accent-color: #6EC9BC;
+    --border-color: rgba(110, 201, 188, 0.25);
+    --shadow-color: rgba(110, 201, 188, 0.08);
+}
+
+body[data-theme="self-esteem"][data-intensity="3"] {
+    --primary-gradient: linear-gradient(135deg, #5EBEB1, #6EC3B6);
+    --accent-color: #5EBEB1;
+    --border-color: rgba(94, 190, 177, 0.3);
+    --shadow-color: rgba(94, 190, 177, 0.1);
+}
+
+body[data-theme="self-esteem"][data-intensity="4"] {
+    --primary-gradient: linear-gradient(135deg, #4ECDC4, #5ED2C9);
+    --accent-color: #4ECDC4;
+    --border-color: rgba(78, 205, 196, 0.35);
+    --shadow-color: rgba(78, 205, 196, 0.12);
+}
+
+body[data-theme="self-esteem"][data-intensity="6"] {
+    --primary-gradient: linear-gradient(135deg, #3EBDC4, #4EC2C9);
+    --accent-color: #3EBDC4;
+    --border-color: rgba(62, 189, 196, 0.45);
+    --shadow-color: rgba(62, 189, 196, 0.18);
+}
+
+body[data-theme="self-esteem"][data-intensity="7"] {
+    --primary-gradient: linear-gradient(135deg, #2EADC4, #3EB2C9);
+    --accent-color: #2EADC4;
+    --border-color: rgba(46, 173, 196, 0.5);
+    --shadow-color: rgba(46, 173, 196, 0.2);
+}
+
+body[data-theme="self-esteem"][data-intensity="8"] {
+    --primary-gradient: linear-gradient(135deg, #1E9DC4, #2EA2C9);
+    --accent-color: #1E9DC4;
+    --border-color: rgba(30, 157, 196, 0.55);
+    --shadow-color: rgba(30, 157, 196, 0.22);
+}
+
+body[data-theme="self-esteem"][data-intensity="9"] {
+    --primary-gradient: linear-gradient(135deg, #0E8DC4, #1E92C9);
+    --accent-color: #0E8DC4;
+    --border-color: rgba(14, 141, 196, 0.6);
+    --shadow-color: rgba(14, 141, 196, 0.24);
+}
+
+body[data-theme="self-esteem"][data-intensity="10"] {
+    --primary-gradient: linear-gradient(135deg, #007DC4, #0E82C9);
+    --accent-color: #007DC4;
+    --border-color: rgba(0, 125, 196, 0.65);
+    --shadow-color: rgba(0, 125, 196, 0.26);
+}
+
+/* Anxiety Theme Intensity Adjustments */
+body[data-theme="anxiety"][data-intensity="1"] {
+    --primary-gradient: linear-gradient(135deg, #8BC7FF, #9BCDFF);
+    --accent-color: #8BC7FF;
+    --border-color: rgba(139, 199, 255, 0.2);
+    --shadow-color: rgba(139, 199, 255, 0.05);
+}
+
+body[data-theme="anxiety"][data-intensity="2"] {
+    --primary-gradient: linear-gradient(135deg, #7BB7FF, #8BC7FF);
+    --accent-color: #7BB7FF;
+    --border-color: rgba(123, 183, 255, 0.25);
+    --shadow-color: rgba(123, 183, 255, 0.08);
+}
+
+body[data-theme="anxiety"][data-intensity="3"] {
+    --primary-gradient: linear-gradient(135deg, #6BA7FF, #7BB7FF);
+    --accent-color: #6BA7FF;
+    --border-color: rgba(107, 167, 255, 0.3);
+    --shadow-color: rgba(107, 167, 255, 0.1);
+}
+
+body[data-theme="anxiety"][data-intensity="4"] {
+    --primary-gradient: linear-gradient(135deg, #5B97FF, #6BA7FF);
+    --accent-color: #5B97FF;
+    --border-color: rgba(91, 151, 255, 0.35);
+    --shadow-color: rgba(91, 151, 255, 0.12);
+}
+
+body[data-theme="anxiety"][data-intensity="6"] {
+    --primary-gradient: linear-gradient(135deg, #4B87FF, #5B97FF);
+    --accent-color: #4B87FF;
+    --border-color: rgba(75, 135, 255, 0.45);
+    --shadow-color: rgba(75, 135, 255, 0.18);
+}
+
+body[data-theme="anxiety"][data-intensity="7"] {
+    --primary-gradient: linear-gradient(135deg, #3B77FF, #4B87FF);
+    --accent-color: #3B77FF;
+    --border-color: rgba(59, 119, 255, 0.5);
+    --shadow-color: rgba(59, 119, 255, 0.2);
+}
+
+body[data-theme="anxiety"][data-intensity="8"] {
+    --primary-gradient: linear-gradient(135deg, #2B67FF, #3B77FF);
+    --accent-color: #2B67FF;
+    --border-color: rgba(43, 103, 255, 0.55);
+    --shadow-color: rgba(43, 103, 255, 0.22);
+}
+
+body[data-theme="anxiety"][data-intensity="9"] {
+    --primary-gradient: linear-gradient(135deg, #1B57FF, #2B67FF);
+    --accent-color: #1B57FF;
+    --border-color: rgba(27, 87, 255, 0.6);
+    --shadow-color: rgba(27, 87, 255, 0.24);
+}
+
+body[data-theme="anxiety"][data-intensity="10"] {
+    --primary-gradient: linear-gradient(135deg, #0B47FF, #1B57FF);
+    --accent-color: #0B47FF;
+    --border-color: rgba(11, 71, 255, 0.65);
+    --shadow-color: rgba(11, 71, 255, 0.26);
 }
 /* App Container */
 .app-container {
@@ -1009,6 +1334,7 @@ body[data-theme="dark"][data-finish="matte"] {
     align-items: center;
     padding: calc(1rem * var(--dpi-scale)) 0;
     border-bottom: 1px solid var(--border-color);
+    font-size: calc(18px * var(--dpi-scale));
 }
 .setting-item:last-child {
     border-bottom: none;
@@ -1019,6 +1345,7 @@ body[data-theme="dark"][data-finish="matte"] {
     gap: calc(1rem * var(--dpi-scale));
     font-weight: 500;
     color: var(--text-color);
+    font-size: calc(18px * var(--dpi-scale));
 }
 /* Toggle Switch */
 .toggle-slider {

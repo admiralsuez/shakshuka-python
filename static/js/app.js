@@ -19,11 +19,53 @@ const AppState = (() => {
         set: (key, value) => { state[key] = value; },
         getAll: () => ({ ...state }),
         getTasks: () => [...state.tasks],
-        setTasks: (tasks) => { state.tasks = tasks; }
+        setTasks: (tasks) => { state.tasks = tasks; },
+        addTask: (task) => { state.tasks.push(task); },
+        updateTask: (taskId, updatedTask) => {
+            const index = state.tasks.findIndex(task => task.id === taskId);
+            if (index !== -1) {
+                state.tasks[index] = updatedTask;
+            }
+        },
+        removeTask: (taskId) => {
+            state.tasks = state.tasks.filter(task => task.id !== taskId);
+        }
     };
 })();
 
 // Global functions that use AppState - no global variables needed
+
+// Global CSRF token cache
+let csrfToken = null;
+
+// Helper function to get CSRF token
+async function getCSRFToken() {
+    if (!csrfToken) {
+        try {
+            const response = await fetch('/api/csrf-token');
+            const data = await response.json();
+            csrfToken = data.csrf_token;
+        } catch (error) {
+            console.error('Failed to get CSRF token:', error);
+            csrfToken = null;
+        }
+    }
+    return csrfToken;
+}
+
+// Helper function to make authenticated requests with CSRF token
+async function makeAuthenticatedRequest(url, options = {}) {
+    const token = await getCSRFToken();
+    
+    const defaultOptions = {
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token && { 'X-CSRF-Token': token })
+        }
+    };
+    
+    return fetch(url, { ...defaultOptions, ...options });
+}
 
 // Helper function to safely add event listeners
 function safeAddEventListener(elementId, event, handler) {
@@ -31,7 +73,10 @@ function safeAddEventListener(elementId, event, handler) {
     if (element) {
         element.addEventListener(event, handler);
     } else {
-        console.warn(`Element with ID '${elementId}' not found, skipping event listener`);
+        // Only log if it's not a password-related element (since password functionality was removed)
+        if (!elementId.includes('password') && !elementId.includes('Password')) {
+            console.warn(`Element with ID '${elementId}' not found, skipping event listener`);
+        }
     }
 }
 
@@ -172,47 +217,16 @@ function displayLogs() {
     logsContent.innerHTML = logsHtml;
 }
 
-// Authentication Functions
+// Authentication Functions - DISABLED (no authentication needed)
 async function checkAuthStatus() {
-    try {
-        console.log('Checking authentication status...');
-        const response = await fetch('/api/auth/status');
-        const data = await response.json();
-        
-        console.log('Auth status response:', data);
-        
-        AppState.set('isAuthenticated', data.authenticated);
-        AppState.set('passwordSet', data.password_set);
-        
-        console.log('isAuthenticated:', AppState.get('isAuthenticated'), 'passwordSet:', AppState.get('passwordSet'));
-        
-        // Check if encrypted files exist by trying to access tasks
-        const tasksResponse = await fetch('/api/tasks');
-        console.log('Tasks response status:', tasksResponse.status);
-        
-        if (!AppState.get('passwordSet') && tasksResponse.status === 401) {
-            // No password set but tasks endpoint requires auth - show setup
-            console.log('No password set, showing setup modal');
-            showAuthModal('setup');
-        } else if (!AppState.get('isAuthenticated') && AppState.get('passwordSet')) {
-            // Password set but not logged in - show login form
-            console.log('Not authenticated, showing login modal');
-            showAuthModal('login');
-        } else if (!AppState.get('isAuthenticated')) {
-            // No password set and not authenticated - show setup
-            console.log('No password set, showing setup modal');
-            showAuthModal('setup');
-        } else {
-            // Authenticated - load the app
-            console.log('Authenticated, loading app data');
-            loadAppData();
-        }
-    } catch (error) {
-        console.error('Error checking auth status:', error);
-        // If we can't check status, assume first run
-        console.log('Error checking auth, showing setup modal');
-        showAuthModal('setup');
-    }
+    // Skip authentication checks - always authenticated
+    console.log('Authentication disabled - skipping auth checks');
+    AppState.set('isAuthenticated', true);
+    AppState.set('passwordSet', true);
+    
+    // Load app data directly
+    console.log('Loading app data directly');
+    loadAppData();
 }
 
 function showAuthModal(mode) {
@@ -375,28 +389,7 @@ async function login() {
     }
 }
 
-async function logout() {
-    try {
-        const response = await fetch('/api/auth/logout', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-        
-        if (response.ok) {
-            AppState.set('isAuthenticated', false);
-            AppState.set('passwordSet', false);
-            showAuthModal('login');
-            showNotification('Logged out successfully', 'success');
-        } else {
-            showNotification('Logout failed', 'error');
-        }
-    } catch (error) {
-        console.error('Logout error:', error);
-        showNotification('Logout failed', 'error');
-    }
-}
+// Logout functionality removed - no authentication needed
 
 function loadAppData() {
     // Load all app data after authentication
@@ -448,44 +441,7 @@ function setupEventListeners() {
     
     safeAddEventListener('close-auth-modal', 'click', hideAuthModal);
 
-    // Logout button
-    const logoutBtn = document.getElementById('logout-btn');
-    console.log('Logout button element:', logoutBtn);
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', logout);
-        console.log('Logout button event listener added');
-        
-        // Make button more visible for testing
-        logoutBtn.style.backgroundColor = '#ff4444';
-        logoutBtn.style.color = 'white';
-        logoutBtn.style.border = '2px solid #ff0000';
-        console.log('Logout button styled for visibility');
-    } else {
-        console.error('Logout button not found!');
-        
-        // Try to find the settings page and add a logout button manually
-        const settingsPage = document.getElementById('settings-page');
-        if (settingsPage) {
-            console.log('Settings page found, adding logout button manually');
-            const accountSection = settingsPage.querySelector('.settings-section:last-child');
-            if (accountSection) {
-                const logoutBtn = document.createElement('button');
-                logoutBtn.id = 'logout-btn';
-                logoutBtn.className = 'btn-secondary';
-                logoutBtn.innerHTML = '<i class="fas fa-sign-out-alt"></i> Logout';
-                logoutBtn.style.backgroundColor = '#ff4444';
-                logoutBtn.style.color = 'white';
-                logoutBtn.addEventListener('click', logout);
-                
-                const settingItem = document.createElement('div');
-                settingItem.className = 'setting-item';
-                settingItem.appendChild(logoutBtn);
-                accountSection.appendChild(settingItem);
-                
-                console.log('Logout button added manually');
-            }
-        }
-    }
+    // Logout functionality removed - no authentication needed
 
     // Navigation
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -528,8 +484,9 @@ function setupEventListeners() {
     safeAddEventListener('daily-reset-time', 'change', updateDailyResetTime);
     safeAddEventListener('theme-selector', 'change', updateTheme);
     safeAddEventListener('finish-selector', 'change', updateFinish);
+    safeAddEventListener('intensity-selector', 'change', updateIntensity);
     safeAddEventListener('dpi-selector', 'change', updateDPI);
-    safeAddEventListener('change-password-btn', 'click', openPasswordModal);
+    // Password change removed - no authentication needed
     safeAddEventListener('export-data-btn', 'click', exportData);
     safeAddEventListener('clear-data-btn', 'click', clearAllData);
     
@@ -625,12 +582,8 @@ function setupEventListeners() {
 
 // Navigation
 function navigateToPage(page) {
-    // Check authentication before navigating
-    if (!AppState.get('isAuthenticated')) {
-        console.log('Not authenticated, showing login modal');
-        showAuthModal('login');
-        return;
-    }
+    // Authentication check disabled - no authentication needed
+    console.log('Navigating to page:', page);
     
     // Update navigation
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -735,11 +688,8 @@ async function loadTasks() {
 
 async function createTask(taskData) {
     try {
-        const response = await fetch('/api/tasks', {
+        const response = await makeAuthenticatedRequest('/api/tasks', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
             body: JSON.stringify(taskData)
         });
 
@@ -774,11 +724,8 @@ async function createTask(taskData) {
 
 async function updateTask(taskId, taskData) {
     try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
+        const response = await makeAuthenticatedRequest(`/api/tasks/${taskId}`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
             body: JSON.stringify(taskData)
         });
 
@@ -811,7 +758,7 @@ async function updateTask(taskId, taskData) {
 
 async function deleteTask(taskId) {
     try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
+        const response = await makeAuthenticatedRequest(`/api/tasks/${taskId}`, {
             method: 'DELETE'
         });
 
@@ -907,17 +854,6 @@ function renderTasks(filter = AppState.get('currentFilter')) {
     });
     
     if (sortedTasks.length === 0) {
-        // Check if user is not authenticated
-        if (!AppState.get('isAuthenticated')) {
-            tasksList.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-lock" style="font-size: 3rem; color: #FFB6C1; margin-bottom: 1rem;"></i>
-                    <h3>Authentication Required</h3>
-                    <p>Please log in to view your tasks</p>
-                    <button class="btn btn-primary" onclick="showAuthModal('login')">Login</button>
-                </div>
-            `;
-        } else {
         tasksList.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-tasks" style="font-size: 3rem; color: #FFB6C1; margin-bottom: 1rem;"></i>
@@ -925,7 +861,6 @@ function renderTasks(filter = AppState.get('currentFilter')) {
                 <p>Create your first task to get started!</p>
             </div>
         `;
-        }
         return;
     }
 
@@ -1570,6 +1505,7 @@ async function loadSettings() {
         document.getElementById('autosave-interval').value = settings.autosave_interval || 30;
         document.getElementById('theme-selector').value = settings.theme || 'light';
         document.getElementById('finish-selector').value = settings.finish || 'glossy';
+        document.getElementById('intensity-selector').value = settings.intensity || '5';
         document.getElementById('dpi-selector').value = settings.dpi_scale || 100;
         
         applyThemeAndDPI();
@@ -1680,6 +1616,7 @@ function applyThemeAndDPI() {
     const settings = AppState.get('currentSettings') || {};
     const theme = settings.theme || 'light';
     const finish = settings.finish || 'glossy';
+    const intensity = settings.intensity || '5';
     const dpiScale = settings.dpi_scale || 100;
     
     // Apply theme
@@ -1687,6 +1624,9 @@ function applyThemeAndDPI() {
     
     // Apply finish
     document.body.setAttribute('data-finish', finish);
+    
+    // Apply intensity
+    document.body.setAttribute('data-intensity', intensity);
     
     // Apply DPI scaling (convert percentage to decimal)
     document.documentElement.style.setProperty('--dpi-scale', (dpiScale / 100));
@@ -1746,6 +1686,33 @@ async function updateFinish() {
     }
 }
 
+async function updateIntensity() {
+    const intensity = document.getElementById('intensity-selector').value;
+    
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ intensity: intensity })
+        });
+
+        if (response.ok) {
+            const settings = AppState.get('currentSettings') || {};
+            settings.intensity = intensity;
+            AppState.set('currentSettings', settings);
+            applyThemeAndDPI();
+            showNotification('Color intensity updated successfully!', 'success');
+        } else {
+            throw new Error('Failed to update intensity');
+        }
+    } catch (error) {
+        console.error('Error updating intensity:', error);
+        showNotification('Error updating color intensity', 'error');
+    }
+}
+
 async function updateDPI() {
     const dpiScale = parseInt(document.getElementById('dpi-selector').value);
     
@@ -1774,14 +1741,13 @@ async function updateDPI() {
 }
 
 // Password Management Functions
-function openPasswordModal() {
-    document.getElementById('password-modal').classList.add('active');
-    document.getElementById('current-password').focus();
-}
+// Password modal functions removed - no authentication needed
 
+// Add missing closePasswordModal function to prevent errors
 function closePasswordModal() {
-    document.getElementById('password-modal').classList.remove('active');
-    document.getElementById('password-form').reset();
+    // This function is called by event listeners but the modal doesn't exist
+    // Just log for debugging purposes
+    console.log('closePasswordModal called - no password modal to close');
 }
 
 // Developer Logs Modal Functions
