@@ -5,7 +5,7 @@
     "email": "vibin.inso@mail.com",
     "password_hash": "$2b$12$VJzxPlUZALMuwxmDUmzmKOgkfRuG1cvwD3U/bBgCdImFtWchQgFVi",
     "created_at": "2025-10-17T18:18:06.743608",
-    "last_login": "2025-10-18T00:34:12.170986",
+    "last_login": "2025-10-19T02:01:05.228297",
     "is_active": true,
     "profile": {
       "display_name": "vibin",
@@ -19,10 +19,24 @@
     "username": "achkbar",
     "password_hash": "$2b$12$w2lyDHwkW4j9E0M8l4d6CeA9nfuVrhlonKvfYtumQZwqGZmBC0SYG",
     "created_at": "2025-10-18T01:05:28.247880",
-    "last_login": "2025-10-18T01:05:36.977502",
+    "last_login": "2025-10-19T01:21:38.276386",
     "is_active": true,
     "profile": {
       "display_name": "achkbar",
+      "theme": "orange",
+      "dpi_scale": 100,
+      "autosave_interval": 30
+    }
+  },
+  "fe44cfc7-2156-4f2e-9ee7-cebbc38bc087": {
+    "id": "fe44cfc7-2156-4f2e-9ee7-cebbc38bc087",
+    "username": "vans",
+    "password_hash": "$2b$12$tOnXyAPbaBXj5Lhq4Gse8OVdfmVDeiqYuTQKLoXY7WiBt9BBsnt5i",
+    "created_at": "2025-10-19T02:08:21.796329",
+    "last_login": "2025-10-19T02:08:25.184284",
+    "is_active": true,
+    "profile": {
+      "display_name": "vans",
       "theme": "orange",
       "dpi_scale": 100,
       "autosave_interval": 30

@@ -1,0 +1,323 @@
+/* App Container */
+.app-container {
+    display: flex;
+    min-height: 100vh;
+    background: var(--secondary-gradient);
+}
+
+/* Sidebar - Base Styles */
+.sidebar {
+    width: calc(240px * var(--dpi-scale));
+    background: var(--surface-finish-gradient);
+    backdrop-filter: var(--backdrop-filter);
+    border-right: var(--border-finish);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 1000;
+    transition: transform 0.3s ease;
+}
+
+.sidebar-header {
+    padding: calc(1.5rem * var(--dpi-scale)) calc(1.5rem * var(--dpi-scale));
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: calc(1.5rem * var(--dpi-scale));
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: calc(0.8rem * var(--dpi-scale));
+}
+
+.logo-icon {
+    width: calc(40px * var(--dpi-scale));
+    height: calc(40px * var(--dpi-scale));
+    background: var(--primary-gradient);
+    border-radius: calc(12px * var(--dpi-scale));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: calc(1.2rem * var(--dpi-scale));
+    box-shadow: 0 calc(6px * var(--dpi-scale)) calc(20px * var(--dpi-scale)) var(--shadow-color);
+}
+
+.logo h1 {
+    font-size: calc(1.5rem * var(--dpi-scale));
+    font-weight: 700;
+    color: var(--text-color);
+    letter-spacing: -0.5px;
+}
+
+.nav-menu {
+    padding: 0 calc(0.8rem * var(--dpi-scale));
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: calc(0.8rem * var(--dpi-scale));
+    padding: calc(0.8rem * var(--dpi-scale)) calc(1.2rem * var(--dpi-scale));
+    margin: calc(0.4rem * var(--dpi-scale)) 0;
+    border-radius: calc(12px * var(--dpi-scale));
+    cursor: pointer;
+    transition: all 0.3s ease;
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: calc(0.9rem * var(--dpi-scale));
+}
+
+.nav-item:hover {
+    background: var(--border-color);
+    color: var(--accent-color);
+    transform: translateX(calc(4px * var(--dpi-scale)));
+}
+
+.nav-item.active {
+    background: var(--primary-gradient);
+    color: white;
+    box-shadow: 0 calc(6px * var(--dpi-scale)) calc(20px * var(--dpi-scale)) var(--shadow-color);
+}
+
+.nav-item i {
+    font-size: calc(1rem * var(--dpi-scale));
+    display: inline-block;
+    width: auto;
+    height: auto;
+}
+
+/* Main Content - Base Styles */
+.main-content {
+    flex: 1;
+    margin-left: calc(240px * var(--dpi-scale));
+    padding: calc(1.5rem * var(--dpi-scale));
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Layout Toggle - visible on all screens */
+.layout-toggle {
+    display: flex !important;
+    gap: calc(0.3rem * var(--dpi-scale));
+    background: var(--surface-color);
+    padding: calc(0.3rem * var(--dpi-scale));
+    border-radius: calc(12px * var(--dpi-scale));
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--border-color);
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: relative !important;
+    z-index: 10 !important;
+}
+
+.layout-btn {
+    background: none;
+    border: none;
+    padding: calc(0.6rem * var(--dpi-scale)) calc(0.8rem * var(--dpi-scale));
+    border-radius: calc(8px * var(--dpi-scale));
+    cursor: pointer;
+    transition: all 0.3s ease;
+    color: var(--text-secondary);
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    min-width: calc(40px * var(--dpi-scale));
+    min-height: calc(40px * var(--dpi-scale));
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: relative !important;
+    z-index: 11 !important;
+}
+
+.layout-btn i {
+    font-size: calc(1rem * var(--dpi-scale));
+    display: inline-block !important;
+    width: auto !important;
+    height: auto !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    font-family: "Font Awesome 6 Free" !important;
+    font-weight: 900 !important;
+}
+
+.layout-btn.active {
+    background: var(--primary-gradient);
+    color: white;
+    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(8px * var(--dpi-scale)) var(--shadow-color);
+}
+
+.layout-btn:hover:not(.active) {
+    background: var(--border-color);
+}
+
+/* Grid Layout for desktop */
+.tasks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(calc(320px * var(--dpi-scale)), 1fr));
+    gap: calc(1.5rem * var(--dpi-scale));
+    padding: calc(1rem * var(--dpi-scale));
+}
+
+/* Better drag and drop cursors */
+.draggable-task {
+    cursor: grab;
+}
+
+.draggable-task:active {
+    cursor: grabbing;
+}
+
+.time-content {
+    cursor: pointer;
+}
+
+.time-content.drag-over {
+    border-color: var(--accent-color);
+    background: var(--border-color);
+    transform: scale(1.02);
+}
+
+.page {
+    display: none;
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+.page.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Desktop Header Styles */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: calc(2rem * var(--dpi-scale));
+    padding-bottom: calc(1rem * var(--dpi-scale));
+    border-bottom: 1px solid var(--border-color);
+    flex-wrap: wrap;
+    gap: calc(1rem * var(--dpi-scale));
+}
+
+.page-header h2 {
+    font-size: calc(2.5rem * var(--dpi-scale));
+    font-weight: 700;
+    color: var(--text-color);
+    margin: 0;
+}
+
+.page-actions {
+    display: flex;
+    gap: calc(0.8rem * var(--dpi-scale));
+    align-items: center;
+}
+
+/* Desktop Base Styles - Default Layout */
+.desktop-layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: calc(2rem * var(--dpi-scale));
+    min-height: calc(100vh - 200px);
+}
+
+/* Desktop Grid Layout */
+.tasks-container {
+    background: var(--surface-color);
+    border-radius: calc(16px * var(--dpi-scale));
+    padding: calc(2rem * var(--dpi-scale));
+    box-shadow: var(--card-shadow);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--border-color);
+}
+
+/* Desktop Planner Layout */
+.planner-container {
+    background: var(--surface-color);
+    border-radius: calc(16px * var(--dpi-scale));
+    padding: calc(1.5rem * var(--dpi-scale));
+    box-shadow: var(--card-shadow);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--border-color);
+    height: fit-content;
+    position: sticky;
+    top: calc(2rem * var(--dpi-scale));
+}
+
+/* Responsive Layout Adjustments */
+@media (max-width: 1200px) {
+    .desktop-layout {
+        grid-template-columns: 1fr;
+        gap: calc(1.5rem * var(--dpi-scale));
+    }
+
+    .planner-container {
+        position: static;
+        order: -1;
+    }
+}
+
+@media (max-width: 768px) {
+    .sidebar {
+        transform: translateX(-100%);
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    .main-content {
+        margin-left: 0;
+    }
+
+    .tasks-grid {
+        grid-template-columns: 1fr;
+        gap: calc(1rem * var(--dpi-scale));
+        padding: calc(0.5rem * var(--dpi-scale));
+    }
+
+    .page-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: calc(1rem * var(--dpi-scale));
+    }
+
+    .page-header h2 {
+        font-size: calc(2rem * var(--dpi-scale));
+        text-align: center;
+    }
+}
+
+/* Mobile Sidebar Toggle */
+.mobile-menu-toggle {
+    display: none;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: calc(12px * var(--dpi-scale));
+    padding: calc(0.8rem * var(--dpi-scale));
+    cursor: pointer;
+    color: var(--text-color);
+    font-size: calc(1.2rem * var(--dpi-scale));
+    backdrop-filter: blur(10px);
+    box-shadow: var(--card-shadow);
+    transition: all 0.3s ease;
+}
+
+.mobile-menu-toggle:hover {
+    background: var(--border-color);
+    transform: scale(1.05);
+}
+
+@media (max-width: 768px) {
+    .mobile-menu-toggle {
+        display: block;
+    }
+}

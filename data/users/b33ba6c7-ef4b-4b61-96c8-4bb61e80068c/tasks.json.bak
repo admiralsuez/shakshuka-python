@@ -27,7 +27,7 @@
     "created_at": "2025-10-18T02:10:00.828063",
     "due_date": "",
     "project": "",
-    "scheduled_hour": "0:0",
+    "scheduled_hour": "undefined:undefined",
     "estimated_duration": 60,
     "struck_today": false,
     "struck_date": null,
