@@ -69,13 +69,24 @@ class SimpleDataManager:
             return "default"
     
     def _get_user_files(self, user_id: str) -> Dict[str, str]:
-        """Get file paths for a specific user"""
+        """Get file paths for a specific user - ENHANCED VERSION"""
+        # Create user directory with enhanced logging
         user_dir = os.path.join(self.users_dir, user_id)
         os.makedirs(user_dir, exist_ok=True)
         
+        self.logger.info(f"Created/accessed user directory: {user_dir}")
+        self.logger.info(f"User ID received: {user_id}")
+        self.logger.info(f"User directory exists: {os.path.exists(user_dir)}")
+        
+        tasks_file = os.path.join(user_dir, "tasks.json")
+        settings_file = os.path.join(user_dir, "settings.json")
+        
+        self.logger.info(f"Tasks file path: {tasks_file}")
+        self.logger.info(f"Settings file path: {settings_file}")
+        
         return {
-            'tasks': os.path.join(user_dir, "tasks.json"),
-            'settings': os.path.join(user_dir, "settings.json"),
+            'tasks': tasks_file,
+            'settings': settings_file,
             'user_dir': user_dir
         }
     
@@ -208,12 +219,14 @@ class SimpleDataManager:
     def load_tasks_for_user(self, user_id: str, use_cache=True):
         """Load tasks for a specific user from JSON file with caching"""
         with self._lock:
+            self.logger.info(f"load_tasks_for_user called with user_id: {user_id}")
             now = datetime.now()
             cache = self._get_user_cache(user_id)
             
             # Check cache
             if use_cache and cache['tasks'] and cache['cache_expiry']:
                 if now < cache['cache_expiry']:
+                    self.logger.info(f"Returning cached tasks for user {user_id}")
                     return cache['tasks'].copy()
             
             # Load from disk
@@ -223,6 +236,7 @@ class SimpleDataManager:
             cache['tasks'] = tasks.copy()
             cache['cache_expiry'] = now + timedelta(seconds=self._cache_ttl)
             
+            self.logger.info(f"Loaded {len(tasks)} tasks for user {user_id}")
             return tasks
     
     def _load_from_file(self, user_id: str):
@@ -321,8 +335,9 @@ class SimpleDataManager:
     
     # Backward compatibility methods for system operations
     def load_settings(self, user_id: str = None):
-        """Load settings with optional user_id (uses default user if not provided)"""
+        """Load settings with optional user_id (uses provided user_id or creates new user folder)"""
         if user_id is None:
+            # For backward compatibility, try to get default user ID
             user_id = self._get_default_user_id()
         return self.load_settings_for_user(user_id)
     
@@ -341,15 +356,27 @@ class SimpleDataManager:
         return self.save_settings_for_user(user_id, settings)
     
     def load_tasks(self, user_id: str = None):
-        """Load tasks with optional user_id (uses default user if not provided)"""
+        """Load tasks with optional user_id - DIRECT USER ID HANDLING"""
         if user_id is None:
+            # For backward compatibility, try to get default user ID
             user_id = self._get_default_user_id()
+            self.logger.info(f"load_tasks called without user_id, using default: {user_id}")
+        else:
+            self.logger.info(f"load_tasks called with user_id: {user_id}")
+        
+        # DIRECT CALL to user-specific method - no fallback
         return self.load_tasks_for_user(user_id)
     
     def save_tasks(self, tasks, user_id: str = None):
-        """Save tasks with optional user_id (uses default user if not provided)"""
+        """Save tasks with optional user_id - DIRECT USER ID HANDLING"""
         if user_id is None:
+            # For backward compatibility, try to get default user ID
             user_id = self._get_default_user_id()
+            self.logger.info(f"save_tasks called without user_id, using default: {user_id}")
+        else:
+            self.logger.info(f"save_tasks called with user_id: {user_id}")
+        
+        # DIRECT CALL to user-specific method - no fallback
         return self.save_tasks_for_user(user_id, tasks)
 
 # Keep the old EncryptedDataManager for backward compatibility

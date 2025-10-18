@@ -46,7 +46,7 @@ function showAddTaskOptions() {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
     modal.classList.add('active');
 }
@@ -59,14 +59,17 @@ function closeAddTaskOptions() {
 }
 
 // Initialize the application when DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
     console.log('Shakshuka application initializing...');
 
-    // Check authentication status
-    Auth.checkAuthStatus();
+    // Check authentication status and wait for it to complete
+    await Auth.checkAuthStatus();
 
-    // Setup event listeners
+    // Setup event listeners only once
+    if (!window.eventListenersSetup) {
     setupEventListeners();
+        window.eventListenersSetup = true;
+    }
 
     console.log('Shakshuka application initialized');
 });
@@ -222,26 +225,6 @@ async function updateTheme() {
     } catch (error) {
         Utils.Logger.error('Failed to update theme:', error);
         Utils.safeShowNotification('Failed to update theme', 'error');
-    }
-}
-
-async function updateFinish() {
-    const finish = document.getElementById('finish-selector').value;
-    try {
-        const response = await Utils.makeAuthenticatedRequest('/api/settings/finish', {
-            method: 'POST',
-            body: JSON.stringify({ finish })
-        });
-
-        if (response.ok) {
-            applyThemeAndDPI();
-            Utils.safeShowNotification('Finish style updated', 'success');
-        } else {
-            Utils.safeShowNotification('Failed to update finish style', 'error');
-        }
-    } catch (error) {
-        Utils.Logger.error('Failed to update finish:', error);
-        Utils.safeShowNotification('Failed to update finish style', 'error');
     }
 }
 
@@ -828,7 +811,7 @@ function closeChangelogModal() {
     const modal = document.getElementById('changelog-modal');
     if (modal) {
         modal.classList.remove('active');
-        modal.style.display = 'none';
+    modal.style.display = 'none';
     }
 }
 
@@ -1193,6 +1176,7 @@ function setupEventListeners() {
     
     // Form submissions
     safeAddEventListener('save-task', 'click', () => saveTask());
+    safeAddEventListener('save-quick-task', 'click', () => saveQuickTask());
     
     // Changelog functionality
     safeAddEventListener('view-changelog-btn', 'click', () => openChangelogModal());
@@ -1801,6 +1785,8 @@ function filterTasks(filter) {
 // Dashboard Stats
 function updateDashboardStats() {
     const tasks = AppState.getTasks();
+    
+    // Calculate completed today
     const completedToday = tasks.filter(task => {
         if (!task.completed || !task.completed_at) return false;
         const completedDate = new Date(task.completed_at);
@@ -1808,28 +1794,63 @@ function updateDashboardStats() {
         return completedDate.toDateString() === today.toDateString();
     }).length;
 
-    const pendingTasks = tasks.filter(task => !task.completed).length;
+    // Calculate expired tasks (tasks with due dates that have passed and are not completed)
+    const expiredTasks = tasks.filter(task => {
+        if (task.completed) return false;
+        if (!task.due_date) return false;
+        const dueDate = new Date(task.due_date);
+        const today = new Date();
+        today.setHours(23, 59, 59, 999); // End of today
+        return dueDate < today;
+    }).length;
     
-    // Calculate streak (simplified)
+    // Calculate streak (consecutive days with completed tasks)
     const streakDays = calculateStreak();
     
-    // Calculate productivity score
+    // Calculate productivity score (completion rate)
     const productivityScore = calculateProductivityScore();
 
-    document.getElementById('completed-today').textContent = completedToday;
-    document.getElementById('expired-tasks').textContent = pendingTasks;
-    document.getElementById('streak-days').textContent = streakDays;
-    document.getElementById('productivity-score').textContent = productivityScore + '%';
+    // Update DOM elements
+    const completedTodayEl = document.getElementById('completed-today');
+    const expiredTasksEl = document.getElementById('expired-tasks');
+    const streakDaysEl = document.getElementById('streak-days');
+    const productivityScoreEl = document.getElementById('productivity-score');
+    
+    if (completedTodayEl) completedTodayEl.textContent = completedToday;
+    if (expiredTasksEl) expiredTasksEl.textContent = expiredTasks;
+    if (streakDaysEl) streakDaysEl.textContent = streakDays;
+    if (productivityScoreEl) productivityScoreEl.textContent = productivityScore + '%';
 }
 
 function calculateStreak() {
-    // Simplified streak calculation
     const tasks = AppState.getTasks();
-    const completedTasks = tasks.filter(task => task.completed);
+    const completedTasks = tasks.filter(task => task.completed && task.completed_at);
+    
     if (completedTasks.length === 0) return 0;
     
-    // For demo purposes, return a random streak
-    return Math.min(completedTasks.length, 30);
+    // Sort completed tasks by completion date (most recent first)
+    completedTasks.sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at));
+    
+    let streak = 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Check consecutive days starting from today
+    for (let i = 0; i < completedTasks.length; i++) {
+        const completedDate = new Date(completedTasks[i].completed_at);
+        completedDate.setHours(0, 0, 0, 0);
+        
+        const expectedDate = new Date(today);
+        expectedDate.setDate(today.getDate() - i);
+        
+        if (completedDate.getTime() === expectedDate.getTime()) {
+            streak++;
+        } else {
+            break;
+        }
+    }
+    
+    return streak;
 }
 
 function calculateProductivityScore() {
@@ -1861,7 +1882,7 @@ function openTaskModal(taskId = null) {
     }
     
     if (modal) {
-        modal.classList.add('active');
+    modal.classList.add('active');
         modal.style.display = 'flex';
     }
 }
@@ -1881,7 +1902,7 @@ function openQuickAddModal() {
     if (modal) {
         modal.classList.add('active');
         modal.style.display = 'flex';
-        document.getElementById('quick-task-title').focus();
+    document.getElementById('quick-task-title').focus();
     }
 }
 
@@ -1914,6 +1935,15 @@ async function undoCompleteTask(taskId) {
 
 // Form Submissions
 async function saveTask() {
+    // Prevent duplicate task creation
+    if (window.taskCreationInProgress) {
+        console.log('Task creation already in progress, skipping duplicate call');
+        return;
+    }
+    
+    window.taskCreationInProgress = true;
+    
+    try {
     const form = document.getElementById('task-form');
     const formData = new FormData(form);
     
@@ -1930,7 +1960,6 @@ async function saveTask() {
         return;
     }
 
-    try {
         const editingTaskId = AppState.get('editingTaskId');
         if (editingTaskId) {
             await updateTask(editingTaskId, taskData);
@@ -1941,6 +1970,9 @@ async function saveTask() {
         closeTaskModal();
     } catch (error) {
         console.error('Error saving task:', error);
+    } finally {
+        // Always reset the flag, even if an error occurs
+        window.taskCreationInProgress = false;
     }
 }
 
@@ -2091,12 +2123,9 @@ async function handleDrop(e) {
     
     console.log('Dropping task:', taskId, 'at time:', `${hour}:${minute}`);
     
-    // Check if this is a scheduled task being moved
+    // Store references to tasks that might need to be removed
     const scheduledTask = document.querySelector(`.scheduled-task[data-task-id="${taskId}"]`);
-    if (scheduledTask) {
-        // Remove from current time slot
-        scheduledTask.remove();
-    }
+    const draggedTask = document.querySelector(`.draggable-task[data-task-id="${taskId}"]`);
     
     // Schedule task with its actual duration
     const tasks = AppState.getTasks();
@@ -2117,8 +2146,10 @@ async function handleDrop(e) {
         });
         
         if (response.ok) {
-            // Immediately remove the dragged task from available tasks for visual feedback
-            const draggedTask = document.querySelector(`.draggable-task[data-task-id="${taskId}"]`);
+            // Only remove tasks from DOM after successful API call
+            if (scheduledTask) {
+                scheduledTask.remove();
+            }
             if (draggedTask) {
                 draggedTask.remove();
             }
@@ -2228,6 +2259,12 @@ function loadScheduledTasks() {
     
     // Add scheduled tasks to their time slots
     scheduledTasks.forEach(task => {
+        // Check if scheduled_hour exists and is valid
+        if (!task.scheduled_hour || task.scheduled_hour === 'null' || task.scheduled_hour === 'undefined') {
+            console.log(`Task ${task.title} has no valid scheduled_hour: ${task.scheduled_hour}`);
+            return;
+        }
+        
         // Parse the scheduled hour (format: "HH:MM")
         const timeParts = task.scheduled_hour.split(':');
         if (timeParts.length !== 2) {
@@ -2770,8 +2807,8 @@ function openScheduleModal() {
     // Populate the existing task selector
     const taskSelect = document.getElementById('schedule-task-select');
     if (taskSelect) {
-        taskSelect.innerHTML = '<option value="">Select a task</option>' + 
-            availableTasks.map(task => `<option value="${task.id}">${task.title}</option>`).join('');
+    taskSelect.innerHTML = '<option value="">Select a task</option>' + 
+        availableTasks.map(task => `<option value="${task.id}">${task.title}</option>`).join('');
     }
     
     // Show the modal
@@ -2863,7 +2900,7 @@ async function confirmSchedule() {
             };
             
             const createResponse = await Utils.makeAuthenticatedRequest('/api/tasks', {
-                method: 'POST',
+            method: 'POST',
                 body: JSON.stringify(newTaskData)
             });
             
@@ -3691,6 +3728,9 @@ function clearTaskForm() {
 
 // Consolidated save function to avoid duplication
 async function saveTaskCommon(taskData, modalCloseFn) {
+    console.log('saveTaskCommon called with:', taskData);
+    console.log('User ID in saveTaskCommon:', AppState.get('userId'));
+    
     // Validation
     if (!taskData.title || !taskData.title.trim()) {
         showNotification('Please enter a task title', 'error');
@@ -3745,14 +3785,31 @@ async function saveTaskCommon(taskData, modalCloseFn) {
 // Duplicate saveTask function removed - using the first one
 
 async function saveQuickTask() {
+    // Prevent duplicate task creation
+    if (window.taskCreationInProgress) {
+        console.log('Task creation already in progress, skipping duplicate call');
+        return;
+    }
+    
+    window.taskCreationInProgress = true;
+    
+    try {
+        console.log('saveQuickTask called');
     const taskData = {
         title: document.getElementById('quick-task-title').value.trim(),
         description: '',
         project: '',
         estimated_duration: 60
     };
+        
+        console.log('Quick task data:', taskData);
+        console.log('User ID from AppState:', AppState.get('userId'));
     
     await saveTaskCommon(taskData, closeQuickAddModal);
+    } finally {
+        // Always reset the flag, even if an error occurs
+        window.taskCreationInProgress = false;
+    }
 }
 // Import Tasks Functions
 function openImportModal() {

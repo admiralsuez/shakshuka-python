@@ -2,17 +2,24 @@
 
 // Global Auth object
 const Auth = {
-    // Authentication Functions - SIMPLE USER IDENTIFICATION (no auth modal in HTML)
+    // Authentication Functions - ENHANCED USER IDENTIFICATION SYSTEM
     async checkAuthStatus() {
         // Generate or retrieve unique user ID for this browser session
         let userId = localStorage.getItem('shakshuka_user_id');
         if (!userId) {
-            userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            // Generate a more unique user ID with timestamp and random string
+            const timestamp = Date.now();
+            const randomStr = Math.random().toString(36).substr(2, 12);
+            const browserFingerprint = navigator.userAgent.substring(0, 20) + navigator.language;
+            userId = `user_${timestamp}_${randomStr}_${btoa(browserFingerprint).substr(0, 8)}`;
             localStorage.setItem('shakshuka_user_id', userId);
-            console.log('Generated new user ID:', userId);
+            console.log('Generated new enhanced user ID:', userId);
         } else {
-            console.log('Using existing user ID:', userId);
+            console.log('Using existing enhanced user ID:', userId);
         }
+        
+        // Also store in sessionStorage for additional isolation
+        sessionStorage.setItem('shakshuka_session_id', userId);
         
         // Set user as authenticated with unique ID
         AppState.set('isAuthenticated', true);
@@ -20,7 +27,7 @@ const Auth = {
         AppState.set('userId', userId);
         
         // Load app data directly
-        console.log('Loading app data for user:', userId);
+        console.log('Loading app data for enhanced user:', userId);
         this.loadAppData();
     },
 
@@ -207,10 +214,11 @@ const Auth = {
 
     // Reset user session - generates new user ID
     resetUserSession() {
-        console.log('Resetting user session...');
+        console.log('Resetting enhanced user session...');
         localStorage.removeItem('shakshuka_user_id');
-        console.log('User session reset. Please refresh the page.');
-        showNotification('User session reset. Please refresh the page to get a new user ID.', 'info');
+        sessionStorage.removeItem('shakshuka_session_id');
+        console.log('Enhanced user session reset. Please refresh the page.');
+        showNotification('Enhanced user session reset. Please refresh the page to get a new user ID.', 'info');
     }
 };
 

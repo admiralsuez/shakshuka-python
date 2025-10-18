@@ -5,7 +5,7 @@
     "email": "vibin.inso@mail.com",
     "password_hash": "$2b$12$VJzxPlUZALMuwxmDUmzmKOgkfRuG1cvwD3U/bBgCdImFtWchQgFVi",
     "created_at": "2025-10-17T18:18:06.743608",
-    "last_login": "2025-10-19T02:01:05.228297",
+    "last_login": "2025-10-19T02:40:31.288473",
     "is_active": true,
     "profile": {
       "display_name": "vibin",
@@ -37,6 +37,62 @@
     "is_active": true,
     "profile": {
       "display_name": "vans",
+      "theme": "orange",
+      "dpi_scale": 100,
+      "autosave_interval": 30
+    }
+  },
+  "9c96a93a-51af-4ac0-a074-1613aca8213d": {
+    "id": "9c96a93a-51af-4ac0-a074-1613aca8213d",
+    "username": "reaper",
+    "password_hash": "$2b$12$Yjc6zxoNJ0ubPqZSpWx3ZOBjQiJkajg8YqlSII3pLvZuUBCI/MTO6",
+    "created_at": "2025-10-19T03:14:27.410782",
+    "last_login": "2025-10-19T03:50:23.841479",
+    "is_active": true,
+    "profile": {
+      "display_name": "reaper",
+      "theme": "orange",
+      "dpi_scale": 100,
+      "autosave_interval": 30
+    }
+  },
+  "774ec7a2-cdd6-4b02-805c-00ab0ac818a5": {
+    "id": "774ec7a2-cdd6-4b02-805c-00ab0ac818a5",
+    "username": "test1",
+    "password_hash": "$2b$12$ZHpRCNNi0KxF9Orgv6fXde9Eb.OnM7XdaAh7hP56IjKgRW1y43NdK",
+    "created_at": "2025-10-19T05:04:34.703974",
+    "last_login": "2025-10-19T05:04:39.298571",
+    "is_active": true,
+    "profile": {
+      "display_name": "test1",
+      "theme": "orange",
+      "dpi_scale": 100,
+      "autosave_interval": 30
+    }
+  },
+  "85b2f2bf-58bd-4850-ad8c-85670012c4b7": {
+    "id": "85b2f2bf-58bd-4850-ad8c-85670012c4b7",
+    "username": "test2",
+    "password_hash": "$2b$12$1XoICokIQ36vBvk98hn72OmgKO.PrV6d5qMubTQdXe/mWOK5ihgGe",
+    "created_at": "2025-10-19T05:09:56.530885",
+    "last_login": "2025-10-19T05:10:00.411495",
+    "is_active": true,
+    "profile": {
+      "display_name": "test2",
+      "theme": "orange",
+      "dpi_scale": 100,
+      "autosave_interval": 30
+    }
+  },
+  "ee949dbf-48bf-4b62-bbc0-4d0e2dc5f8a0": {
+    "id": "ee949dbf-48bf-4b62-bbc0-4d0e2dc5f8a0",
+    "username": "test3",
+    "password_hash": "$2b$12$Mng/89e81tgRlbQTvEMTvODk4afcv2o/34lWiU2xc.MgdnXsQ1b3K",
+    "created_at": "2025-10-19T05:18:30.876341",
+    "last_login": "2025-10-19T05:18:35.554512",
+    "is_active": true,
+    "profile": {
+      "display_name": "test3",
       "theme": "orange",
       "dpi_scale": 100,
       "autosave_interval": 30
