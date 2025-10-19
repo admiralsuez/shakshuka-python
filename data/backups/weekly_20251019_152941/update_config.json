@@ -4,6 +4,6 @@
   "auto_install_enabled": false,
   "backup_before_update": true,
   "update_channel": "stable",
-  "last_check": "2025-10-16T19:14:48.377820",
-  "update_server_url": "https://api.github.com/repos/your-repo/shakshuka/releases/latest"
+  "last_check": "2025-10-19T15:29:41.189332",
+  "update_server_url": "http://localhost:8989/api/updates"
 }

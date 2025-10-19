@@ -44,7 +44,7 @@ A beautiful, modern task management application inspired by meditation app desig
 
 2. **Install dependencies:**
    ```bash
-   pip install -r requirements.txt
+   pip install -r config/requirements.txt
    ```
 
 3. **Run the application:**
@@ -58,7 +58,7 @@ A beautiful, modern task management application inspired by meditation app desig
 
 1. **Run the build script:**
    ```bash
-   python build.py
+   python scripts/build.py
    ```
 
 2. **Run the executable:**
@@ -73,20 +73,15 @@ Shakshuka/
 ├── main.py               # Main entry point (imports from src/)
 ├── src/
 │   └── app.py            # Main Flask application
-├── data_manager.py        # Encrypted data storage
-├── autostart.py          # Windows autostart functionality
-├── build.py              # Build script for executable
-├── requirements.txt      # Python dependencies
-├── Shakshuka.spec        # PyInstaller configuration
-├── templates/
-│   └── index.html        # Main HTML template
-├── static/
-│   ├── css/
-│   │   └── style.css     # Modern CSS styles
-│   ├── js/
-│   │   └── app.js        # Frontend JavaScript
-│   └── images/           # Static images
-└── data/                 # Encrypted data storage (created automatically)
+├── assets/
+│   ├── static/           # Web assets (CSS, JS, images)
+│   └── templates/        # HTML templates
+├── config/
+│   ├── requirements.txt  # Python dependencies
+│   └── version.json     # Version information
+├── data/                 # Encrypted data storage (created automatically)
+├── tools/                # Utility scripts
+└── scripts/              # Build and deployment scripts
 ```
 
 ## Technology Stack
@@ -159,7 +154,7 @@ The app will run with debug mode enabled and auto-reload on changes.
 
 ### Building for Distribution:
 ```bash
-python build.py
+python scripts/build.py
 ```
 This creates a standalone executable that can be distributed without Python installation.
 
@@ -168,7 +163,7 @@ This creates a standalone executable that can be distributed without Python inst
 ### Common Issues:
 
 1. **Port 5000 already in use:**
-   - Change the port in `app.py` (line with `app.run()`)
+   - Change the port in `src/app.py` (line with `app.run()`)
    - Or kill the process using port 5000
 
 2. **Permission errors on Windows:**

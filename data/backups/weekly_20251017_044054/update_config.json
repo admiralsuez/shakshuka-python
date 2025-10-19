@@ -1,9 +1,0 @@
-{
-  "auto_check_enabled": true,
-  "check_interval_hours": 24,
-  "auto_install_enabled": false,
-  "backup_before_update": true,
-  "update_channel": "stable",
-  "last_check": "2025-10-16T19:14:48.377820",
-  "update_server_url": "https://api.github.com/repos/your-repo/shakshuka/releases/latest"
-}

@@ -83,8 +83,12 @@ Shakshuka/
 ├── install.ps1               # Optional installer
 ├── uninstall.ps1             # Uninstaller (if you used installer)
 ├── server-manager.ps1         # Server control
-├── static/                   # Web assets
-├── templates/                # HTML templates
+├── assets/                   # Web assets
+│   ├── static/               # CSS, JS, images
+│   └── templates/             # HTML templates
+├── config/                    # Configuration files
+│   ├── requirements.txt      # Python dependencies
+│   └── version.json         # Version information
 └── data/                     # Your data (created automatically)
 ```
 

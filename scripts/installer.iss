@@ -24,7 +24,7 @@ AllowNoIcons=yes
 LicenseFile=LICENSE.txt
 OutputDir=dist
 OutputBaseFilename=Shakshuka-Setup-v{#MyAppVersion}
-SetupIconFile=static\images\icon.ico
+SetupIconFile=assets\static\images\icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -44,13 +44,13 @@ Name: "autostart"; Description: "Start Shakshuka automatically when Windows star
 ; Main executable
 Source: "Shakshuka.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Static files
-Source: "static\*"; DestDir: "{app}\static"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "assets\static\*"; DestDir: "{app}\static"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Templates
-Source: "templates\*"; DestDir: "{app}\templates"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "assets\templates\*"; DestDir: "{app}\templates"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Data directory (for initial setup)
 Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Configuration files
-Source: "version.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "config/version.json"; DestDir: "{app}"; Flags: ignoreversion
 ; Management scripts
 Source: "Start-Shakshuka.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Stop-Shakshuka.bat"; DestDir: "{app}"; Flags: ignoreversion
@@ -60,7 +60,7 @@ Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "INSTALLATION.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "TROUBLESHOOTING.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "QUICK-START.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "config/requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

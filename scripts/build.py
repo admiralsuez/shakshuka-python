@@ -76,7 +76,7 @@ def build_executable():
         '--add-data=src/update_manager.py;.',
         '--add-data=src/user_manager.py;.',
         '--add-data=src/security_manager.py;.',
-        '--add-data=src/data_manager.py;.',
+        '--add-data=src/sqlite_data_manager.py;.',
         '--add-data=tools/autostart.py;.',
         '--add-data=config/version.json;.',
         '--add-data=main.py;.',
@@ -127,7 +127,7 @@ def cleanup_build_files():
 
 def create_icon():
     """Create a simple icon file if it doesn't exist"""
-    icon_path = Path('static/images/icon.ico')
+    icon_path = Path('assets/static/images/icon.ico')
     if not icon_path.exists():
         # Create images directory if it doesn't exist
         icon_path.parent.mkdir(parents=True, exist_ok=True)
@@ -141,7 +141,7 @@ def install_dependencies():
     print("Installing dependencies...")
     
     try:
-        subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'], 
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'config/requirements.txt'], 
                       check=True, capture_output=True, text=True)
         print("Dependencies installed successfully!")
         return True

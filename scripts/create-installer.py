@@ -103,8 +103,7 @@ def create_portable_version():
     ]
     
     dirs_to_copy = [
-        "static",
-        "templates",
+        "assets",
         "data"
     ]
     
@@ -162,8 +161,7 @@ def main():
     # Check if required files exist
     required_files = [
         "Shakshuka.exe",
-        "static",
-        "templates", 
+        "assets", 
         "data",
         "installer.iss",
         "LICENSE.txt"

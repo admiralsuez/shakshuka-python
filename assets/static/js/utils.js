@@ -25,6 +25,7 @@ async function makeAuthenticatedRequest(url, options = {}) {
     console.log('User ID:', userId);
 
     const defaultOptions = {
+        credentials: 'include', // Include session cookies
         headers: {
             'Content-Type': 'application/json',
             ...(token && { 'X-CSRF-Token': token }),

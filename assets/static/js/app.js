@@ -985,17 +985,12 @@ function displayLogs() {
     logsContent.innerHTML = logsHtml;
 }
 
-// Authentication Functions - DISABLED (no authentication needed)
-async function checkAuthStatus() {
-    // Skip authentication checks - always authenticated
-    console.log('Authentication disabled - skipping auth checks');
-    AppState.set('isAuthenticated', true);
-    AppState.set('passwordSet', true);
-    
-    // Load app data directly
-    console.log('Loading app data directly');
-    loadAppData();
-}
+        // Authentication Functions - Authentication disabled
+        async function checkAuthStatus() {
+            // Authentication disabled - just load the app
+            console.log('Authentication disabled - loading app directly');
+            initializeApp();
+        }
 
 // Authentication is disabled - no modal needed
 
@@ -1267,14 +1262,6 @@ function setupEventListeners() {
     safeAddEventListener('update-channel', 'change', updateUpdateSettings);
     safeAddEventListener('check-interval', 'change', updateUpdateSettings);
     
-    // Account settings
-    safeAddEventListener('change-password-btn', 'click', openChangePasswordModal);
-    safeAddEventListener('logout-btn', 'click', logout);
-    
-    // Change password modal
-    safeAddEventListener('close-change-password-modal', 'click', closeChangePasswordModal);
-    safeAddEventListener('cancel-change-password', 'click', closeChangePasswordModal);
-    safeAddEventListener('save-change-password', 'click', changePassword);
 
     // Quick actions
     safeAddEventListener('focus-mode-btn', 'click', () => navigateToPage('planner'));
@@ -1395,12 +1382,6 @@ async function loadTasks() {
             clearTimeout(timeoutId);
             
             if (!response.ok) {
-                if (response.status === 401) {
-                    Utils.Logger.log('Authentication disabled - skipping auth modal');
-                    tasks = [];
-                    showLoading(false); // Hide loading overlay on auth error
-                    return;
-                }
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
             
@@ -1481,14 +1462,8 @@ async function createTask(taskData) {
             console.log('Task creation completed successfully');
             return newTask;
         } else {
-            if (response.status === 401) {
-                console.log('Authentication required for task creation');
-                Utils.Logger.log('Authentication disabled - skipping auth modal');
-                throw new Error('Please log in to create tasks');
-            } else {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `Failed to create task (${response.status})`);
-            }
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Failed to create task (${response.status})`);
         }
     } catch (error) {
         console.error('Error creating task:', error);
@@ -3074,16 +3049,7 @@ function showNotification(message, type = 'info', options = {}) {
     `;
     
     // Add click handler for auth errors
-    if (isAuthError) {
-        notification.addEventListener('click', (e) => {
-            // Don't trigger if clicking the close button
-            if (!e.target.closest('.notification-close')) {
-                console.log('Auth error notification clicked, opening login dialog');
-                Utils.Logger.log('Authentication disabled - skipping auth modal');
-                closeNotification(notification.querySelector('.notification-close'));
-            }
-        });
-    }
+    // Authentication disabled - no special handling needed
     
     document.body.appendChild(notification);
     
@@ -4009,99 +3975,5 @@ async function autoSave() {
 }
 
 // Account Management Functions
-function openChangePasswordModal() {
-    const modal = document.getElementById('change-password-modal');
-    if (modal) {
-        modal.style.display = 'flex';
-        // Clear form
-        document.getElementById('change-password-form').reset();
-    }
-}
 
-function closeChangePasswordModal() {
-    const modal = document.getElementById('change-password-modal');
-    if (modal) {
-        modal.style.display = 'none';
-    }
-}
 
-async function changePassword() {
-    const currentPassword = document.getElementById('current-password').value;
-    const newPassword = document.getElementById('new-password').value;
-    const confirmPassword = document.getElementById('confirm-password').value;
-    
-    if (!currentPassword || !newPassword || !confirmPassword) {
-        showNotification('Please fill in all password fields', 'error');
-        return;
-    }
-    
-    if (newPassword !== confirmPassword) {
-        showNotification('New passwords do not match', 'error');
-        return;
-    }
-    
-    if (newPassword.length < 8) {
-        showNotification('New password must be at least 8 characters long', 'error');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/auth/change-password', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                currentPassword,
-                newPassword
-            })
-        });
-        
-        if (response.ok) {
-            showNotification('Password changed successfully!', 'success');
-            closeChangePasswordModal();
-        } else {
-            const error = await response.json();
-            showNotification(error.message || 'Failed to change password', 'error');
-        }
-    } catch (error) {
-        console.error('Error changing password:', error);
-        showNotification('Failed to change password', 'error');
-    }
-}
-
-async function logout() {
-    if (confirm('Are you sure you want to logout? All unsaved changes will be lost.')) {
-        try {
-            const response = await fetch('/api/auth/logout', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            });
-            
-            if (response.ok) {
-                // Clear local state
-                AppState.set('isAuthenticated', false);
-                AppState.set('passwordSet', false);
-                AppState.set('tasks', []);
-                AppState.set('currentSettings', {});
-                
-                // Clear localStorage
-                localStorage.removeItem('shakshuka_password');
-                
-                showNotification('Logged out successfully!', 'success');
-                
-                // Redirect to login or reload page
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
-            } else {
-                throw new Error('Logout failed');
-            }
-        } catch (error) {
-            console.error('Error logging out:', error);
-            showNotification('Failed to logout', 'error');
-        }
-    }
-}

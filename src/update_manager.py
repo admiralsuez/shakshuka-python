@@ -32,7 +32,7 @@ class UpdateManager:
         self.data_dir = Path(data_dir)
         self.backup_dir = self.data_dir / "backups"
         self.update_dir = self.app_dir / "updates"
-        self.version_file = self.app_dir / "version.json"
+        self.version_file = self.app_dir / "config" / "version.json"
         self.update_config_file = self.data_dir / "update_config.json"
         
         # Create necessary directories

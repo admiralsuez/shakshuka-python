@@ -49,9 +49,8 @@ $sourceDir = "C:\Users\vibin\OneDrive\Desktop\shakshuka-python-beta"
 $files = @(
     "Shakshuka.exe",
     "data",
-    "static",
-    "templates",
-    "requirements.txt",
+    "assets",
+    "config/requirements.txt",
     "README.md"
 )
 
@@ -77,7 +76,7 @@ $desktopShortcut = $shell.CreateShortcut("$env:USERPROFILE\Desktop\Shakshuka.lnk
 $desktopShortcut.TargetPath = "$InstallPath\Shakshuka.exe"
 $desktopShortcut.WorkingDirectory = "$InstallPath"
 $desktopShortcut.Description = "Shakshuka Task Manager"
-$desktopShortcut.IconLocation = "$InstallPath\static\images\icon.ico"
+$desktopShortcut.IconLocation = "$InstallPath\assets\static\images\icon.ico"
 $desktopShortcut.Save()
 
 # Start Menu shortcut
@@ -90,7 +89,7 @@ $startMenuShortcut = $shell.CreateShortcut("$startMenuDir\Shakshuka\Shakshuka.ln
 $startMenuShortcut.TargetPath = "$InstallPath\Shakshuka.exe"
 $startMenuShortcut.WorkingDirectory = "$InstallPath"
 $startMenuShortcut.Description = "Shakshuka Task Manager"
-$startMenuShortcut.IconLocation = "$InstallPath\static\images\icon.ico"
+$startMenuShortcut.IconLocation = "$InstallPath\assets\static\images\icon.ico"
 $startMenuShortcut.Save()
 
 # Uninstaller shortcut

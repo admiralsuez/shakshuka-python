@@ -13,7 +13,8 @@ echo.
 echo Building executable...
 echo.
 
-python build.py
+cd /d "%~dp0\.."
+python scripts\build.py
 
 echo.
 echo Build process completed!

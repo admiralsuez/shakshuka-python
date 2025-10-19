@@ -18,14 +18,12 @@ import re
 import secrets
 import logging
 from werkzeug.utils import secure_filename
-import sys
-import os
 
 # Add the parent directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import application modules
-from src.data_manager import SimpleDataManager
+from src.sqlite_data_manager import SQLiteDataManager
 from tools.autostart import WindowsAutostart
 from src.update_manager import UpdateManager
 from src.security_manager import security_manager
@@ -330,72 +328,23 @@ def ensure_data_manager():
 
 # Helper function to get user ID safely
 def get_user_id():
-    """Get user ID from authenticated user or request headers with enhanced isolation"""
-    # First try to get from authenticated user
-    if hasattr(request, 'user') and request.user:
-        user_id = request.user.get('user_id', 'default_user')
-        logger.info(f"Using authenticated user ID: {user_id}")
-        return user_id
-    
-    # If no authenticated user, try to get from request headers (for simple user identification)
-    user_id = request.headers.get('X-User-ID')
-    if user_id:
-        # Enhanced user ID validation - check if it follows our pattern
-        if user_id.startswith('user_') and len(user_id) > 20:
-            logger.info(f"Using enhanced header user ID: {user_id}")
-            return user_id
-        else:
-            logger.warning(f"Invalid user ID format: {user_id}, generating new one")
-            # Generate a new enhanced user ID
-            import time
-            import random
-            import base64
-            timestamp = int(time.time() * 1000)
-            random_str = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=12))
-            user_agent = request.headers.get('User-Agent', 'unknown')[:20]
-            browser_fingerprint = base64.b64encode(user_agent.encode()).decode()[:8]
-            enhanced_user_id = f"user_{timestamp}_{random_str}_{browser_fingerprint}"
-            logger.info(f"Generated new enhanced user ID: {enhanced_user_id}")
-            return enhanced_user_id
-    
-    # Fallback to default user
-    logger.info("Using default user ID")
-    return 'default_user'
+    """Get user ID - authentication disabled, always return default user"""
+    logger.info("Using default user ID (authentication disabled)")
+    return "default_user"
 
 # Authentication enabled
 def require_auth(f):
-    """Decorator to require authentication"""
+    """Decorator to require authentication - DISABLED"""
     def decorated_function(*args, **kwargs):
-        # Check for session cookie
-        session_id = request.cookies.get('session_id')
-        if not session_id:
-            return jsonify({'error': 'Authentication required'}), 401
-        
-        # Validate session and get user data
-        user_info = user_manager.validate_session(session_id)
-        if not user_info:
-            return jsonify({'error': 'Invalid or expired session'}), 401
-        
-        # Set user information on request object
-        request.user = user_info
-        
+        # Authentication disabled - bypass all checks
         return f(*args, **kwargs)
     decorated_function.__name__ = f.__name__
     return decorated_function
 
 def require_csrf(f):
-    """Decorator to require CSRF token validation"""
+    """Decorator to require CSRF token validation - DISABLED"""
     def decorated_function(*args, **kwargs):
-        # Skip CSRF validation for GET requests
-        if request.method == 'GET':
-            return f(*args, **kwargs)
-
-        # Get CSRF token from headers or form data
-        csrf_token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
-
-        if not csrf_token or not app_context.validate_csrf_token(csrf_token):
-            return jsonify({'error': 'CSRF token validation failed'}), 403
-
+        # CSRF validation disabled - bypass all checks
         return f(*args, **kwargs)
     decorated_function.__name__ = f.__name__
     return decorated_function
@@ -457,10 +406,10 @@ def initialize_data_manager():
 
         # Initialize data manager with the working data directory
         try:
-            app_context.data_manager = SimpleDataManager(data_dir=data_dir)
-            logger.info(f"Data manager initialized successfully with data directory: {data_dir}")
+            app_context.data_manager = SQLiteDataManager(data_dir=data_dir)
+            logger.info(f"SQLite data manager initialized successfully with data directory: {data_dir}")
         except Exception as e:
-            logger.error(f"Failed to initialize data manager: {e}")
+            logger.error(f"Failed to initialize SQLite data manager: {e}")
             return False
 
         app_context.password_set = True
@@ -549,11 +498,8 @@ def start_scheduler():
 
 @app.route('/')
 def index():
-    """Serve the main application page"""
-    # Check if user is already authenticated using user_manager
-    session_id = request.cookies.get('session_id')
-    if not session_id or not user_manager.validate_session(session_id):
-        return redirect(url_for('login'))
+    """Serve the main application page - authentication disabled"""
+    # Authentication disabled - serve dashboard directly
 
     # Load version information
     try:
@@ -589,17 +535,65 @@ def get_changelog():
 # Authentication routes
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Login page with proper authentication"""
-    if request.method == 'POST':
+    """Login page - authentication disabled, redirect to dashboard"""
+    # Authentication disabled - redirect to dashboard
+    return redirect(url_for('index'))
+
+
+
+
+
+
+
+
+@app.route('/api/test-login', methods=['POST'])
+def test_login():
+    """Test login endpoint for debugging"""
+    try:
         data = request.json
+        if not data:
+            return jsonify({'error': 'No JSON data received'}), 400
+            
         username = data.get('username', '').strip()
         password = data.get('password', '')
+        
+        if not username or not password:
+            return jsonify({'error': 'Username and password are required'}), 400
+        
+        # Test user_manager directly
+        auth_result = user_manager.authenticate_user(username, password)
+        
+        return jsonify({
+            'auth_result': auth_result,
+            'user_manager_type': str(type(user_manager)),
+            'data_dir': user_manager.data_dir
+        })
+    except Exception as e:
+        return jsonify({'error': f'Test error: {str(e)}'}), 500
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_auth_login():
+    """API endpoint for user login"""
+    try:
+        data = request.json
+        
+        if not data:
+            return jsonify({'error': 'No JSON data received'}), 400
+            
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        
+        if not username or not password:
+            return jsonify({'error': 'Username and password are required'}), 400
         
         # Authenticate user
         auth_result = user_manager.authenticate_user(username, password)
         
         if auth_result['success']:
-            # Set session cookie using user_manager
+            # Create session for the user
+            session_id = user_manager.create_session(auth_result['user']['id'])
+            
+            # Set session cookie
             response = jsonify({
                 'success': True,
                 'message': 'Login successful',
@@ -609,258 +603,18 @@ def login():
             # Set HTTP-only cookie for session management
             response.set_cookie(
                 'session_id',
-                auth_result['session_id'],
+                session_id,
                 httponly=True,
                 secure=False,  # Set to True in production with HTTPS
-                max_age=24*60*60,  # 24 hours
-                samesite='Lax'
+                samesite='Lax',
+                max_age=86400  # 24 hours
             )
 
             return response
         else:
-            return jsonify({'error': auth_result['error']}), 401
-    
-    # Return login form HTML for GET requests
-    return '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Shakshuka Login</title>
-        <style>
-            body { font-family: Arial, sans-serif; max-width: 400px; margin: 100px auto; padding: 20px; background: #f5f5f5; }
-            .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            .form-group { margin-bottom: 15px; }
-            label { display: block; margin-bottom: 5px; font-weight: bold; }
-            input[type="text"], input[type="password"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-            button { background: #FF8C42; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; margin-bottom: 10px; }
-            button:hover { background: #e67e22; }
-            .error { color: red; margin-top: 10px; text-align: center; }
-            .info { background: #e8f4fd; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #2196F3; }
-            .signup-link { text-align: center; margin-top: 20px; }
-            .signup-link a { color: #FF8C42; text-decoration: none; }
-            .signup-link a:hover { text-decoration: underline; }
-            .form-toggle { text-align: center; margin-bottom: 20px; }
-            .form-toggle button { background: none; color: #FF8C42; border: none; cursor: pointer; text-decoration: underline; width: auto; padding: 5px; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h2 style="text-align: center; color: #333;">Shakshuka Login</h2>
-            
-            <div class="info">
-                <strong>Welcome to Shakshuka!</strong><br>
-                Secure task management application. Login or create a new account.
-            </div>
-            
-            <div class="form-toggle">
-                <button onclick="toggleForm()" id="toggleBtn">Don't have an account? Sign up</button>
-            </div>
-            
-            <!-- Login Form -->
-            <form id="loginForm">
-                <div class="form-group">
-                    <label for="login-username">Username:</label>
-                    <input type="text" id="login-username" name="username" required placeholder="Enter your username">
-                </div>
-                <div class="form-group">
-                    <label for="login-password">Password:</label>
-                    <input type="password" id="login-password" name="password" required placeholder="Enter your password">
-                </div>
-                <button type="submit">Login</button>
-                <div id="login-error" class="error" style="display: none;"></div>
-            </form>
-            
-            <!-- Signup Form -->
-            <form id="signupForm" style="display: none;">
-                <div class="form-group">
-                    <label for="signup-username">Username:</label>
-                    <input type="text" id="signup-username" name="username" required placeholder="Choose a username (min 3 chars)">
-                </div>
-                <div class="form-group">
-                    <label for="signup-password">Password:</label>
-                    <input type="password" id="signup-password" name="password" required placeholder="Choose a password (min 6 chars)">
-                </div>
-                <div class="form-group">
-                    <label for="signup-confirm">Confirm Password:</label>
-                    <input type="password" id="signup-confirm" name="confirm_password" required placeholder="Confirm your password">
-                </div>
-                <button type="submit">Sign Up</button>
-                <div id="signup-error" class="error" style="display: none;"></div>
-            </form>
-        </div>
-        
-        <script>
-            function toggleForm() {
-                const loginForm = document.getElementById('loginForm');
-                const signupForm = document.getElementById('signupForm');
-                const toggleBtn = document.getElementById('toggleBtn');
-                
-                if (loginForm.style.display === 'none') {
-                    loginForm.style.display = 'block';
-                    signupForm.style.display = 'none';
-                    toggleBtn.textContent = "Don't have an account? Sign up";
-                } else {
-                    loginForm.style.display = 'none';
-                    signupForm.style.display = 'block';
-                    toggleBtn.textContent = "Already have an account? Login";
-                }
-            }
-            
-            // Login form handler
-            document.getElementById('loginForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const username = document.getElementById('login-username').value;
-                const password = document.getElementById('login-password').value;
-                const errorDiv = document.getElementById('login-error');
-                
-                try {
-                    const response = await fetch('/login', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({username: username, password: password})
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        window.location.href = '/';
-                    } else {
-                        errorDiv.textContent = data.error || 'Login failed';
-                        errorDiv.style.display = 'block';
-                    }
-                } catch (error) {
-                    errorDiv.textContent = 'Network error. Please try again.';
-                    errorDiv.style.display = 'block';
-                }
-            });
-            
-            // Signup form handler
-            document.getElementById('signupForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const username = document.getElementById('signup-username').value;
-                const password = document.getElementById('signup-password').value;
-                const confirmPassword = document.getElementById('signup-confirm').value;
-                const errorDiv = document.getElementById('signup-error');
-                
-                if (password !== confirmPassword) {
-                    errorDiv.textContent = 'Passwords do not match';
-                    errorDiv.style.display = 'block';
-                    return;
-                }
-                
-                try {
-                    const response = await fetch('/register', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({username: username, password: password})
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        errorDiv.textContent = 'Registration successful! Please login.';
-                        errorDiv.style.display = 'block';
-                        errorDiv.style.color = 'green';
-                        toggleForm(); // Switch to login form
-                    } else {
-                        errorDiv.textContent = data.error || 'Registration failed';
-                        errorDiv.style.display = 'block';
-                    }
-                } catch (error) {
-                    errorDiv.textContent = 'Network error. Please try again.';
-                    errorDiv.style.display = 'block';
-                }
-            });
-        </script>
-    </body>
-    </html>
-    '''
-
-@app.route('/register', methods=['POST'])
-def register():
-    """User registration endpoint - username and password only"""
-    data = request.json
-    username = data.get('username', '').strip()
-    password = data.get('password', '')
-    
-    # Register user
-    result = user_manager.register_user(username, password)
-    
-    if result['success']:
-        return jsonify({
-            'success': True,
-            'message': 'Registration successful! Please login with your credentials.'
-        })
-    else:
-        return jsonify({'error': result['error']}), 400
-
-@app.route('/api/auth/setup', methods=['POST'])
-def api_auth_setup():
-    """API endpoint for user setup"""
-    data = request.json
-    password = data.get('password', '').strip()
-    
-    if not password or len(password) < 6:
-        return jsonify({'error': 'Password must be at least 6 characters'}), 400
-    
-    # Create user account
-    auth_result = user_manager.create_user('admin', password)
-    
-    if auth_result['success']:
-        # Set session cookie
-        response = jsonify({
-            'success': True,
-            'message': 'Account setup successful'
-        })
-        
-        # Set HTTP-only cookie for session management
-        response.set_cookie(
-            'session_id',
-            auth_result['session_id'],
-            httponly=True,
-            secure=False,  # Set to True in production with HTTPS
-            samesite='Lax',
-            max_age=86400  # 24 hours
-        )
-        
-        return response
-    else:
-        return jsonify({'error': auth_result['error']}), 400
-
-@app.route('/api/auth/login', methods=['POST'])
-def api_auth_login():
-    """API endpoint for user login"""
-    data = request.json
-    username = data.get('username', '').strip()
-    password = data.get('password', '')
-    
-    if not username or not password:
-        return jsonify({'error': 'Username and password are required'}), 400
-    
-    # Authenticate user
-    auth_result = user_manager.authenticate_user(username, password)
-    
-    if auth_result['success']:
-        # Set session cookie
-        response = jsonify({
-            'success': True,
-            'message': 'Login successful',
-            'user': auth_result['user']
-        })
-        
-        # Set HTTP-only cookie for session management
-        response.set_cookie(
-            'session_id',
-            auth_result['session_id'],
-            httponly=True,
-            secure=False,  # Set to True in production with HTTPS
-            samesite='Lax',
-            max_age=86400  # 24 hours
-        )
-        
-        return response
-    else:
-        return jsonify({'error': auth_result['error']}), 401
+            return jsonify({'error': auth_result['message']}), 401
+    except Exception as e:
+        return jsonify({'error': f'Login error: {str(e)}'}), 500
 
 @app.route('/api/auth/status', methods=['GET'])
 def api_auth_status():
@@ -895,23 +649,45 @@ def test_endpoint():
 @app.route('/logout', methods=['POST'])
 def logout():
     """Logout user"""
-    session_id = session.get('session_id')
+    session_id = request.cookies.get('session_id')
     if session_id:
         user_manager.logout_user(session_id)
     
-    session.clear()
-    return jsonify({'success': True, 'message': 'Logged out successfully'})
+    response = jsonify({'success': True, 'message': 'Logged out successfully'})
+    response.set_cookie('session_id', '', expires=0)
+    return response
+
+@app.route('/api/auth/verify', methods=['GET'])
+def verify_session():
+    """Verify if the current session is valid and return user data"""
+    session_id = request.cookies.get('session_id')
+    if not session_id:
+        return jsonify({'error': 'No session found'}), 401
+    
+    # Validate session
+    user_data = user_manager.validate_session(session_id)
+    if user_data:
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': user_data['id'],
+                'username': user_data['username']
+            }
+        })
+    else:
+        return jsonify({'error': 'Invalid session'}), 401
 
 @app.route('/api/auth/logout', methods=['POST'])
 @require_auth
 def api_logout():
     """API logout endpoint"""
-    session_id = session.get('session_id')
+    session_id = request.cookies.get('session_id')
     if session_id:
         user_manager.logout_user(session_id)
     
-    session.clear()
-    return jsonify({'success': True, 'message': 'Logged out successfully'})
+    response = jsonify({'success': True, 'message': 'Logged out successfully'})
+    response.set_cookie('session_id', '', expires=0)
+    return response
 
 @app.route('/api/auth/change-password', methods=['POST'])
 @require_auth
@@ -947,8 +723,7 @@ def change_password():
 
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
-    """Get all tasks for the authenticated user"""
-    # Use default user ID when authentication is disabled
+    """Get all tasks"""
     user_id = get_user_id()
     logger.info(f"API get_tasks called with user_id: {user_id}")
     
@@ -959,10 +734,7 @@ def get_tasks():
             logger.error("Data manager not initialized")
             return jsonify([])
         
-        # Force user folder creation by calling _get_user_files
-        user_files = app_context.data_manager._get_user_files(user_id)
-        logger.info(f"User files created for {user_id}: {user_files}")
-        
+        # SQLite automatically creates user records when needed
         tasks = app_context.data_manager.load_tasks(user_id)
         logger.info(f"Loaded {len(tasks)} tasks for user {user_id}")
         return jsonify(tasks)
@@ -1181,7 +953,7 @@ def parse_txt_tasks(content):
 @require_csrf
 @rate_limit
 def create_task():
-    """Create a new task for the authenticated user"""
+    """Create a new task"""
     user_id = get_user_id()
     logger.info(f"API create_task called with user_id: {user_id}")
     
@@ -1189,8 +961,8 @@ def create_task():
     
     # FORCE user folder creation
     try:
-        user_files = app_context.data_manager._get_user_files(user_id)
-        logger.info(f"User files ensured for {user_id}: {user_files}")
+        # SQLite automatically creates user records when needed
+        pass
     except Exception as e:
         logger.error(f"Error creating user files for {user_id}: {e}")
         return jsonify({'error': 'Failed to create user folder'}), 500

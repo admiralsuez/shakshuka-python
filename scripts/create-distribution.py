@@ -38,13 +38,12 @@ class ShakshukaDistributor:
             "INSTALLATION.md",
             "README.md",
             "TROUBLESHOOTING.md",
-            "requirements.txt"
+            "config/requirements.txt"
         ]
         
         # Directories to include
         dirs_to_copy = [
-            "static",
-            "templates",
+            "assets",
             "data"
         ]
         
@@ -128,8 +127,7 @@ taskkill /F /IM Shakshuka.exe
 - **Start-Shakshuka.bat**: Easy start script
 - **Stop-Shakshuka.bat**: Easy stop script
 - **INSTALLATION.md**: Detailed installation guide
-- **static/**: Web assets
-- **templates/**: HTML templates
+- **assets/**: Web assets (static files and templates)
 - **data/**: Default data directory
 
 ## System Requirements
@@ -269,8 +267,7 @@ Right-click `uninstall.ps1` → "Run with PowerShell" (as Administrator)
         
         # Copy main files
         shutil.copy2(self.project_dir / "Shakshuka.exe", portable_dir / "Shakshuka.exe")
-        shutil.copytree(self.project_dir / "static", portable_dir / "static")
-        shutil.copytree(self.project_dir / "templates", portable_dir / "templates")
+        shutil.copytree(self.project_dir / "assets", portable_dir / "assets")
         
         # Create portable launcher
         portable_launcher = '''@echo off

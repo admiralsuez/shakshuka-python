@@ -375,18 +375,6 @@
                     
                     <div class="settings-section">
                         <h3>Account</h3>
-                        <div class="setting-item">
-                            <button class="btn-secondary" id="change-password-btn">
-                                <i class="fas fa-key"></i>
-                                Change Password
-                            </button>
-                        </div>
-                        <div class="setting-item">
-                            <button class="btn-danger" id="logout-btn">
-                                <i class="fas fa-sign-out-alt"></i>
-                                Logout
-                            </button>
-                        </div>
                     </div>
 
                     <div class="settings-section">
@@ -513,37 +501,6 @@
         </div>
     </div>
 
-    <!-- Change Password Modal -->
-    <div id="change-password-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Change Password</h3>
-                <button class="modal-close" id="close-change-password-modal">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <form id="change-password-form">
-                    <div class="form-group">
-                        <label for="current-password">Current Password</label>
-                        <input type="password" id="current-password" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="new-password">New Password</label>
-                        <input type="password" id="new-password" required minlength="8">
-                    </div>
-                    <div class="form-group">
-                        <label for="confirm-password">Confirm New Password</label>
-                        <input type="password" id="confirm-password" required minlength="8">
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn-secondary" id="cancel-change-password">Cancel</button>
-                <button type="submit" class="btn-primary" id="save-change-password">Change Password</button>
-            </div>
-        </div>
-    </div>
 
     <!-- Schedule Modal -->
         <div id="schedule-modal" class="modal">

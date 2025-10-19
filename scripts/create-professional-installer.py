@@ -83,19 +83,19 @@ if not exist "%START_MENU%" mkdir "%START_MENU%"
 REM Main application shortcut
 echo [InternetShortcut] > "%START_MENU%\\Shakshuka.url"
 echo URL=file:///%INSTALL_DIR%\\Shakshuka.exe >> "%START_MENU%\\Shakshuka.url"
-echo IconFile=%INSTALL_DIR%\\static\\images\\icon.ico >> "%START_MENU%\\Shakshuka.url"
+echo IconFile=%INSTALL_DIR%\\assets\\static\\images\\icon.ico >> "%START_MENU%\\Shakshuka.url"
 echo IconIndex=0 >> "%START_MENU%\\Shakshuka.url"
 
 REM Start server shortcut
 echo [InternetShortcut] > "%START_MENU%\\Start Shakshuka.url"
 echo URL=file:///%INSTALL_DIR%\\Start-Shakshuka.bat >> "%START_MENU%\\Start Shakshuka.url"
-echo IconFile=%INSTALL_DIR%\\static\\images\\icon.ico >> "%START_MENU%\\Start Shakshuka.url"
+echo IconFile=%INSTALL_DIR%\\assets\\static\\images\\icon.ico >> "%START_MENU%\\Start Shakshuka.url"
 echo IconIndex=0 >> "%START_MENU%\\Start Shakshuka.url"
 
 REM Stop server shortcut
 echo [InternetShortcut] > "%START_MENU%\\Stop Shakshuka.url"
 echo URL=file:///%INSTALL_DIR%\\Stop-Shakshuka.bat >> "%START_MENU%\\Stop Shakshuka.url"
-echo IconFile=%INSTALL_DIR%\\static\\images\\icon.ico >> "%START_MENU%\\Stop Shakshuka.url"
+echo IconFile=%INSTALL_DIR%\\assets\\static\\images\\icon.ico >> "%START_MENU%\\Stop Shakshuka.url"
 echo IconIndex=0 >> "%START_MENU%\\Stop Shakshuka.url"
 
 echo [OK] Start Menu shortcuts created
@@ -105,7 +105,7 @@ set /p "desktop=Create Desktop shortcut? (y/n): "
 if /i "!desktop!"=="y" (
     echo [InternetShortcut] > "%USERPROFILE%\\Desktop\\Shakshuka.url"
     echo URL=file:///%INSTALL_DIR%\\Shakshuka.exe >> "%USERPROFILE%\\Desktop\\Shakshuka.url"
-    echo IconFile=%INSTALL_DIR%\\static\\images\\icon.ico >> "%USERPROFILE%\\Desktop\\Shakshuka.url"
+    echo IconFile=%INSTALL_DIR%\\assets\\static\\images\\icon.ico >> "%USERPROFILE%\\Desktop\\Shakshuka.url"
     echo IconIndex=0 >> "%USERPROFILE%\\Desktop\\Shakshuka.url"
     echo [OK] Desktop shortcut created
 )
@@ -206,14 +206,12 @@ def create_professional_installer():
             "INSTALLATION.md",
             "TROUBLESHOOTING.md",
             "QUICK-START.md",
-            "requirements.txt",
-            "config.py",
-            "version.json"
+            "config/requirements.txt",
+            "config/version.json"
         ]
         
         dirs_to_copy = [
-            "static",
-            "templates",
+            "assets",
             "data"
         ]
         
@@ -312,8 +310,7 @@ def create_portable_version():
     ]
     
     dirs_to_copy = [
-        "static",
-        "templates",
+        "assets",
         "data"
     ]
     
@@ -371,8 +368,7 @@ def main():
     # Check if required files exist
     required_files = [
         "Shakshuka.exe",
-        "static",
-        "templates", 
+        "assets",
         "data"
     ]
     

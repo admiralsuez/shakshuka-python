@@ -37,8 +37,7 @@ def create_simple_installer():
     print("[OK] Batch files")
     
     # Copy directories
-    shutil.copytree(project_dir / "static", installer_dir / "static")
-    shutil.copytree(project_dir / "templates", installer_dir / "templates")
+    shutil.copytree(project_dir / "assets", installer_dir / "assets")
     shutil.copytree(project_dir / "data", installer_dir / "data")
     print("[OK] Application directories")
     

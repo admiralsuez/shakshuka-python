@@ -3,33 +3,20 @@
 // Global Auth object
 const Auth = {
     // Authentication Functions - ENHANCED USER IDENTIFICATION SYSTEM
-    async checkAuthStatus() {
-        // Generate or retrieve unique user ID for this browser session
-        let userId = localStorage.getItem('shakshuka_user_id');
-        if (!userId) {
-            // Generate a more unique user ID with timestamp and random string
-            const timestamp = Date.now();
-            const randomStr = Math.random().toString(36).substr(2, 12);
-            const browserFingerprint = navigator.userAgent.substring(0, 20) + navigator.language;
-            userId = `user_${timestamp}_${randomStr}_${btoa(browserFingerprint).substr(0, 8)}`;
-            localStorage.setItem('shakshuka_user_id', userId);
-            console.log('Generated new enhanced user ID:', userId);
-        } else {
-            console.log('Using existing enhanced user ID:', userId);
-        }
-        
-        // Also store in sessionStorage for additional isolation
-        sessionStorage.setItem('shakshuka_session_id', userId);
-        
-        // Set user as authenticated with unique ID
-        AppState.set('isAuthenticated', true);
-        AppState.set('passwordSet', true);
-        AppState.set('userId', userId);
-        
-        // Load app data directly
-        console.log('Loading app data for enhanced user:', userId);
-        this.loadAppData();
-    },
+        async checkAuthStatus() {
+            // Authentication disabled - set default user and load app
+            console.log('Authentication disabled - using default user');
+            
+            // Set default user data
+            AppState.set('isAuthenticated', true);
+            AppState.set('passwordSet', true);
+            AppState.set('userId', 'default_user');
+            AppState.set('username', 'default_user');
+            
+            // Load app data
+            console.log('Loading app data for default user');
+            this.loadAppData();
+        },
 
     showAuthModal(mode) {
         console.log('Showing auth modal in mode:', mode);
