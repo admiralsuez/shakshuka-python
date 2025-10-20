@@ -318,6 +318,10 @@
                                 <i class="fas fa-sync"></i>
                                 Check for Updates
                             </button>
+                            <button class="btn-primary" id="github-update-btn">
+                                <i class="fab fa-github"></i>
+                                Update from GitHub
+                            </button>
                             <button class="btn-secondary" id="create-backup-btn">
                                 <i class="fas fa-save"></i>
                                 Create Backup
@@ -356,6 +360,25 @@
                                     <span class="toggle-slider"></span>
                                 </label>
                             </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>GitHub Auto-Update</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="github-auto-update">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label for="github-branch">GitHub Branch:</label>
+                            <select id="github-branch">
+                                <option value="main">Main (Stable)</option>
+                                <option value="testing">Testing (Beta)</option>
+                                <option value="development">Development (Alpha)</option>
+                            </select>
                         </div>
                         
                         <div class="setting-item">
@@ -755,10 +778,10 @@
 
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <script src="{{ url_for('static', filename='js/state.js') }}?v={{ range(1000, 9999) | random }}"></script>
-    <script src="{{ url_for('static', filename='js/auth.js') }}?v={{ range(1000, 9999) | random }}"></script>
-    <script src="{{ url_for('static', filename='js/utils.js') }}?v={{ range(1000, 9999) | random }}"></script>
-    <script src="{{ url_for('static', filename='js/tasks.js') }}?v={{ range(1000, 9999) | random }}"></script>
-    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ range(1000, 9999) | random }}"></script>
+    <script src="{{ url_for('static', filename='js/state.js') }}?v=1.0.7"></script>
+    <script src="{{ url_for('static', filename='js/auth.js') }}?v=1.0.7"></script>
+    <script src="{{ url_for('static', filename='js/utils.js') }}?v=1.0.7"></script>
+    <script src="{{ url_for('static', filename='js/tasks.js') }}?v=1.0.7"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=1.0.7"></script>
 </body>
 </html>

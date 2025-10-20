@@ -462,12 +462,25 @@ async function installUpdate() {
 // Update settings functions
 async function updateUpdateSettings() {
     const channel = document.getElementById('update-channel').value;
-    const autoUpdate = document.getElementById('auto-update-toggle').checked;
+    const autoUpdate = document.getElementById('auto-update-check').checked;
+    const autoInstall = document.getElementById('auto-update-install').checked;
+    const backupBeforeUpdate = document.getElementById('backup-before-update').checked;
+    const githubAutoUpdate = document.getElementById('github-auto-update').checked;
+    const githubBranch = document.getElementById('github-branch').value;
+    const checkInterval = document.getElementById('check-interval').value;
 
     try {
         const response = await Utils.makeAuthenticatedRequest('/api/settings/updates', {
             method: 'POST',
-            body: JSON.stringify({ channel, auto_update: autoUpdate })
+            body: JSON.stringify({ 
+                channel, 
+                auto_update: autoUpdate,
+                auto_install: autoInstall,
+                backup_before_update: backupBeforeUpdate,
+                github_auto_update: githubAutoUpdate,
+                github_branch: githubBranch,
+                check_interval: checkInterval
+            })
         });
 
         if (response.ok) {
@@ -624,7 +637,22 @@ async function loadUpdateSettings() {
             document.getElementById('update-channel').value = settings.channel;
         }
         if (settings.auto_update !== undefined) {
-            document.getElementById('auto-update-toggle').checked = settings.auto_update;
+            document.getElementById('auto-update-check').checked = settings.auto_update;
+        }
+        if (settings.auto_install !== undefined) {
+            document.getElementById('auto-update-install').checked = settings.auto_install;
+        }
+        if (settings.backup_before_update !== undefined) {
+            document.getElementById('backup-before-update').checked = settings.backup_before_update;
+        }
+        if (settings.github_auto_update !== undefined) {
+            document.getElementById('github-auto-update').checked = settings.github_auto_update;
+        }
+        if (settings.github_branch !== undefined) {
+            document.getElementById('github-branch').value = settings.github_branch;
+        }
+        if (settings.check_interval !== undefined) {
+            document.getElementById('check-interval').value = settings.check_interval;
         }
         if (settings.backup_enabled !== undefined) {
             document.getElementById('backup-toggle').checked = settings.backup_enabled;
@@ -1253,12 +1281,20 @@ function setupEventListeners() {
     
     // Update and backup buttons
     safeAddEventListener('check-updates-btn', 'click', checkForUpdates);
+    safeAddEventListener('github-update-btn', 'click', checkGitHubUpdate);
     safeAddEventListener('create-backup-btn', 'click', createBackup);
+    
+    // GitHub update modal
+    safeAddEventListener('close-github-update-modal', 'click', closeGitHubUpdateModal);
+    safeAddEventListener('cancel-github-update', 'click', closeGitHubUpdateModal);
+    safeAddEventListener('download-github-update', 'click', downloadGitHubUpdate);
     
     // Update settings
     safeAddEventListener('auto-update-check', 'change', updateUpdateSettings);
     safeAddEventListener('auto-update-install', 'change', updateUpdateSettings);
     safeAddEventListener('backup-before-update', 'change', updateUpdateSettings);
+    safeAddEventListener('github-auto-update', 'change', updateUpdateSettings);
+    safeAddEventListener('github-branch', 'change', updateUpdateSettings);
     safeAddEventListener('update-channel', 'change', updateUpdateSettings);
     safeAddEventListener('check-interval', 'change', updateUpdateSettings);
     
@@ -1840,6 +1876,10 @@ function calculateProductivityScore() {
 
 // Modal Functions
 function openTaskModal(taskId = null) {
+    // Ensure AppState reflects the current editing context so saves use update instead of create
+    if (typeof AppState !== 'undefined' && AppState.set) {
+        AppState.set('editingTaskId', taskId);
+    }
     editingTaskId = taskId;
     const modal = document.getElementById('task-modal');
     const title = document.getElementById('modal-title');
@@ -1867,6 +1907,10 @@ function closeTaskModal() {
     if (modal) {
         modal.classList.remove('active');
         modal.style.display = 'none';
+    }
+    // Clear editing state in both local variable and AppState
+    if (typeof AppState !== 'undefined' && AppState.set) {
+        AppState.set('editingTaskId', null);
     }
     editingTaskId = null;
     clearTaskForm();
@@ -2471,6 +2515,150 @@ function applyThemeAndDPI() {
     
     // Apply DPI scaling (convert percentage to decimal)
     document.documentElement.style.setProperty('--dpi-scale', (dpiScale / 100));
+    
+    // Update CSS custom properties based on theme
+    updateThemeCSSVariables(theme, intensity);
+}
+
+function updateThemeCSSVariables(theme, intensity) {
+    const root = document.documentElement;
+    
+    // Define theme color mappings
+    const themeColors = {
+        'light': {
+            'primary-gradient': 'linear-gradient(135deg, #FF8C42, #FFB366)',
+            'secondary-gradient': 'linear-gradient(135deg, #FFF5E6 0%, #FFE0B3 100%)',
+            'background-color': '#FFF5E6',
+            'surface-color': 'rgba(255, 255, 255, 0.95)',
+            'text-color': '#5C2D00',
+            'text-secondary': '#8B4513',
+            'border-color': 'rgba(255, 140, 66, 0.3)',
+            'shadow-color': 'rgba(255, 140, 66, 0.1)',
+            'accent-color': '#FF8C42'
+        },
+        'dark': {
+            'primary-gradient': 'linear-gradient(135deg, #4A90E2, #7BB3F0)',
+            'secondary-gradient': 'linear-gradient(135deg, #1A1A2E 0%, #16213E 100%)',
+            'background-color': '#1A1A2E',
+            'surface-color': 'rgba(26, 26, 46, 0.95)',
+            'text-color': '#E0E0E0',
+            'text-secondary': '#B0B0B0',
+            'border-color': 'rgba(74, 144, 226, 0.3)',
+            'shadow-color': 'rgba(74, 144, 226, 0.1)',
+            'accent-color': '#4A90E2'
+        },
+        'orange': {
+            'primary-gradient': 'linear-gradient(135deg, #FF8C42, #FFB366)',
+            'secondary-gradient': 'linear-gradient(135deg, #FFF5E6 0%, #FFE0B3 100%)',
+            'background-color': '#FFF5E6',
+            'surface-color': 'rgba(255, 255, 255, 0.95)',
+            'text-color': '#5C2D00',
+            'text-secondary': '#8B4513',
+            'border-color': 'rgba(255, 140, 66, 0.3)',
+            'shadow-color': 'rgba(255, 140, 66, 0.1)',
+            'accent-color': '#FF8C42'
+        },
+        'self-esteem': {
+            'primary-gradient': 'linear-gradient(135deg, #4ECDC4, #44A08D)',
+            'secondary-gradient': 'linear-gradient(135deg, #E8F8F5 0%, #D1F2EB 100%)',
+            'background-color': '#E8F8F5',
+            'surface-color': 'rgba(255, 255, 255, 0.95)',
+            'text-color': '#1B4D3E',
+            'text-secondary': '#2E7D5F',
+            'border-color': 'rgba(78, 205, 196, 0.3)',
+            'shadow-color': 'rgba(78, 205, 196, 0.1)',
+            'accent-color': '#4ECDC4'
+        },
+        'anxiety': {
+            'primary-gradient': 'linear-gradient(135deg, #74B9FF, #0984E3)',
+            'secondary-gradient': 'linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%)',
+            'background-color': '#E3F2FD',
+            'surface-color': 'rgba(255, 255, 255, 0.95)',
+            'text-color': '#0D47A1',
+            'text-secondary': '#1565C0',
+            'border-color': 'rgba(116, 185, 255, 0.3)',
+            'shadow-color': 'rgba(116, 185, 255, 0.1)',
+            'accent-color': '#74B9FF'
+        }
+    };
+    
+    // Apply intensity variations for orange theme
+    if (theme === 'orange' && intensity !== '5') {
+        const intensityMap = {
+            '1': 'linear-gradient(135deg, #E6B8A0, #F0C4A0)',
+            '2': 'linear-gradient(135deg, #F0A070, #F5B080)',
+            '3': 'linear-gradient(135deg, #F59E42, #F7A855)',
+            '4': 'linear-gradient(135deg, #FF8C42, #FF9A55)',
+            '6': 'linear-gradient(135deg, #FF7A2E, #FF8C42)',
+            '7': 'linear-gradient(135deg, #FF6B1A, #FF7A2E)',
+            '8': 'linear-gradient(135deg, #FF5C06, #FF6B1A)',
+            '9': 'linear-gradient(135deg, #FF4D00, #FF5C06)',
+            '10': 'linear-gradient(135deg, #FF3D00, #FF4D00)'
+        };
+        if (intensityMap[intensity]) {
+            themeColors.orange['primary-gradient'] = intensityMap[intensity];
+        }
+    }
+    
+    // Apply intensity variations for dark theme
+    if (theme === 'dark' && intensity !== '5') {
+        const intensityMap = {
+            '1': 'linear-gradient(135deg, #6B9BC7, #8BB3D7)',
+            '2': 'linear-gradient(135deg, #5A8BC2, #7BA3D2)',
+            '3': 'linear-gradient(135deg, #4A90E2, #6BA0E7)',
+            '4': 'linear-gradient(135deg, #3A80D2, #5B90D7)',
+            '6': 'linear-gradient(135deg, #2A70C2, #4B80C7)',
+            '7': 'linear-gradient(135deg, #1A60B2, #3B70B7)',
+            '8': 'linear-gradient(135deg, #0A50A2, #2B60A7)',
+            '9': 'linear-gradient(135deg, #004092, #1B5097)',
+            '10': 'linear-gradient(135deg, #003082, #0B4087)'
+        };
+        if (intensityMap[intensity]) {
+            themeColors.dark['primary-gradient'] = intensityMap[intensity];
+        }
+    }
+    
+    // Apply intensity variations for self-esteem theme
+    if (theme === 'self-esteem' && intensity !== '5') {
+        const intensityMap = {
+            '1': 'linear-gradient(135deg, #7ED4C7, #8ED9CC)',
+            '2': 'linear-gradient(135deg, #6EC9BC, #7ECEC1)',
+            '3': 'linear-gradient(135deg, #5EBEB1, #6EC3B6)',
+            '4': 'linear-gradient(135deg, #4ECDC4, #5ED2C9)',
+            '6': 'linear-gradient(135deg, #3EBDC4, #4EC2C9)',
+            '7': 'linear-gradient(135deg, #2EADC4, #3EB2C9)',
+            '8': 'linear-gradient(135deg, #1E9DC4, #2EA2C9)',
+            '9': 'linear-gradient(135deg, #0E8DC4, #1E92C9)',
+            '10': 'linear-gradient(135deg, #007DC4, #0E82C9)'
+        };
+        if (intensityMap[intensity]) {
+            themeColors['self-esteem']['primary-gradient'] = intensityMap[intensity];
+        }
+    }
+    
+    // Apply intensity variations for anxiety theme
+    if (theme === 'anxiety' && intensity !== '5') {
+        const intensityMap = {
+            '1': 'linear-gradient(135deg, #8BC7FF, #9BCDFF)',
+            '2': 'linear-gradient(135deg, #7BB7FF, #8BC7FF)',
+            '3': 'linear-gradient(135deg, #6BA7FF, #7BB7FF)',
+            '4': 'linear-gradient(135deg, #5B97FF, #6BA7FF)',
+            '6': 'linear-gradient(135deg, #4B87FF, #5B97FF)',
+            '7': 'linear-gradient(135deg, #3B77FF, #4B87FF)',
+            '8': 'linear-gradient(135deg, #2B67FF, #3B77FF)',
+            '9': 'linear-gradient(135deg, #1B57FF, #2B67FF)',
+            '10': 'linear-gradient(135deg, #0B47FF, #1B57FF)'
+        };
+        if (intensityMap[intensity]) {
+            themeColors.anxiety['primary-gradient'] = intensityMap[intensity];
+        }
+    }
+    
+    // Apply the theme colors to CSS custom properties
+    const colors = themeColors[theme] || themeColors['light'];
+    Object.entries(colors).forEach(([property, value]) => {
+        root.style.setProperty(`--${property}`, value);
+    });
 }
 
 async function updateTheme() {
@@ -3357,6 +3545,129 @@ async function checkForUpdates() {
         console.error('Error checking for updates:', error);
         showNotification('Error checking for updates', 'error');
     }
+}
+
+async function checkGitHubUpdate() {
+    try {
+        const branch = document.getElementById('github-branch').value;
+        showNotification('Checking GitHub for updates...', 'info');
+        
+        const response = await fetch('/api/github/check-update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ branch: branch })
+        });
+        
+        const result = await response.json();
+        
+        if (result.update_available) {
+            showGitHubUpdateModal(result);
+            showNotification('GitHub update available!', 'success');
+        } else {
+            showNotification(`You are up to date! (${result.current_version})`, 'success');
+        }
+    } catch (error) {
+        console.error('Error checking GitHub update:', error);
+        showNotification('Error checking GitHub for updates', 'error');
+    }
+}
+
+async function downloadGitHubUpdate() {
+    try {
+        const branch = document.getElementById('github-branch').value;
+        showNotification('Downloading update from GitHub...', 'info');
+        
+        const response = await fetch('/api/github/download-update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ branch: branch })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('Update downloaded! Installation starting...', 'success');
+            // Close any open modals
+            closeUpdateModal();
+            closeGitHubUpdateModal();
+            
+            // Show a message that the app will restart
+            setTimeout(() => {
+                showNotification('The application will restart after installation completes.', 'info');
+            }, 2000);
+        } else {
+            showNotification(`Update failed: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error downloading GitHub update:', error);
+        showNotification('Error downloading update from GitHub', 'error');
+    }
+}
+
+function showGitHubUpdateModal(updateInfo) {
+    const modal = document.getElementById('github-update-modal');
+    if (!modal) {
+        // Create modal if it doesn't exist
+        createGitHubUpdateModal();
+    }
+    
+    const modalElement = document.getElementById('github-update-modal');
+    const updateInfoDiv = document.getElementById('github-update-info');
+    
+    if (updateInfoDiv) {
+        updateInfoDiv.innerHTML = `
+            <div class="update-info">
+                <h3>GitHub Update Available</h3>
+                <div class="version-info">
+                    <p><strong>Current Version:</strong> ${updateInfo.current_version}</p>
+                    <p><strong>Latest Version:</strong> ${updateInfo.latest_version}</p>
+                    <p><strong>Release:</strong> ${updateInfo.release_info.tag_name}</p>
+                    <p><strong>Published:</strong> ${new Date(updateInfo.release_info.published_at).toLocaleDateString()}</p>
+                </div>
+                <div class="release-notes">
+                    <h4>Release Notes:</h4>
+                    <div class="release-body">${updateInfo.release_info.body || 'No release notes available.'}</div>
+                </div>
+            </div>
+        `;
+    }
+    
+    modalElement.style.display = 'flex';
+    modalElement.classList.add('active');
+}
+
+function closeGitHubUpdateModal() {
+    const modal = document.getElementById('github-update-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+    }
+}
+
+function createGitHubUpdateModal() {
+    const modalHTML = `
+        <div id="github-update-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>GitHub Update</h2>
+                    <button class="modal-close" id="close-github-update-modal">&times;</button>
+                </div>
+                <div id="github-update-info" class="modal-body">
+                    <!-- Update info will be populated here -->
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" id="cancel-github-update">Cancel</button>
+                    <button class="btn-primary" id="download-github-update">Download & Install</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
 }
 
 function showUpdateModal(updateInfo) {

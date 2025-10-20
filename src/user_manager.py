@@ -31,7 +31,15 @@ except ImportError:
 class UserManager:
     """Secure user management with SQLite database"""
     
-    def __init__(self, data_dir="src/data"):
+    def __init__(self, data_dir=None):
+        # Use user data directory if not specified
+        if data_dir is None:
+            if os.name == 'nt':  # Windows
+                appdata = os.environ.get('APPDATA', os.path.expanduser('~'))
+                data_dir = os.path.join(appdata, 'Shakshuka', 'data')
+            else:  # Unix-like systems
+                data_dir = os.path.expanduser('~/.shakshuka/data')
+        
         self.data_dir = data_dir
         self.db_path = os.path.join(data_dir, "shakshuka.db")
         

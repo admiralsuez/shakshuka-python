@@ -1,0 +1,427 @@
+/* Reset and Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --dpi-scale: 1;
+    --base-font-size: 13px;
+    --base-spacing: 0.8rem;
+    --primary-gradient: linear-gradient(135deg, #FF8C42, #FFB366);
+    --secondary-gradient: linear-gradient(135deg, #FFF5E6 0%, #FFE0B3 100%);
+    --background-color: #FFF5E6;
+    --surface-color: rgba(255, 255, 255, 0.95);
+    --text-color: #5C2D00;
+    --text-secondary: #8B4513;
+    --border-color: rgba(255, 140, 66, 0.3);
+    --shadow-color: rgba(255, 140, 66, 0.1);
+    --accent-color: #FF8C42;
+}
+
+/* DPI Scaling Support - Much more conservative */
+@media (-webkit-min-device-pixel-ratio: 1.25), (min-resolution: 120dpi) {
+    :root {
+        --dpi-scale: 1;
+        --base-font-size: 13px;
+        --base-spacing: 1rem;
+    }
+}
+
+@media (-webkit-min-device-pixel-ratio: 1.5), (min-resolution: 144dpi) {
+    :root {
+        --dpi-scale: 1;
+        --base-font-size: 13px;
+        --base-spacing: 1rem;
+    }
+}
+
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    :root {
+        --dpi-scale: 1;
+        --base-font-size: 13px;
+        --base-spacing: 1rem;
+    }
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--secondary-gradient);
+    color: var(--text-color);
+    line-height: 1.6;
+    overflow-x: hidden;
+    font-size: var(--base-font-size);
+}
+
+/* Theme Variables */
+body[data-theme="light"] {
+    --primary-gradient: linear-gradient(135deg, #FF8C42, #FFB366);
+    --secondary-gradient: linear-gradient(135deg, #FFF5F0 0%, #FFE4D6 100%);
+    --background-color: #FFF5F0;
+    --surface-color: rgba(255, 255, 255, 0.98);
+    --text-color: #2D2D2D;
+    --text-secondary: #666;
+    --border-color: rgba(255, 140, 66, 0.4);
+    --shadow-color: rgba(255, 140, 66, 0.15);
+    --accent-color: #FF8C42;
+}
+
+body[data-theme="dark"] {
+    --primary-gradient: linear-gradient(135deg, #4A90E2, #7BB3F0);
+    --secondary-gradient: linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%);
+    --background-color: #1A1A1A;
+    --surface-color: rgba(35, 35, 35, 0.98);
+    --text-color: #FFFFFF;
+    --text-secondary: #B0B0B0;
+    --border-color: rgba(74, 144, 226, 0.4);
+    --shadow-color: rgba(74, 144, 226, 0.15);
+    --accent-color: #4A90E2;
+}
+
+body[data-theme="orange"] {
+    --primary-gradient: linear-gradient(135deg, #FF8C42, #FFB366);
+    --secondary-gradient: linear-gradient(135deg, #FFF5E6 0%, #FFE0B3 100%);
+    --background-color: #FFF5E6;
+    --surface-color: rgba(255, 255, 255, 0.98);
+    --text-color: #5C2D00;
+    --text-secondary: #8B4513;
+    --border-color: rgba(255, 140, 66, 0.4);
+    --shadow-color: rgba(255, 140, 66, 0.15);
+    --accent-color: #FF8C42;
+}
+
+body[data-theme="self-esteem"] {
+    --primary-gradient: linear-gradient(135deg, #4ECDC4, #44A08D);
+    --secondary-gradient: linear-gradient(135deg, #E8F8F5 0%, #D1F2EB 100%);
+    --background-color: #E8F8F5;
+    --surface-color: rgba(255, 255, 255, 0.98);
+    --text-color: #2C3E50;
+    --text-secondary: #5D6D7E;
+    --border-color: rgba(78, 205, 196, 0.4);
+    --shadow-color: rgba(78, 205, 196, 0.15);
+    --accent-color: #4ECDC4;
+}
+
+body[data-theme="anxiety"] {
+    --primary-gradient: linear-gradient(135deg, #74B9FF, #0984E3);
+    --secondary-gradient: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
+    --background-color: #E3F2FD;
+    --surface-color: rgba(255, 255, 255, 0.98);
+    --text-color: #1565C0;
+    --text-secondary: #42A5F5;
+    --border-color: rgba(116, 185, 255, 0.4);
+    --shadow-color: rgba(116, 185, 255, 0.15);
+    --accent-color: #74B9FF;
+}
+
+body[data-theme="depression"] {
+    --primary-gradient: linear-gradient(135deg, #9C88FF, #6C5CE7);
+    --secondary-gradient: linear-gradient(135deg, #F3E5F5 0%, #E1BEE7 100%);
+    --background-color: #F3E5F5;
+    --surface-color: rgba(255, 255, 255, 0.98);
+    --text-color: #4A148C;
+    --text-secondary: #7B1FA2;
+    --border-color: rgba(156, 136, 255, 0.4);
+    --shadow-color: rgba(156, 136, 255, 0.15);
+    --accent-color: #9C88FF;
+}
+
+body[data-theme="focus"] {
+    --primary-gradient: linear-gradient(135deg, #00B894, #00CEC9);
+    --secondary-gradient: linear-gradient(135deg, #E0F7FA 0%, #B2EBF2 100%);
+    --background-color: #E0F7FA;
+    --surface-color: rgba(255, 255, 255, 0.98);
+    --text-color: #00695C;
+    --text-secondary: #4DB6AC;
+    --border-color: rgba(0, 184, 148, 0.4);
+    --shadow-color: rgba(0, 184, 148, 0.15);
+    --accent-color: #00B894;
+}
+
+/* Finish Variables - Glossy (Default) */
+[data-finish="glossy"] {
+    --finish-overlay: linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 50%, rgba(0,0,0,0.1) 100%);
+    --finish-border: rgba(255,255,255,0.6);
+    --finish-shadow: 0 8px 32px rgba(0,0,0,0.12);
+}
+
+[data-finish="matte"] {
+    --finish-overlay: none;
+    --finish-border: rgba(255,255,255,0.3);
+    --finish-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+
+/* Dark theme finish adjustments */
+body[data-theme="dark"][data-finish="glossy"] {
+    --finish-overlay: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.2) 100%);
+    --finish-border: rgba(255,255,255,0.2);
+    --finish-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+
+body[data-theme="dark"][data-finish="matte"] {
+    --finish-overlay: none;
+    --finish-border: rgba(255,255,255,0.1);
+    --finish-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+
+/* Color Intensity Variables - Base (5/10) */
+:root {
+    --intensity-multiplier: 1;
+    --color-opacity: 1;
+    --brightness-adjust: 0;
+}
+
+/* Dynamic Color Generation Functions */
+:root {
+    --primary-hue: 30;
+    --primary-saturation: 85%;
+    --primary-lightness: 60%;
+    --secondary-hue: 25;
+    --secondary-saturation: 95%;
+    --secondary-lightness: 85%;
+}
+
+/* Orange Theme Intensity Adjustments */
+body[data-theme="orange"][data-intensity="1"] {
+    --intensity-multiplier: 0.2;
+    --color-opacity: 0.6;
+    --brightness-adjust: 20%;
+}
+
+body[data-theme="orange"][data-intensity="2"] {
+    --intensity-multiplier: 0.4;
+    --color-opacity: 0.7;
+    --brightness-adjust: 15%;
+}
+
+body[data-theme="orange"][data-intensity="3"] {
+    --intensity-multiplier: 0.6;
+    --color-opacity: 0.8;
+    --brightness-adjust: 10%;
+}
+
+body[data-theme="orange"][data-intensity="4"] {
+    --intensity-multiplier: 0.8;
+    --color-opacity: 0.9;
+    --brightness-adjust: 5%;
+}
+
+body[data-theme="orange"][data-intensity="5"] {
+    --intensity-multiplier: 1;
+    --color-opacity: 1;
+    --brightness-adjust: 0;
+}
+
+body[data-theme="orange"][data-intensity="6"] {
+    --intensity-multiplier: 1.1;
+    --color-opacity: 1;
+    --brightness-adjust: -2%;
+}
+
+body[data-theme="orange"][data-intensity="7"] {
+    --intensity-multiplier: 1.2;
+    --color-opacity: 1;
+    --brightness-adjust: -4%;
+}
+
+body[data-theme="orange"][data-intensity="8"] {
+    --intensity-multiplier: 1.3;
+    --color-opacity: 1;
+    --brightness-adjust: -6%;
+}
+
+body[data-theme="orange"][data-intensity="9"] {
+    --intensity-multiplier: 1.4;
+    --color-opacity: 1;
+    --brightness-adjust: -8%;
+}
+
+body[data-theme="orange"][data-intensity="10"] {
+    --intensity-multiplier: 1.5;
+    --color-opacity: 1;
+    --brightness-adjust: -10%;
+}
+
+/* Dark Theme Intensity Adjustments */
+body[data-theme="dark"][data-intensity="1"] {
+    --intensity-multiplier: 0.3;
+    --color-opacity: 0.6;
+    --brightness-adjust: 30%;
+}
+
+body[data-theme="dark"][data-intensity="2"] {
+    --intensity-multiplier: 0.5;
+    --color-opacity: 0.7;
+    --brightness-adjust: 25%;
+}
+
+body[data-theme="dark"][data-intensity="3"] {
+    --intensity-multiplier: 0.7;
+    --color-opacity: 0.8;
+    --brightness-adjust: 20%;
+}
+
+body[data-theme="dark"][data-intensity="4"] {
+    --intensity-multiplier: 0.9;
+    --color-opacity: 0.9;
+    --brightness-adjust: 15%;
+}
+
+body[data-theme="dark"][data-intensity="5"] {
+    --intensity-multiplier: 1;
+    --color-opacity: 1;
+    --brightness-adjust: 10%;
+}
+
+body[data-theme="dark"][data-intensity="6"] {
+    --intensity-multiplier: 1.1;
+    --color-opacity: 1;
+    --brightness-adjust: 5%;
+}
+
+body[data-theme="dark"][data-intensity="7"] {
+    --intensity-multiplier: 1.2;
+    --color-opacity: 1;
+    --brightness-adjust: 0;
+}
+
+body[data-theme="dark"][data-intensity="8"] {
+    --intensity-multiplier: 1.3;
+    --color-opacity: 1;
+    --brightness-adjust: -5%;
+}
+
+body[data-theme="dark"][data-intensity="9"] {
+    --intensity-multiplier: 1.4;
+    --color-opacity: 1;
+    --brightness-adjust: -10%;
+}
+
+body[data-theme="dark"][data-intensity="10"] {
+    --intensity-multiplier: 1.5;
+    --color-opacity: 1;
+    --brightness-adjust: -15%;
+}
+
+/* Self-Esteem Theme Intensity Adjustments */
+body[data-theme="self-esteem"][data-intensity="1"] {
+    --intensity-multiplier: 0.2;
+    --color-opacity: 0.6;
+    --brightness-adjust: 20%;
+}
+
+body[data-theme="self-esteem"][data-intensity="2"] {
+    --intensity-multiplier: 0.4;
+    --color-opacity: 0.7;
+    --brightness-adjust: 15%;
+}
+
+body[data-theme="self-esteem"][data-intensity="3"] {
+    --intensity-multiplier: 0.6;
+    --color-opacity: 0.8;
+    --brightness-adjust: 10%;
+}
+
+body[data-theme="self-esteem"][data-intensity="4"] {
+    --intensity-multiplier: 0.8;
+    --color-opacity: 0.9;
+    --brightness-adjust: 5%;
+}
+
+body[data-theme="self-esteem"][data-intensity="5"] {
+    --intensity-multiplier: 1;
+    --color-opacity: 1;
+    --brightness-adjust: 0;
+}
+
+body[data-theme="self-esteem"][data-intensity="6"] {
+    --intensity-multiplier: 1.1;
+    --color-opacity: 1;
+    --brightness-adjust: -2%;
+}
+
+body[data-theme="self-esteem"][data-intensity="7"] {
+    --intensity-multiplier: 1.2;
+    --color-opacity: 1;
+    --brightness-adjust: -4%;
+}
+
+body[data-theme="self-esteem"][data-intensity="8"] {
+    --intensity-multiplier: 1.3;
+    --color-opacity: 1;
+    --brightness-adjust: -6%;
+}
+
+body[data-theme="self-esteem"][data-intensity="9"] {
+    --intensity-multiplier: 1.4;
+    --color-opacity: 1;
+    --brightness-adjust: -8%;
+}
+
+body[data-theme="self-esteem"][data-intensity="10"] {
+    --intensity-multiplier: 1.5;
+    --color-opacity: 1;
+    --brightness-adjust: -10%;
+}
+
+/* Anxiety Theme Intensity Adjustments */
+body[data-theme="anxiety"][data-intensity="1"] {
+    --intensity-multiplier: 0.2;
+    --color-opacity: 0.6;
+    --brightness-adjust: 20%;
+}
+
+body[data-theme="anxiety"][data-intensity="2"] {
+    --intensity-multiplier: 0.4;
+    --color-opacity: 0.7;
+    --brightness-adjust: 15%;
+}
+
+body[data-theme="anxiety"][data-intensity="3"] {
+    --intensity-multiplier: 0.6;
+    --color-opacity: 0.8;
+    --brightness-adjust: 10%;
+}
+
+body[data-theme="anxiety"][data-intensity="4"] {
+    --intensity-multiplier: 0.8;
+    --color-opacity: 0.9;
+    --brightness-adjust: 5%;
+}
+
+body[data-theme="anxiety"][data-intensity="5"] {
+    --intensity-multiplier: 1;
+    --color-opacity: 1;
+    --brightness-adjust: 0;
+}
+
+body[data-theme="anxiety"][data-intensity="6"] {
+    --intensity-multiplier: 1.1;
+    --color-opacity: 1;
+    --brightness-adjust: -2%;
+}
+
+body[data-theme="anxiety"][data-intensity="7"] {
+    --intensity-multiplier: 1.2;
+    --color-opacity: 1;
+    --brightness-adjust: -4%;
+}
+
+body[data-theme="anxiety"][data-intensity="8"] {
+    --intensity-multiplier: 1.3;
+    --color-opacity: 1;
+    --brightness-adjust: -6%;
+}
+
+body[data-theme="anxiety"][data-intensity="9"] {
+    --intensity-multiplier: 1.4;
+    --color-opacity: 1;
+    --brightness-adjust: -8%;
+}
+
+body[data-theme="anxiety"][data-intensity="10"] {
+    --intensity-multiplier: 1.5;
+    --color-opacity: 1;
+    --brightness-adjust: -10%;
+}

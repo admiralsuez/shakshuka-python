@@ -145,11 +145,17 @@ class SQLiteDataManager:
                 if cursor.fetchone():
                     return True
                 
-                # Create user if not exists
+                # Create user if not exists (with default password hash for default_user)
+                if user_id == 'default_user':
+                    # For default user, use a placeholder password hash
+                    password_hash = 'default_user_no_password'
+                else:
+                    password_hash = None
+                
                 conn.execute('''
-                    INSERT INTO users (id, username, is_active)
-                    VALUES (?, ?, ?)
-                ''', (user_id, f"user_{user_id[:8]}", 1))
+                    INSERT INTO users (id, username, password_hash, is_active)
+                    VALUES (?, ?, ?, ?)
+                ''', (user_id, f"user_{user_id[:8]}", password_hash, 1))
                 
                 # Create default settings for user
                 conn.execute('''

@@ -2,7 +2,7 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Shakshuka"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.9"
 #define MyAppPublisher "Shakshuka Team"
 #define MyAppURL "https://github.com/shakshuka/shakshuka"
 #define MyAppExeName "Shakshuka.exe"
@@ -21,65 +21,66 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-LicenseFile=LICENSE.txt
+LicenseFile=..\docs\LICENSE.txt
 OutputDir=dist
 OutputBaseFilename=Shakshuka-Setup-v{#MyAppVersion}
-SetupIconFile=assets\static\images\icon.ico
+SetupIconFile=..\assets\static\images\icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
+; Force reinstall to ensure updates work properly
+DisableDirPage=no
+DisableProgramGroupPage=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
 Name: "autostart"; Description: "Start Shakshuka automatically when Windows starts"; GroupDescription: "Startup Options:"
 
 [Files]
 ; Main executable
-Source: "Shakshuka.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\Shakshuka.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Static files
-Source: "assets\static\*"; DestDir: "{app}\static"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\assets\static\*"; DestDir: "{app}\assets\static"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Templates
-Source: "assets\templates\*"; DestDir: "{app}\templates"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\assets\templates\*"; DestDir: "{app}\assets\templates"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Data directory (for initial setup)
-Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Configuration files
-Source: "config/version.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Management scripts
 Source: "Start-Shakshuka.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Start-Shakshuka-Silent.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Start-Shakshuka-Silent.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Stop-Shakshuka.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "server-manager.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "run.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "build.bat"; DestDir: "{app}"; Flags: ignoreversion
 ; Documentation
-Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "INSTALLATION.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "TROUBLESHOOTING.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "QUICK-START.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "config/requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\Start Shakshuka"; Filename: "{app}\Start-Shakshuka.bat"
-Name: "{group}\Stop Shakshuka"; Filename: "{app}\Stop-Shakshuka.bat"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"
+Name: "{group}\Start Shakshuka"; Filename: "{app}\Start-Shakshuka.bat"; IconFilename: "{app}\assets\static\images\icon.ico"
+Name: "{group}\Stop Shakshuka"; Filename: "{app}\Stop-Shakshuka.bat"; IconFilename: "{app}\assets\static\images\icon.ico"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"; Tasks: desktopicon
+Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"; Tasks: quicklaunchicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\Start-Shakshuka.bat"; Description: "Start Shakshuka Server"; Flags: postinstall skipifsilent
+; No automatic launch - user can start manually from shortcuts
 
 [UninstallRun]
 Filename: "{app}\Stop-Shakshuka.bat"; RunOnceId: "StopShakshuka"
 
 [Registry]
 ; Add to Windows startup if selected
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Shakshuka"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: autostart
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Shakshuka"; ValueData: """{app}\Start-Shakshuka-Silent.vbs"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -94,12 +95,18 @@ begin
     // Copy initial data if user data doesn't exist
     if not DirExists(ExpandConstant('{userappdata}\Shakshuka\data\users')) then
     begin
-      DirCopy(ExpandConstant('{app}\data'), ExpandConstant('{userappdata}\Shakshuka\data'), False);
+      // Create user data directory structure
+      ForceDirectories(ExpandConstant('{userappdata}\Shakshuka\data\users'));
+      ForceDirectories(ExpandConstant('{userappdata}\Shakshuka\data\backups'));
+      ForceDirectories(ExpandConstant('{userappdata}\Shakshuka\logs'));
     end;
   end;
 end;
 
 function InitializeSetup(): Boolean;
+var
+  ResultCode: Integer;
+  UninstallString: String;
 begin
   Result := True;
   
@@ -110,6 +117,20 @@ begin
     begin
       // Try to stop Shakshuka
       Exec('taskkill', '/F /IM Shakshuka.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    end
+    else
+    begin
+      Result := False;
+    end;
+  end;
+  
+  // Check for existing installation
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}_is1', 'UninstallString', UninstallString) then
+  begin
+    if MsgBox('Shakshuka is already installed. Do you want to update to the latest version?', mbConfirmation, MB_YESNO) = IDYES then
+    begin
+      // Uninstall existing version first
+      Exec(UninstallString, '/SILENT', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     end
     else
     begin

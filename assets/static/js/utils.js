@@ -21,7 +21,7 @@ async function makeAuthenticatedRequest(url, options = {}) {
     console.log('CSRF Token:', token);
     
     // Get user ID from AppState
-    const userId = AppState.get('userId');
+    const userId = (typeof AppState !== 'undefined' && AppState && AppState.get) ? AppState.get('userId') : 'default_user';
     console.log('User ID:', userId);
 
     const defaultOptions = {
@@ -76,7 +76,7 @@ window.addEventListener('error', function(event) {
 
     // Log to developer console if available and AppState is initialized
     try {
-        if (AppState && AppState.get && AppState.get('developerLogs')) {
+        if (typeof AppState !== 'undefined' && AppState && AppState.get && AppState.get('developerLogs')) {
             AppState.get('developerLogs').push({
                 type: 'error',
                 message: event.error.message,
@@ -95,7 +95,7 @@ window.addEventListener('unhandledrejection', function(event) {
 
     // Log to developer console if available and AppState is initialized
     try {
-        if (AppState && AppState.get && AppState.get('developerLogs')) {
+        if (typeof AppState !== 'undefined' && AppState && AppState.get && AppState.get('developerLogs')) {
             AppState.get('developerLogs').push({
                 type: 'error',
                 message: `Promise rejection: ${event.reason}`,
@@ -116,7 +116,7 @@ const Logger = {
 
         // Add to AppState developer logs if available
         try {
-            if (AppState && AppState.get && AppState.get('developerLogs')) {
+            if (typeof AppState !== 'undefined' && AppState && AppState.get && AppState.get('developerLogs')) {
                 const logs = AppState.get('developerLogs');
                 logs.push(logEntry);
 

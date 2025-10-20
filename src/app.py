@@ -32,9 +32,22 @@ from src.user_manager import user_manager
 # Flask app configuration
 app = Flask(__name__)
 # Use persistent secret key from environment or generate once and store
-# Use application directory instead of current working directory to avoid permission issues
-app_dir = os.path.dirname(os.path.abspath(__file__))
-secret_key_file = os.path.join(app_dir, '.flask_secret')
+# Use user AppData directory to avoid permission issues when installed in Program Files
+import os
+import tempfile
+
+def get_user_data_dir():
+    """Get user data directory that's always writable"""
+    if os.name == 'nt':  # Windows
+        appdata = os.environ.get('APPDATA', os.path.expanduser('~'))
+        return os.path.join(appdata, 'Shakshuka')
+    else:  # Unix-like systems
+        return os.path.expanduser('~/.shakshuka')
+
+user_data_dir = get_user_data_dir()
+os.makedirs(user_data_dir, exist_ok=True)
+secret_key_file = os.path.join(user_data_dir, '.flask_secret')
+
 if os.path.exists(secret_key_file):
     with open(secret_key_file, 'rb') as f:
         app.secret_key = f.read()
@@ -44,7 +57,15 @@ else:
         f.write(app.secret_key)
 
 # Set up static and template folders after app creation
-root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Handle both development and PyInstaller executable modes
+if getattr(sys, 'frozen', False):
+    # Running as compiled executable
+    base_path = os.path.dirname(sys.executable)
+    root_dir = base_path
+else:
+    # Running as development script
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 static_dir = os.path.join(root_dir, 'assets', 'static')
 template_dir = os.path.join(root_dir, 'assets', 'templates')
 
@@ -64,13 +85,8 @@ except ImportError:
 
 # Setup logging
 try:
-    # Determine the correct path for logs based on execution mode
-    if getattr(sys, 'frozen', False):
-        # Running as bundled executable - use current working directory
-        logs_dir = os.path.join(os.getcwd(), 'logs')
-    else:
-        # Running as development script - use project root
-        logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+    # Always use user data directory for logs to avoid permission issues
+    logs_dir = os.path.join(user_data_dir, 'logs')
     
     # Try to create logs directory if it doesn't exist
     os.makedirs(logs_dir, exist_ok=True)
@@ -374,14 +390,9 @@ def initialize_data_manager():
         logger.info(f"Initializing data manager...")
         logger.info(f"Current working directory: {os.getcwd()}")
         
-        # Handle PyInstaller bundle path
-        if getattr(sys, 'frozen', False):
-            # Running as compiled executable
-            base_path = os.path.dirname(sys.executable)
-            data_dir = os.path.join(base_path, "data")
-        else:
-            # Running as script
-            data_dir = "data"
+        # Always use user data directory to avoid permission issues
+        # This ensures the app works when installed in Program Files
+        data_dir = os.path.join(user_data_dir, "data")
 
         print(f"Data directory path: {data_dir}")
 
@@ -515,21 +526,297 @@ def index():
 
     return render_template('index.html', version=version)
 
+@app.route('/favicon.ico')
+def favicon():
+    """Serve the favicon"""
+    return send_from_directory(os.path.join(app.root_path, 'assets', 'static', 'images'), 'icon.ico', mimetype='image/vnd.microsoft.icon')
+
 @app.route('/api/changelog')
 def get_changelog():
     """Serve the changelog file"""
     try:
-        # Get the root directory (parent of src/)
-        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # Handle both development and PyInstaller executable modes
+        if getattr(sys, 'frozen', False):
+            # Running as PyInstaller executable
+            root_dir = os.path.dirname(sys.executable)
+        else:
+            # Running as Python script
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
         changelog_path = os.path.join(root_dir, 'config', 'changelog.txt')
+        logger.info(f"Looking for changelog at: {changelog_path}")
+        
         with open(changelog_path, 'r', encoding='utf-8') as f:
             changelog_content = f.read()
         return changelog_content, 200, {'Content-Type': 'text/plain; charset=utf-8'}
     except FileNotFoundError:
+        logger.error(f"Changelog file not found at: {changelog_path}")
         return 'Changelog file not found.', 404
     except Exception as e:
         logger.error(f"Error reading changelog: {e}")
         return 'Error reading changelog.', 500
+
+@app.route('/api/check-updates')
+def check_updates():
+    """Check for available updates"""
+    try:
+        # Get current version
+        if getattr(sys, 'frozen', False):
+            root_dir = os.path.dirname(sys.executable)
+        else:
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        version_path = os.path.join(root_dir, 'config', 'version.json')
+        with open(version_path, 'r') as f:
+            version_data = json.load(f)
+        current_version = f"{version_data['version']}.{version_data['build']}"
+        
+        # For now, return current version info
+        # In a real implementation, this would check a remote server
+        return jsonify({
+            'current_version': current_version,
+            'latest_version': current_version,
+            'update_available': False,
+            'download_url': None,
+            'release_notes': 'No updates available'
+        })
+    except Exception as e:
+        logger.error(f"Error checking updates: {e}")
+        return jsonify({
+            'error': 'Failed to check for updates',
+            'current_version': 'unknown',
+            'latest_version': 'unknown',
+            'update_available': False
+        }), 500
+
+@app.route('/api/updates/check', methods=['POST'])
+def check_updates_legacy():
+    """Check for available updates (legacy endpoint)"""
+    try:
+        # Get current version
+        if getattr(sys, 'frozen', False):
+            root_dir = os.path.dirname(sys.executable)
+        else:
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        version_path = os.path.join(root_dir, 'config', 'version.json')
+        with open(version_path, 'r') as f:
+            version_data = json.load(f)
+        current_version = f"{version_data['version']}.{version_data['build']}"
+        
+        # For now, return current version info
+        # In a real implementation, this would check a remote server
+        return jsonify({
+            'update_available': False,
+            'current_version': current_version,
+            'latest_version': current_version,
+            'update_info': {
+                'version': current_version,
+                'release_notes': 'No updates available',
+                'download_url': None,
+                'file_size': 0
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error checking updates: {e}")
+        return jsonify({
+            'error': 'Failed to check for updates',
+            'update_available': False,
+            'current_version': 'unknown',
+            'latest_version': 'unknown'
+        }), 500
+
+@app.route('/api/github/check-update', methods=['POST'])
+def check_github_update():
+    """Check for updates from GitHub releases"""
+    try:
+        import requests
+        import json
+        
+        # Get request data
+        data = request.get_json() or {}
+        branch = data.get('branch', 'main')
+        
+        # GitHub repository info (you can change this to your actual repo)
+        repo_owner = "shakshuka"  # Change to your GitHub username/organization
+        repo_name = "shakshuka"    # Change to your repository name
+        
+        # Get latest release from GitHub API
+        if branch == 'main':
+            # For main branch, get the latest stable release
+            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
+        else:
+            # For other branches, get the latest release with prerelease tag
+            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
+            params = {'per_page': 1}
+            if branch == 'testing':
+                params['prerelease'] = True
+            elif branch == 'development':
+                params['prerelease'] = True
+        
+        response = requests.get(url, params=params if branch != 'main' else None, timeout=10)
+        response.raise_for_status()
+        
+        if branch == 'main':
+            release_data = response.json()
+        else:
+            releases = response.json()
+            if not releases:
+                return jsonify({
+                    'update_available': False,
+                    'message': 'No releases found for this branch'
+                })
+            release_data = releases[0]
+        
+        # Get current version
+        if getattr(sys, 'frozen', False):
+            root_dir = os.path.dirname(sys.executable)
+        else:
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        version_path = os.path.join(root_dir, 'config', 'version.json')
+        with open(version_path, 'r') as f:
+            version_data = json.load(f)
+        current_version = f"{version_data['version']}.{version_data['build']}"
+        
+        # Compare versions
+        latest_version = release_data['tag_name'].lstrip('v')
+        update_available = latest_version != current_version
+        
+        return jsonify({
+            'update_available': update_available,
+            'current_version': current_version,
+            'latest_version': latest_version,
+            'release_info': {
+                'tag_name': release_data['tag_name'],
+                'name': release_data['name'],
+                'body': release_data['body'],
+                'published_at': release_data['published_at'],
+                'download_url': None,  # Will be set if update available
+                'file_size': 0
+            }
+        })
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"GitHub API error: {e}")
+        return jsonify({
+            'error': 'Failed to connect to GitHub',
+            'update_available': False
+        }), 500
+    except Exception as e:
+        logger.error(f"Error checking GitHub update: {e}")
+        return jsonify({
+            'error': 'Failed to check for updates',
+            'update_available': False
+        }), 500
+
+@app.route('/api/github/download-update', methods=['POST'])
+def download_github_update():
+    """Download and install update from GitHub"""
+    try:
+        import requests
+        import json
+        import tempfile
+        import subprocess
+        import shutil
+        
+        # Get request data
+        data = request.get_json() or {}
+        branch = data.get('branch', 'main')
+        
+        # GitHub repository info
+        repo_owner = "shakshuka"  # Change to your GitHub username/organization
+        repo_name = "shakshuka"    # Change to your repository name
+        
+        # Get latest release
+        if branch == 'main':
+            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
+        else:
+            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
+            params = {'per_page': 1}
+            if branch == 'testing':
+                params['prerelease'] = True
+            elif branch == 'development':
+                params['prerelease'] = True
+        
+        response = requests.get(url, params=params if branch != 'main' else None, timeout=10)
+        response.raise_for_status()
+        
+        if branch == 'main':
+            release_data = response.json()
+        else:
+            releases = response.json()
+            if not releases:
+                return jsonify({'error': 'No releases found for this branch'}), 404
+            release_data = releases[0]
+        
+        # Find the Windows installer asset
+        installer_url = None
+        installer_size = 0
+        for asset in release_data.get('assets', []):
+            if asset['name'].endswith('.exe') and 'Setup' in asset['name']:
+                installer_url = asset['browser_download_url']
+                installer_size = asset['size']
+                break
+        
+        if not installer_url:
+            return jsonify({'error': 'No Windows installer found in release'}), 404
+        
+        # Download the installer
+        logger.info(f"Downloading update from: {installer_url}")
+        download_response = requests.get(installer_url, stream=True, timeout=30)
+        download_response.raise_for_status()
+        
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.exe') as temp_file:
+            for chunk in download_response.iter_content(chunk_size=8192):
+                temp_file.write(chunk)
+            temp_installer_path = temp_file.name
+        
+        logger.info(f"Downloaded installer to: {temp_installer_path}")
+        
+        # Create update script
+        update_script = f"""
+@echo off
+echo Starting Shakshuka update...
+echo Downloaded installer: {temp_installer_path}
+echo.
+echo Please wait while the installer runs...
+echo The application will restart automatically after installation.
+echo.
+start /wait "" "{temp_installer_path}" /SILENT
+echo Update completed!
+echo Starting Shakshuka...
+start "" "{os.path.join(os.path.dirname(sys.executable), 'Start-Shakshuka-Silent.vbs')}"
+del "{temp_installer_path}"
+del "%~f0"
+"""
+        
+        # Save update script
+        script_path = os.path.join(tempfile.gettempdir(), 'shakshuka_update.bat')
+        with open(script_path, 'w') as f:
+            f.write(update_script)
+        
+        # Start update process
+        subprocess.Popen([script_path], shell=True)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Update downloaded and installation started',
+            'installer_size': installer_size,
+            'release_info': {
+                'tag_name': release_data['tag_name'],
+                'name': release_data['name'],
+                'body': release_data['body']
+            }
+        })
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"GitHub download error: {e}")
+        return jsonify({'error': 'Failed to download update from GitHub'}), 500
+    except Exception as e:
+        logger.error(f"Error downloading GitHub update: {e}")
+        return jsonify({'error': 'Failed to download update'}), 500
 
 
 # Authentication routes
@@ -1477,9 +1764,109 @@ def restore_backup():
     else:
         return jsonify({'error': 'Failed to restore backup'}), 500
 
+@app.route('/api/shutdown', methods=['POST'])
+def shutdown_server():
+    """Shutdown the server (for system tray quit)"""
+    global shutdown_requested
+    shutdown_requested = True
+    logger.info("Shutdown requested via API")
+    
+    # Stop system tray
+    stop_system_tray()
+    
+    # Schedule shutdown after response is sent
+    import threading
+    def delayed_shutdown():
+        import time
+        time.sleep(0.5)  # Give time for response to be sent
+        import os
+        os._exit(0)
+    
+    shutdown_thread = threading.Thread(target=delayed_shutdown)
+    shutdown_thread.daemon = True
+    shutdown_thread.start()
+    
+    return jsonify({'success': True, 'message': 'Shutting down...'})
+
 if __name__ == '__main__':
     try:
         print("Starting Shakshuka application...")
+        
+        # Check for existing instance and kill it if found
+        import psutil
+        import time
+        
+        def kill_existing_instances():
+            """Kill any existing Shakshuka instances"""
+            killed_count = 0
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    # Check if it's Shakshuka.exe or python running main.py
+                    if proc.info['name'] == 'Shakshuka.exe':
+                        print(f"Found existing Shakshuka instance (PID: {proc.info['pid']}), terminating...")
+                        proc.terminate()
+                        killed_count += 1
+                    elif proc.info['name'] == 'python.exe' and proc.info['cmdline']:
+                        cmdline = ' '.join(proc.info['cmdline'])
+                        if 'main.py' in cmdline and 'shakshuka' in cmdline.lower():
+                            print(f"Found existing Python Shakshuka instance (PID: {proc.info['pid']}), terminating...")
+                            proc.terminate()
+                            killed_count += 1
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    pass
+            
+            if killed_count > 0:
+                print(f"Terminated {killed_count} existing instance(s). Waiting 2 seconds...")
+                time.sleep(2)
+            else:
+                print("No existing instances found.")
+        
+        # Kill existing instances before starting
+        kill_existing_instances()
+        
+        # Additional single-instance check using Windows mutex
+        import tempfile
+        
+        def check_single_instance():
+            """Use Windows mutex to ensure only one instance runs"""
+            if os.name == 'nt':  # Windows
+                import win32event
+                import win32api
+                import win32con
+                
+                # Create a named mutex
+                mutex_name = "ShakshukaSingleInstanceMutex"
+                try:
+                    mutex = win32event.CreateMutex(None, False, mutex_name)
+                    if win32api.GetLastError() == win32con.ERROR_ALREADY_EXISTS:
+                        print("Another instance is already running. Exiting...")
+                        return False
+                    print("Single instance mutex acquired successfully.")
+                    return True
+                except Exception as e:
+                    print(f"Error creating mutex: {e}")
+                    return False
+            else:  # Unix-like systems
+                import fcntl
+                lock_file = os.path.join(tempfile.gettempdir(), 'shakshuka.lock')
+                try:
+                    # Try to create and lock the file
+                    lock_fd = os.open(lock_file, os.O_CREAT | os.O_TRUNC | os.O_RDWR)
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    
+                    # Write current PID to lock file
+                    os.write(lock_fd, str(os.getpid()).encode())
+                    os.close(lock_fd)
+                    
+                    print("Single instance lock acquired successfully.")
+                    return True
+                except (OSError, IOError):
+                    print("Another instance is already running. Exiting...")
+                    return False
+        
+        # Check single instance with file lock
+        if not check_single_instance():
+            sys.exit(1)
         
         # Initialize data manager
         print("Initializing data manager...")
@@ -1535,6 +1922,14 @@ if __name__ == '__main__':
         os.environ['FLASK_SKIP_DOTENV'] = '1'
         os.environ['FLASK_CLI'] = '0'
         
+        # Start system tray (runs in background thread)
+        try:
+            print("Attempting to start system tray...")
+            start_system_tray()
+        except Exception as e:
+            logger.warning(f"Could not start system tray: {e}")
+            print(f"Could not start system tray: {e}")
+
         # Custom Flask runner to avoid click.echo issues
         try:
             from werkzeug.serving import run_simple
@@ -1553,6 +1948,7 @@ if __name__ == '__main__':
 
 # System Tray Management
 system_tray_icon = None
+shutdown_requested = False
 
 def create_system_tray_icon() -> Optional[Any]:
     """Create and show system tray icon"""
@@ -1564,26 +1960,54 @@ def create_system_tray_icon() -> Optional[Any]:
         # Create a simple icon (you can replace this with a proper icon file)
         icon = create_icon_image()
 
-        # Create system tray menu
-        def show_app():
-            """Show the main application window"""
-            logger.info("Opening application from system tray")
+        # System tray menu actions
+        def open_dashboard():
+            import webbrowser
+            webbrowser.open('http://127.0.0.1:8989')
 
-        def hide_app():
-            """Hide the main application window"""
-            logger.info("Hiding application from system tray")
+        def open_logs_folder():
+            folder = os.path.join(user_data_dir, 'logs')
+            try:
+                if sys.platform == 'win32':
+                    os.startfile(folder)
+                elif sys.platform == 'darwin':
+                    subprocess.Popen(['open', folder])
+                else:
+                    subprocess.Popen(['xdg-open', folder])
+            except Exception as e:
+                logger.error(f"Failed to open logs folder: {e}")
+
+        def open_data_folder():
+            folder = os.path.join(user_data_dir, 'data')
+            try:
+                if sys.platform == 'win32':
+                    os.startfile(folder)
+                elif sys.platform == 'darwin':
+                    subprocess.Popen(['open', folder])
+                else:
+                    subprocess.Popen(['xdg-open', folder])
+            except Exception as e:
+                logger.error(f"Failed to open data folder: {e}")
 
         def quit_app():
-            """Quit the application"""
             logger.info("Quitting application from system tray")
             if system_tray_icon:
                 system_tray_icon.stop()
-            shutdown_application()
+            
+            # Call shutdown API endpoint to properly stop the server
+            import requests
+            try:
+                requests.post('http://127.0.0.1:8989/api/shutdown', timeout=1)
+            except:
+                # Fallback to direct exit if API call fails
+                import os
+                os._exit(0)
 
         menu = pystray.Menu(
-            pystray.MenuItem("Show Shakshuka", show_app),
-            pystray.MenuItem("Hide Shakshuka", hide_app),
-            pystray.MenuItem("Quit Shakshuka", quit_app)
+            pystray.MenuItem("Open Dashboard", lambda: open_dashboard()),
+            pystray.MenuItem("Open Logs Folder", lambda: open_logs_folder()),
+            pystray.MenuItem("Open Data Folder", lambda: open_data_folder()),
+            pystray.MenuItem("Quit Shakshuka", lambda: quit_app())
         )
 
         # Create and show icon
@@ -1623,15 +2047,18 @@ def start_system_tray() -> None:
     try:
         system_tray_icon = create_system_tray_icon()
         if system_tray_icon:
-            # Run in a separate thread to avoid blocking
+            # Run in a separate thread to avoid blocking the main Flask thread
             import threading
             tray_thread = threading.Thread(target=system_tray_icon.run, daemon=True)
             tray_thread.start()
-            logger.info("System tray icon started")
+            logger.info("System tray icon started successfully")
+            print("System tray icon created and started")
         else:
             logger.warning("Failed to create system tray icon")
+            print("Failed to create system tray icon")
     except Exception as e:
         logger.error(f"Error starting system tray: {e}")
+        print(f"Error starting system tray: {e}")
 
 def stop_system_tray() -> None:
     """Stop the system tray icon"""
@@ -1651,6 +2078,30 @@ def shutdown_application() -> None:
 
     # Stop system tray
     stop_system_tray()
+
+    # Clean up single instance mutex
+    try:
+        if os.name == 'nt':  # Windows
+            import win32event
+            mutex_name = "ShakshukaSingleInstanceMutex"
+            try:
+                mutex = win32event.OpenMutex(win32event.MUTEX_ALL_ACCESS, False, mutex_name)
+                if mutex:
+                    win32event.CloseHandle(mutex)
+                    logger.info("Single instance mutex cleaned up")
+            except:
+                pass
+        else:  # Unix-like systems
+            import tempfile
+            lock_file = os.path.join(tempfile.gettempdir(), 'shakshuka.lock')
+            try:
+                if os.path.exists(lock_file):
+                    os.remove(lock_file)
+                    logger.info("Single instance lock file cleaned up")
+            except:
+                pass
+    except Exception as e:
+        logger.warning(f"Error cleaning up single instance resources: {e}")
 
     # Stop any background threads
     try:
