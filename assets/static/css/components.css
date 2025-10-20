@@ -67,21 +67,35 @@
 }
 
 .stats-card {
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(20px);
+    background: var(--surface-finish-gradient);
+    backdrop-filter: var(--backdrop-filter);
     border-radius: 20px;
     padding: 2rem;
     display: flex;
     align-items: center;
     gap: 1.5rem;
-    box-shadow: 0 10px 40px rgba(255, 182, 193, 0.1);
-    border: 1px solid rgba(255, 182, 193, 0.2);
+    box-shadow: var(--box-shadow-primary);
+    border: var(--border-finish);
     transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.stats-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--glossy-overlay);
+    pointer-events: none;
+    border-radius: 20px;
 }
 
 .stats-card:hover {
     transform: translateY(-5px);
-    box-shadow: 0 20px 60px rgba(255, 182, 193, 0.15);
+    box-shadow: var(--box-shadow-hover);
 }
 
 .stats-icon {
@@ -109,12 +123,26 @@
 }
 
 .recent-tasks, .quick-actions {
-    background: var(--surface-color);
-    backdrop-filter: blur(20px);
+    background: var(--surface-finish-gradient);
+    backdrop-filter: var(--backdrop-filter);
     border-radius: calc(20px * var(--dpi-scale));
     padding: calc(2rem * var(--dpi-scale));
-    box-shadow: 0 calc(10px * var(--dpi-scale)) calc(40px * var(--dpi-scale)) var(--shadow-color);
-    border: 1px solid var(--border-color);
+    box-shadow: var(--box-shadow-primary);
+    border: var(--border-finish);
+    position: relative;
+    overflow: hidden;
+}
+
+.recent-tasks::before, .quick-actions::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--glossy-overlay);
+    pointer-events: none;
+    border-radius: calc(20px * var(--dpi-scale));
 }
 
 .recent-tasks h3, .quick-actions h3 {
@@ -189,7 +217,7 @@
 }
 
 .modal-content {
-    background: var(--surface-color);
+    background: var(--surface-finish-gradient);
     border-radius: calc(20px * var(--dpi-scale));
     padding: calc(2rem * var(--dpi-scale));
     max-width: calc(600px * var(--dpi-scale));
@@ -197,10 +225,23 @@
     max-height: 80vh;
     overflow-y: auto;
     position: relative;
-    box-shadow: 0 calc(20px * var(--dpi-scale)) calc(60px * var(--dpi-scale)) rgba(0, 0, 0, 0.3);
-    border: 1px solid var(--border-color);
-    backdrop-filter: blur(20px);
+    box-shadow: var(--box-shadow-primary);
+    border: var(--border-finish);
+    backdrop-filter: var(--backdrop-filter);
     animation: modalSlideIn 0.3s ease-out;
+    overflow: hidden;
+}
+
+.modal-content::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--glossy-overlay);
+    pointer-events: none;
+    border-radius: calc(20px * var(--dpi-scale));
 }
 
 @keyframes modalSlideIn {

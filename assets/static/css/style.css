@@ -121,39 +121,43 @@ body[data-theme="anxiety"] {
 
 /* Finish Variables - Glossy (Default) */
 body[data-finish="glossy"] {
-    --surface-finish: rgba(255, 255, 255, 0.95);
-    --surface-finish-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.85) 100%);
-    --backdrop-filter: blur(15px);
-    --box-shadow-primary: 0 8px 32px rgba(0, 0, 0, 0.1);
-    --box-shadow-secondary: 0 4px 16px rgba(0, 0, 0, 0.05);
-    --box-shadow-hover: 0 12px 40px rgba(0, 0, 0, 0.15);
-    --border-finish: 1px solid rgba(255, 255, 255, 0.2);
-    --surface-reflectivity: 0.8;
+    --surface-finish: rgba(255, 255, 255, 0.85);
+    --surface-finish-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 50%, rgba(255, 255, 255, 0.6) 100%);
+    --backdrop-filter: blur(25px) saturate(1.2);
+    --box-shadow-primary: 0 15px 50px rgba(0, 0, 0, 0.15), 0 5px 15px rgba(0, 0, 0, 0.1);
+    --box-shadow-secondary: 0 8px 25px rgba(0, 0, 0, 0.08);
+    --box-shadow-hover: 0 20px 60px rgba(0, 0, 0, 0.2), 0 8px 25px rgba(0, 0, 0, 0.15);
+    --border-finish: 2px solid rgba(255, 255, 255, 0.4);
+    --surface-reflectivity: 0.9;
+    --glossy-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0.1) 50%, rgba(0, 0, 0, 0.05) 100%);
 }
 
 /* Finish Variables - Matte */
 body[data-finish="matte"] {
-    --surface-finish: rgba(255, 255, 255, 0.98);
-    --surface-finish-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.95) 100%);
+    --surface-finish: rgba(255, 255, 255, 0.99);
+    --surface-finish-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 248, 248, 0.98) 100%);
     --backdrop-filter: none;
-    --box-shadow-primary: 0 4px 12px rgba(0, 0, 0, 0.08);
-    --box-shadow-secondary: 0 2px 8px rgba(0, 0, 0, 0.04);
-    --box-shadow-hover: 0 6px 16px rgba(0, 0, 0, 0.1);
-    --border-finish: 1px solid rgba(0, 0, 0, 0.1);
-    --surface-reflectivity: 0.1;
+    --box-shadow-primary: 0 2px 8px rgba(0, 0, 0, 0.06);
+    --box-shadow-secondary: 0 1px 4px rgba(0, 0, 0, 0.03);
+    --box-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --border-finish: 1px solid rgba(0, 0, 0, 0.08);
+    --surface-reflectivity: 0.05;
+    --glossy-overlay: none;
 }
 
 /* Dark theme finish adjustments */
 body[data-theme="dark"][data-finish="glossy"] {
-    --surface-finish: rgba(35, 35, 35, 0.95);
-    --surface-finish-gradient: linear-gradient(135deg, rgba(35, 35, 35, 0.95) 0%, rgba(35, 35, 35, 0.85) 100%);
-    --border-finish: 1px solid rgba(255, 255, 255, 0.1);
+    --surface-finish: rgba(35, 35, 35, 0.85);
+    --surface-finish-gradient: linear-gradient(135deg, rgba(45, 45, 45, 0.9) 0%, rgba(25, 25, 25, 0.7) 50%, rgba(15, 15, 15, 0.6) 100%);
+    --border-finish: 2px solid rgba(255, 255, 255, 0.2);
+    --glossy-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(0, 0, 0, 0.1) 100%);
 }
 
 body[data-theme="dark"][data-finish="matte"] {
-    --surface-finish: rgba(35, 35, 35, 0.98);
-    --surface-finish-gradient: linear-gradient(135deg, rgba(35, 35, 35, 0.98) 0%, rgba(35, 35, 35, 0.95) 100%);
+    --surface-finish: rgba(35, 35, 35, 0.99);
+    --surface-finish-gradient: linear-gradient(135deg, rgba(40, 40, 40, 0.99) 0%, rgba(30, 30, 30, 0.98) 100%);
     --border-finish: 1px solid rgba(255, 255, 255, 0.05);
+    --glossy-overlay: none;
 }
 
 /* Color Intensity Variables - Base (5/10) */
@@ -1778,37 +1782,7 @@ select:focus {
 .log-message {
     margin-top: calc(0.2rem * var(--dpi-scale));
 }
-/* Tooltips */
-[title] {
-    position: relative;
-}
-[title]:hover::after {
-    content: attr(title);
-    position: absolute;
-    bottom: calc(100% + calc(5px * var(--dpi-scale)));
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--text-color);
-    color: var(--surface-color);
-    padding: calc(0.5rem * var(--dpi-scale)) calc(0.8rem * var(--dpi-scale));
-    border-radius: calc(6px * var(--dpi-scale));
-    font-size: calc(0.8rem * var(--dpi-scale));
-    white-space: nowrap;
-    z-index: 1000;
-    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(8px * var(--dpi-scale)) rgba(0, 0, 0, 0.2);
-    pointer-events: none;
-}
-[title]:hover::before {
-    content: '';
-    position: absolute;
-    bottom: calc(100% + calc(2px * var(--dpi-scale)));
-    left: 50%;
-    transform: translateX(-50%);
-    border: calc(5px * var(--dpi-scale)) solid transparent;
-    border-top-color: var(--text-color);
-    z-index: 1000;
-    pointer-events: none;
-}
+/* Tooltips removed - using native browser tooltips only */
 /* Desktop Base Styles - Default Layout */
 .sidebar {
     width: calc(240px * var(--dpi-scale));
