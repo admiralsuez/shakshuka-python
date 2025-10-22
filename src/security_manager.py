@@ -10,6 +10,7 @@ import hmac
 import secrets
 import html
 import re
+import threading
 from typing import Dict, Optional, Any
 from collections import defaultdict, deque
 import logging
@@ -26,10 +27,24 @@ except ImportError:
 
 class SecurityManager:
     def __init__(self):
+        # Enhanced rate limiting with memory management
         self.rate_limit_requests = defaultdict(lambda: deque())
         self.rate_limit_window = 300  # 5 minutes
         self.max_requests_per_window = 100  # Increased from 10 to 100 requests per 5 minutes
         self.session_secrets = {}
+        
+        # Memory management for rate limiting
+        self.max_ip_entries = 1000  # Maximum number of IPs to track
+        self.cleanup_interval = 600  # Cleanup every 10 minutes
+        self.last_cleanup = time.time()
+        
+        # Performance monitoring
+        self.request_count = 0
+        self.blocked_count = 0
+        self.cleanup_count = 0
+        
+        # Thread safety
+        self._rate_limit_lock = threading.RLock()
         
     # Unused encryption key functions removed - were dead code
     # Unused update signature verification removed - was dead code  
@@ -56,22 +71,110 @@ class SecurityManager:
         return text.strip()
     
     def check_rate_limit(self, client_ip: str) -> bool:
-        """Check if client has exceeded rate limit"""
-        now = time.time()
-        requests = self.rate_limit_requests[client_ip]
-        
-        # Remove old requests outside the window
-        while requests and requests[0] < now - self.rate_limit_window:
-            requests.popleft()
-        
-        # Check if limit exceeded
-        if len(requests) >= self.max_requests_per_window:
-            logger.warning(f"Rate limit exceeded for IP: {client_ip}")
-            return False
-        
-        # Add current request
-        requests.append(now)
-        return True
+        """Enhanced rate limiting with memory management and performance monitoring"""
+        with self._rate_limit_lock:
+            now = time.time()
+            self.request_count += 1
+            
+            # Periodic cleanup to prevent memory leaks
+            if now - self.last_cleanup > self.cleanup_interval:
+                self._cleanup_rate_limit_data(now)
+                self.last_cleanup = now
+            
+            # Get or create request queue for this IP
+            requests = self.rate_limit_requests[client_ip]
+            
+            # Remove old requests outside the window
+            while requests and requests[0] < now - self.rate_limit_window:
+                requests.popleft()
+            
+            # Check if limit exceeded
+            if len(requests) >= self.max_requests_per_window:
+                self.blocked_count += 1
+                logger.warning(f"Rate limit exceeded for IP: {client_ip} ({len(requests)} requests in window)")
+                return False
+            
+            # Add current request
+            requests.append(now)
+            return True
+    
+    def _cleanup_rate_limit_data(self, now: float):
+        """Clean up old rate limiting data to prevent memory leaks"""
+        try:
+            cleanup_threshold = now - (self.rate_limit_window * 2)  # Remove data older than 2 windows
+            ips_to_remove = []
+            
+            for ip, requests in self.rate_limit_requests.items():
+                # Remove old requests
+                while requests and requests[0] < cleanup_threshold:
+                    requests.popleft()
+                
+                # Remove IPs with no recent requests
+                if not requests:
+                    ips_to_remove.append(ip)
+            
+            # Remove empty IP entries
+            for ip in ips_to_remove:
+                del self.rate_limit_requests[ip]
+            
+            # If we still have too many IPs, remove the oldest ones
+            if len(self.rate_limit_requests) > self.max_ip_entries:
+                # Sort by oldest request time and remove excess
+                ip_ages = []
+                for ip, requests in self.rate_limit_requests.items():
+                    if requests:
+                        ip_ages.append((ip, requests[0]))
+                
+                # Sort by oldest request time
+                ip_ages.sort(key=lambda x: x[1])
+                
+                # Remove oldest IPs
+                excess_count = len(self.rate_limit_requests) - self.max_ip_entries
+                for i in range(excess_count):
+                    ip_to_remove = ip_ages[i][0]
+                    del self.rate_limit_requests[ip_to_remove]
+            
+            self.cleanup_count += 1
+            logger.info(f"Rate limit cleanup completed: {len(ips_to_remove)} IPs removed, "
+                       f"{len(self.rate_limit_requests)} IPs remaining")
+            
+        except Exception as e:
+            logger.error(f"Error during rate limit cleanup: {e}")
+    
+    def get_rate_limit_stats(self) -> dict:
+        """Get rate limiting statistics for monitoring"""
+        with self._rate_limit_lock:
+            active_ips = len(self.rate_limit_requests)
+            total_requests = sum(len(requests) for requests in self.rate_limit_requests.values())
+            
+            return {
+                'active_ips': active_ips,
+                'total_requests': total_requests,
+                'request_count': self.request_count,
+                'blocked_count': self.blocked_count,
+                'cleanup_count': self.cleanup_count,
+                'block_rate': (self.blocked_count / max(self.request_count, 1)) * 100,
+                'memory_usage_mb': self._estimate_memory_usage()
+            }
+    
+    def _estimate_memory_usage(self) -> float:
+        """Estimate memory usage of rate limiting data"""
+        try:
+            import sys
+            total_size = 0
+            
+            # Estimate size of defaultdict
+            total_size += sys.getsizeof(self.rate_limit_requests)
+            
+            # Estimate size of each IP entry
+            for ip, requests in self.rate_limit_requests.items():
+                total_size += sys.getsizeof(ip)
+                total_size += sys.getsizeof(requests)
+                total_size += len(requests) * sys.getsizeof(0.0)  # Each timestamp
+            
+            return total_size / (1024 * 1024)  # Convert to MB
+        except Exception:
+            return 0.0
     
     def generate_session_secret(self, user_id: str) -> str:
         """Generate a secure session secret"""

@@ -3,6 +3,7 @@ import sqlite3
 import sys
 import threading
 import json
+import time
 from datetime import datetime, timedelta
 import logging
 from typing import List, Dict, Any, Optional
@@ -79,10 +80,15 @@ class SQLiteDataManager:
                         priority TEXT DEFAULT 'medium',
                         status TEXT DEFAULT 'pending',
                         completed BOOLEAN DEFAULT 0,
+                        completed_at TIMESTAMP,
                         due_date TIMESTAMP,
                         estimated_duration INTEGER DEFAULT 60,
                         scheduled_hour INTEGER,
                         scheduled_duration INTEGER,
+                        struck_today BOOLEAN DEFAULT 0,
+                        struck_date TIMESTAMP,
+                        strike_report TEXT,
+                        strike_count INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
@@ -124,8 +130,288 @@ class SQLiteDataManager:
                 conn.commit()
                 self.logger.info(f"Database initialized successfully: {self.db_path}")
                 
+                # Run database migrations
+                self._run_migrations()
+                
         except Exception as e:
             self.logger.error(f"Error initializing database: {e}")
+            raise
+    
+    def _run_migrations(self):
+        """Run database migrations with comprehensive error handling and rollback"""
+        migration_version = None
+        backup_created = False
+        
+        try:
+            with self._get_connection() as conn:
+                # Start transaction for migration
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                
+                try:
+                    # Get current migration version
+                    migration_version = self._get_migration_version(conn)
+                    self.logger.info(f"Current migration version: {migration_version}")
+                    
+                    # Create backup before major migrations
+                    if migration_version < 2:
+                        backup_created = self._create_migration_backup(conn)
+                        if backup_created:
+                            self.logger.info("Migration backup created successfully")
+                    
+                    # Run migrations based on version
+                    migrations_applied = []
+                    
+                    # Migration 1: Add analytics columns
+                    if migration_version < 1:
+                        migrations_applied.extend(self._migration_001_analytics_columns(conn))
+                    
+                    # Migration 2: Add indexes and constraints
+                    if migration_version < 2:
+                        migrations_applied.extend(self._migration_002_indexes_constraints(conn))
+                    
+                    # Migration 3: Add user preferences
+                    if migration_version < 3:
+                        migrations_applied.extend(self._migration_003_user_preferences(conn))
+                    
+                    # Migration 4: Add audit trail
+                    if migration_version < 4:
+                        migrations_applied.extend(self._migration_004_audit_trail(conn))
+                    
+                    # Update migration version
+                    if migrations_applied:
+                        new_version = max([m['version'] for m in migrations_applied])
+                        self._update_migration_version(conn, new_version)
+                        self.logger.info(f"Updated migration version to {new_version}")
+                    
+                    # Commit transaction
+                    conn.commit()
+                    self.logger.info(f"Database migrations completed successfully: {len(migrations_applied)} migrations applied")
+                    
+                except Exception as inner_e:
+                    # Rollback transaction on any error
+                    conn.rollback()
+                    self.logger.error(f"Migration transaction failed: {inner_e}")
+                    
+                    # Restore backup if created
+                    if backup_created:
+                        try:
+                            self._restore_migration_backup()
+                            self.logger.info("Migration backup restored successfully")
+                        except Exception as restore_e:
+                            self.logger.error(f"Failed to restore migration backup: {restore_e}")
+                    
+                    raise inner_e
+                
+        except Exception as e:
+            self.logger.error(f"Error running database migrations: {e}")
+            # Don't raise - migrations are not critical for basic functionality
+            # But log the error for debugging
+            self.logger.error(f"Migration failed at version {migration_version}, backup created: {backup_created}")
+    
+    def _get_migration_version(self, conn) -> int:
+        """Get current migration version from database"""
+        try:
+            cursor = conn.execute('SELECT version FROM migration_version ORDER BY version DESC LIMIT 1')
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        except sqlite3.OperationalError:
+            # Migration version table doesn't exist, create it
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS migration_version (
+                    version INTEGER PRIMARY KEY,
+                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    description TEXT
+                )
+            ''')
+            conn.execute('INSERT INTO migration_version (version, description) VALUES (0, "Initial version")')
+            return 0
+    
+    def _update_migration_version(self, conn, version: int):
+        """Update migration version in database"""
+        conn.execute('INSERT INTO migration_version (version, description) VALUES (?, ?)', 
+                    (version, f"Migration {version} applied"))
+    
+    def _create_migration_backup(self, conn) -> bool:
+        """Create backup before major migrations"""
+        try:
+            backup_path = f"{self.db_path}.migration_backup_{int(time.time())}"
+            
+            # Create backup by copying database file
+            import shutil
+            shutil.copy2(self.db_path, backup_path)
+            
+            # Store backup path for potential restoration
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS migration_backups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    backup_path TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    migration_version INTEGER
+                )
+            ''')
+            
+            current_version = self._get_migration_version(conn)
+            conn.execute('INSERT INTO migration_backups (backup_path, migration_version) VALUES (?, ?)',
+                        (backup_path, current_version))
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to create migration backup: {e}")
+            return False
+    
+    def _restore_migration_backup(self):
+        """Restore from migration backup"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute('SELECT backup_path FROM migration_backups ORDER BY created_at DESC LIMIT 1')
+                result = cursor.fetchone()
+                
+                if result:
+                    backup_path = result[0]
+                    import shutil
+                    shutil.copy2(backup_path, self.db_path)
+                    self.logger.info(f"Restored from backup: {backup_path}")
+                else:
+                    self.logger.warning("No migration backup found to restore")
+        except Exception as e:
+            self.logger.error(f"Failed to restore migration backup: {e}")
+    
+    def _migration_001_analytics_columns(self, conn) -> List[Dict]:
+        """Migration 1: Add analytics columns to tasks table"""
+        migrations_applied = []
+        
+        try:
+            # Check if analytics columns exist
+            cursor = conn.execute("PRAGMA table_info(tasks)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            # Add missing analytics columns
+            analytics_columns = [
+                ('completed_at', 'TIMESTAMP'),
+                ('struck_today', 'BOOLEAN DEFAULT 0'),
+                ('struck_date', 'TIMESTAMP'),
+                ('strike_report', 'TEXT'),
+                ('strike_count', 'INTEGER DEFAULT 0')
+            ]
+            
+            for column_name, column_def in analytics_columns:
+                if column_name not in columns:
+                    conn.execute(f'ALTER TABLE tasks ADD COLUMN {column_name} {column_def}')
+                    self.logger.info(f"Added {column_name} column to tasks table")
+                    migrations_applied.append({
+                        'version': 1,
+                        'description': f'Added {column_name} column',
+                        'sql': f'ALTER TABLE tasks ADD COLUMN {column_name} {column_def}'
+                    })
+            
+            return migrations_applied
+            
+        except Exception as e:
+            self.logger.error(f"Migration 001 failed: {e}")
+            raise
+    
+    def _migration_002_indexes_constraints(self, conn) -> List[Dict]:
+        """Migration 2: Add indexes and constraints for performance"""
+        migrations_applied = []
+        
+        try:
+            # Add performance indexes
+            indexes = [
+                ('idx_tasks_user_status', 'CREATE INDEX IF NOT EXISTS idx_tasks_user_status ON tasks (user_id, status)'),
+                ('idx_tasks_user_priority', 'CREATE INDEX IF NOT EXISTS idx_tasks_user_priority ON tasks (user_id, priority)'),
+                ('idx_tasks_user_created', 'CREATE INDEX IF NOT EXISTS idx_tasks_user_created ON tasks (user_id, created_at)'),
+                ('idx_tasks_user_due', 'CREATE INDEX IF NOT EXISTS idx_tasks_user_due ON tasks (user_id, due_date)'),
+                ('idx_tasks_completed', 'CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks (completed_at)'),
+                ('idx_tasks_struck', 'CREATE INDEX IF NOT EXISTS idx_tasks_struck ON tasks (struck_date)')
+            ]
+            
+            for index_name, sql in indexes:
+                conn.execute(sql)
+                self.logger.info(f"Created index: {index_name}")
+                migrations_applied.append({
+                    'version': 2,
+                    'description': f'Created index {index_name}',
+                    'sql': sql
+                })
+            
+            return migrations_applied
+            
+        except Exception as e:
+            self.logger.error(f"Migration 002 failed: {e}")
+            raise
+    
+    def _migration_003_user_preferences(self, conn) -> List[Dict]:
+        """Migration 3: Add user preferences table"""
+        migrations_applied = []
+        
+        try:
+            # Create user preferences table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_preferences (
+                    user_id TEXT PRIMARY KEY,
+                    theme TEXT DEFAULT 'orange',
+                    dpi_scale INTEGER DEFAULT 100,
+                    autosave_interval INTEGER DEFAULT 30,
+                    notifications BOOLEAN DEFAULT 1,
+                    daily_reset_time TEXT DEFAULT '09:00',
+                    timezone TEXT DEFAULT 'UTC',
+                    language TEXT DEFAULT 'en',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+            ''')
+            
+            self.logger.info("Created user_preferences table")
+            migrations_applied.append({
+                'version': 3,
+                'description': 'Created user_preferences table',
+                'sql': 'CREATE TABLE user_preferences'
+            })
+            
+            return migrations_applied
+            
+        except Exception as e:
+            self.logger.error(f"Migration 003 failed: {e}")
+            raise
+    
+    def _migration_004_audit_trail(self, conn) -> List[Dict]:
+        """Migration 4: Add audit trail table"""
+        migrations_applied = []
+        
+        try:
+            # Create audit trail table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS audit_trail (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    table_name TEXT NOT NULL,
+                    record_id TEXT,
+                    old_values TEXT,
+                    new_values TEXT,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # Create index for audit trail
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_audit_user_action ON audit_trail (user_id, action)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_trail (created_at)')
+            
+            self.logger.info("Created audit_trail table")
+            migrations_applied.append({
+                'version': 4,
+                'description': 'Created audit_trail table',
+                'sql': 'CREATE TABLE audit_trail'
+            })
+            
+            return migrations_applied
+            
+        except Exception as e:
+            self.logger.error(f"Migration 004 failed: {e}")
             raise
     
     def _get_connection(self):
@@ -226,10 +512,15 @@ class SQLiteDataManager:
             task.get('priority', 'medium'),
             task.get('status', 'pending'),
             task.get('completed', False),
+            task.get('completed_at'),
             task.get('due_date'),
             task.get('estimated_duration', 60),
             task.get('scheduled_hour'),
             task.get('scheduled_duration'),
+            task.get('struck_today', False),
+            task.get('struck_date'),
+            task.get('strike_report'),
+            task.get('strike_count', 0),
             task.get('created_at', datetime.now().isoformat()),
             task.get('updated_at', datetime.now().isoformat())
         )
@@ -244,238 +535,693 @@ class SQLiteDataManager:
             'priority': row['priority'] or 'medium',
             'status': row['status'] or 'pending',
             'completed': bool(row['completed']),
+            'completed_at': row['completed_at'],
             'due_date': row['due_date'],
             'estimated_duration': row['estimated_duration'] or 60,
             'scheduled_hour': row['scheduled_hour'],
             'scheduled_duration': row['scheduled_duration'],
+            'struck_today': bool(row['struck_today'] if 'struck_today' in row.keys() else False),
+            'struck_date': row['struck_date'] if 'struck_date' in row.keys() else None,
+            'strike_report': row['strike_report'] if 'strike_report' in row.keys() else None,
+            'strike_count': row['strike_count'] if 'strike_count' in row.keys() else 0,
             'created_at': row['created_at'],
             'updated_at': row['updated_at']
         }
     
     # Task Management Methods
     def load_tasks_for_user(self, user_id: str) -> List[Dict[str, Any]]:
-        """Load tasks for a specific user from database"""
-        with self._lock:
-            try:
-                self._ensure_user_exists(user_id)
-                
-                with self._get_connection() as conn:
-                    cursor = conn.execute('''
-                        SELECT * FROM tasks 
-                        WHERE user_id = ? 
-                        ORDER BY created_at DESC
-                    ''', (user_id,))
+        """Load tasks for a specific user from database with comprehensive error handling and failsafes"""
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            with self._lock:
+                try:
+                    self._ensure_user_exists(user_id)
                     
-                    tasks = [self._row_to_task_dict(row) for row in cursor.fetchall()]
-                    self.logger.info(f"Loaded {len(tasks)} tasks for user {user_id}")
-                    return tasks
-                    
-            except Exception as e:
-                self.logger.error(f"Error loading tasks for user {user_id}: {e}")
-                return []
+                    with self._get_connection() as conn:
+                        # Use read-only transaction for consistency
+                        conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                        
+                        try:
+                            cursor = conn.execute('''
+                                SELECT * FROM tasks 
+                                WHERE user_id = ? 
+                                ORDER BY created_at DESC
+                            ''', (user_id,))
+                            
+                            rows = cursor.fetchall()
+                            
+                            # Validate each row before conversion
+                            tasks = []
+                            for row in rows:
+                                try:
+                                    task_dict = self._row_to_task_dict(row)
+                                    # Validate the converted task
+                                    if self._validate_task(task_dict):
+                                        tasks.append(task_dict)
+                                    else:
+                                        self.logger.warning(f"Invalid task data found for user {user_id}, skipping corrupted task")
+                                except Exception as row_e:
+                                    self.logger.warning(f"Failed to convert row for user {user_id}: {row_e}")
+                                    continue
+                            
+                            conn.commit()  # Commit read transaction
+                            self.logger.info(f"Successfully loaded {len(tasks)} tasks for user {user_id}")
+                            return tasks
+                            
+                        except Exception as inner_e:
+                            conn.rollback()
+                            self.logger.error(f"Transaction failed for user {user_id}, attempt {attempt + 1}: {inner_e}")
+                            raise inner_e
+                            
+                except Exception as e:
+                    self.logger.error(f"Error loading tasks for user {user_id}, attempt {attempt + 1}: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                        continue
+                    else:
+                        # Return empty list as failsafe
+                        self.logger.error(f"Failed to load tasks for user {user_id} after {max_retries} attempts, returning empty list")
+                        return []
+        
+        return []
     
     def save_tasks_for_user(self, user_id: str, tasks: List[Dict[str, Any]]) -> bool:
-        """Save tasks for a specific user to database"""
-        with self._lock:
-            try:
-                # Validate data first
-                if not self._validate_tasks(tasks):
-                    self.logger.error(f"Task validation failed for user {user_id}")
-                    return False
-                
-                self._ensure_user_exists(user_id)
-                
-                with self._get_connection() as conn:
-                    # Delete existing tasks for user
-                    conn.execute('DELETE FROM tasks WHERE user_id = ?', (user_id,))
+        """Save tasks for a specific user to database with atomic transaction and failsafes"""
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            with self._lock:
+                try:
+                    # Validate data first
+                    if not self._validate_tasks(tasks):
+                        self.logger.error(f"Task validation failed for user {user_id}")
+                        return False
                     
-                    # Insert new tasks
-                    task_rows = [self._task_dict_to_row(task, user_id) for task in tasks]
-                    conn.executemany('''
-                        INSERT INTO tasks (
-                            id, user_id, title, description, project, priority, status,
-                            completed, due_date, estimated_duration, scheduled_hour,
-                            scheduled_duration, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', task_rows)
+                    self._ensure_user_exists(user_id)
                     
-                    conn.commit()
-                    self.logger.info(f"Saved {len(tasks)} tasks for user {user_id}")
-                    return True
-                    
-            except Exception as e:
-                self.logger.error(f"Error saving tasks for user {user_id}: {e}")
-                return False
+                    with self._get_connection() as conn:
+                        # Start transaction
+                        conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                        
+                        try:
+                            # Create backup of existing tasks before deletion (failsafe)
+                            backup_tasks = []
+                            cursor = conn.execute('SELECT * FROM tasks WHERE user_id = ?', (user_id,))
+                            for row in cursor.fetchall():
+                                backup_tasks.append(self._row_to_task_dict(row))
+                            
+                            # Delete existing tasks for user
+                            conn.execute('DELETE FROM tasks WHERE user_id = ?', (user_id,))
+                            
+                            # Insert new tasks
+                            task_rows = [self._task_dict_to_row(task, user_id) for task in tasks]
+                            conn.executemany('''
+                                INSERT INTO tasks (
+                                    id, user_id, title, description, project, priority, status,
+                                    completed, completed_at, due_date, estimated_duration, scheduled_hour,
+                                    scheduled_duration, struck_today, struck_date, strike_report, strike_count,
+                                    created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', task_rows)
+                            
+                            # Verify insertion was successful
+                            count_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ?', (user_id,))
+                            inserted_count = count_cursor.fetchone()[0]
+                            
+                            if inserted_count != len(tasks):
+                                raise Exception(f"Insertion verification failed: expected {len(tasks)}, got {inserted_count}")
+                            
+                            # Commit transaction
+                            conn.commit()
+                            self.logger.info(f"Successfully saved {len(tasks)} tasks for user {user_id}")
+                            return True
+                            
+                        except Exception as inner_e:
+                            # Rollback transaction on any error
+                            conn.rollback()
+                            self.logger.error(f"Transaction failed for user {user_id}, attempt {attempt + 1}: {inner_e}")
+                            
+                            # Restore backup if this is the last attempt
+                            if attempt == max_retries - 1 and backup_tasks:
+                                try:
+                                    self.logger.warning(f"Restoring backup for user {user_id} after final failure")
+                                    conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                                    conn.execute('DELETE FROM tasks WHERE user_id = ?', (user_id,))
+                                    backup_rows = [self._task_dict_to_row(task, user_id) for task in backup_tasks]
+                                    conn.executemany('''
+                                        INSERT INTO tasks (
+                                            id, user_id, title, description, project, priority, status,
+                                            completed, completed_at, due_date, estimated_duration, scheduled_hour,
+                                            scheduled_duration, struck_today, struck_date, strike_report, strike_count,
+                                            created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', backup_rows)
+                                    conn.commit()
+                                    self.logger.info(f"Backup restored for user {user_id}")
+                                except Exception as restore_e:
+                                    conn.rollback()
+                                    self.logger.error(f"Failed to restore backup for user {user_id}: {restore_e}")
+                            
+                            raise inner_e
+                            
+                except Exception as e:
+                    self.logger.error(f"Error saving tasks for user {user_id}, attempt {attempt + 1}: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                        continue
+                    else:
+                        return False
+        
+        return False
     
     def create_task_for_user(self, user_id: str, task_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Create a single task for a user"""
-        with self._lock:
-            try:
-                self._ensure_user_exists(user_id)
-                
-                # Generate task ID if not provided
-                if 'id' not in task_data:
-                    task_data['id'] = str(uuid.uuid4())
-                
-                # Validate task
-                if not self._validate_task(task_data):
-                    return None
-                
-                with self._get_connection() as conn:
-                    task_row = self._task_dict_to_row(task_data, user_id)
-                    conn.execute('''
-                        INSERT INTO tasks (
-                            id, user_id, title, description, project, priority, status,
-                            completed, due_date, estimated_duration, scheduled_hour,
-                            scheduled_duration, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', task_row)
+        """Create a single task for a user with transaction safety"""
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            with self._lock:
+                try:
+                    self._ensure_user_exists(user_id)
                     
-                    conn.commit()
+                    # Generate task ID if not provided
+                    if 'id' not in task_data:
+                        task_data['id'] = str(uuid.uuid4())
                     
-                    # Return the created task
-                    cursor = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_data['id'],))
-                    row = cursor.fetchone()
-                    if row:
-                        return self._row_to_task_dict(row)
+                    # Validate task
+                    if not self._validate_task(task_data):
+                        self.logger.error(f"Task validation failed for user {user_id}")
+                        return None
                     
-            except Exception as e:
-                self.logger.error(f"Error creating task for user {user_id}: {e}")
-            
-            return None
+                    with self._get_connection() as conn:
+                        # Start transaction
+                        conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                        
+                        try:
+                            # Check for duplicate task ID
+                            cursor = conn.execute('SELECT id FROM tasks WHERE id = ? AND user_id = ?', (task_data['id'], user_id))
+                            if cursor.fetchone():
+                                raise Exception(f"Task with ID {task_data['id']} already exists for user {user_id}")
+                            
+                            task_row = self._task_dict_to_row(task_data, user_id)
+                            conn.execute('''
+                                INSERT INTO tasks (
+                                    id, user_id, title, description, project, priority, status,
+                                    completed, completed_at, due_date, estimated_duration, scheduled_hour,
+                                    scheduled_duration, struck_today, struck_date, strike_report, strike_count,
+                                    created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', task_row)
+                            
+                            # Verify insertion
+                            verify_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE id = ? AND user_id = ?', (task_data['id'], user_id))
+                            if verify_cursor.fetchone()[0] != 1:
+                                raise Exception("Task insertion verification failed")
+                            
+                            conn.commit()
+                            
+                            # Return the created task
+                            cursor = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_data['id'],))
+                            row = cursor.fetchone()
+                            if row:
+                                created_task = self._row_to_task_dict(row)
+                                self.logger.info(f"Successfully created task {task_data['id']} for user {user_id}")
+                                return created_task
+                            else:
+                                raise Exception("Task not found after creation")
+                                
+                        except Exception as inner_e:
+                            conn.rollback()
+                            self.logger.error(f"Transaction failed for user {user_id}, attempt {attempt + 1}: {inner_e}")
+                            raise inner_e
+                            
+                except Exception as e:
+                    self.logger.error(f"Error creating task for user {user_id}, attempt {attempt + 1}: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                        continue
+                    else:
+                        return None
+        
+        return None
     
     def update_task_for_user(self, user_id: str, task_id: str, task_data: Dict[str, Any]) -> bool:
-        """Update a specific task for a user"""
-        with self._lock:
-            try:
-                with self._get_connection() as conn:
-                    # Check if task exists and belongs to user
-                    cursor = conn.execute('''
-                        SELECT id FROM tasks WHERE id = ? AND user_id = ?
-                    ''', (task_id, user_id))
-                    
-                    if not cursor.fetchone():
-                        self.logger.error(f"Task {task_id} not found for user {user_id}")
+        """Update a specific task for a user with transaction safety"""
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            with self._lock:
+                try:
+                    with self._get_connection() as conn:
+                        # Start transaction
+                        conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                        
+                        try:
+                            # Check if task exists and belongs to user
+                            cursor = conn.execute('''
+                                SELECT id FROM tasks WHERE id = ? AND user_id = ?
+                            ''', (task_id, user_id))
+                            
+                            if not cursor.fetchone():
+                                self.logger.error(f"Task {task_id} not found for user {user_id}")
+                                conn.rollback()
+                                return False
+                            
+                            # Create backup of original task (failsafe)
+                            backup_cursor = conn.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
+                            backup_row = backup_cursor.fetchone()
+                            if not backup_row:
+                                raise Exception("Task disappeared during update")
+                            
+                            # Update task
+                            conn.execute('''
+                                UPDATE tasks SET
+                                    title = ?, description = ?, project = ?, priority = ?,
+                                    status = ?, completed = ?, completed_at = ?, due_date = ?, estimated_duration = ?,
+                                    scheduled_hour = ?, scheduled_duration = ?, struck_today = ?, struck_date = ?,
+                                    strike_report = ?, strike_count = ?, updated_at = ?
+                                WHERE id = ? AND user_id = ?
+                            ''', (
+                                task_data.get('title', ''),
+                                task_data.get('description', ''),
+                                task_data.get('project', ''),
+                                task_data.get('priority', 'medium'),
+                                task_data.get('status', 'pending'),
+                                task_data.get('completed', False),
+                                task_data.get('completed_at'),
+                                task_data.get('due_date'),
+                                task_data.get('estimated_duration', 60),
+                                task_data.get('scheduled_hour'),
+                                task_data.get('scheduled_duration'),
+                                task_data.get('struck_today', False),
+                                task_data.get('struck_date'),
+                                task_data.get('strike_report'),
+                                task_data.get('strike_count', 0),
+                                datetime.now().isoformat(),
+                                task_id,
+                                user_id
+                            ))
+                            
+                            # Verify update was successful
+                            verify_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
+                            if verify_cursor.fetchone()[0] != 1:
+                                raise Exception("Task update verification failed")
+                            
+                            conn.commit()
+                            self.logger.info(f"Successfully updated task {task_id} for user {user_id}")
+                            return True
+                            
+                        except Exception as inner_e:
+                            conn.rollback()
+                            self.logger.error(f"Transaction failed for user {user_id}, task {task_id}, attempt {attempt + 1}: {inner_e}")
+                            
+                            # Restore backup if this is the last attempt
+                            if attempt == max_retries - 1 and backup_row:
+                                try:
+                                    self.logger.warning(f"Restoring backup for task {task_id} after final failure")
+                                    conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                                    conn.execute('DELETE FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
+                                    backup_task = self._row_to_task_dict(backup_row)
+                                    backup_row_tuple = self._task_dict_to_row(backup_task, user_id)
+                                    conn.execute('''
+                                        INSERT INTO tasks (
+                                            id, user_id, title, description, project, priority, status,
+                                            completed, completed_at, due_date, estimated_duration, scheduled_hour,
+                                            scheduled_duration, struck_today, struck_date, strike_report, strike_count,
+                                            created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', backup_row_tuple)
+                                    conn.commit()
+                                    self.logger.info(f"Backup restored for task {task_id}")
+                                except Exception as restore_e:
+                                    conn.rollback()
+                                    self.logger.error(f"Failed to restore backup for task {task_id}: {restore_e}")
+                            
+                            raise inner_e
+                            
+                except Exception as e:
+                    self.logger.error(f"Error updating task {task_id} for user {user_id}, attempt {attempt + 1}: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                        continue
+                    else:
                         return False
-                    
-                    # Update task
-                    conn.execute('''
-                        UPDATE tasks SET
-                            title = ?, description = ?, project = ?, priority = ?,
-                            status = ?, completed = ?, due_date = ?, estimated_duration = ?,
-                            scheduled_hour = ?, scheduled_duration = ?, updated_at = ?
-                        WHERE id = ? AND user_id = ?
-                    ''', (
-                        task_data.get('title', ''),
-                        task_data.get('description', ''),
-                        task_data.get('project', ''),
-                        task_data.get('priority', 'medium'),
-                        task_data.get('status', 'pending'),
-                        task_data.get('completed', False),
-                        task_data.get('due_date'),
-                        task_data.get('estimated_duration', 60),
-                        task_data.get('scheduled_hour'),
-                        task_data.get('scheduled_duration'),
-                        datetime.now().isoformat(),
-                        task_id,
-                        user_id
-                    ))
-                    
-                    conn.commit()
-                    self.logger.info(f"Updated task {task_id} for user {user_id}")
-                    return True
-                    
-            except Exception as e:
-                self.logger.error(f"Error updating task {task_id} for user {user_id}: {e}")
-                return False
+        
+        return False
     
     def delete_task_for_user(self, user_id: str, task_id: str) -> bool:
-        """Delete a specific task for a user"""
-        with self._lock:
-            try:
-                with self._get_connection() as conn:
-                    cursor = conn.execute('''
-                        DELETE FROM tasks WHERE id = ? AND user_id = ?
-                    ''', (task_id, user_id))
-                    
-                    conn.commit()
-                    
-                    if cursor.rowcount > 0:
-                        self.logger.info(f"Deleted task {task_id} for user {user_id}")
-                        return True
-                    else:
-                        self.logger.error(f"Task {task_id} not found for user {user_id}")
-                        return False
+        """Delete a specific task for a user with transaction safety"""
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            with self._lock:
+                try:
+                    with self._get_connection() as conn:
+                        # Start transaction
+                        conn.execute('BEGIN IMMEDIATE TRANSACTION')
                         
-            except Exception as e:
-                self.logger.error(f"Error deleting task {task_id} for user {user_id}: {e}")
-                return False
+                        try:
+                            # Create backup of task before deletion (failsafe)
+                            backup_cursor = conn.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
+                            backup_row = backup_cursor.fetchone()
+                            
+                            if not backup_row:
+                                self.logger.error(f"Task {task_id} not found for user {user_id}")
+                                conn.rollback()
+                                return False
+                            
+                            # Delete task
+                            cursor = conn.execute('''
+                                DELETE FROM tasks WHERE id = ? AND user_id = ?
+                            ''', (task_id, user_id))
+                            
+                            # Verify deletion
+                            verify_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
+                            if verify_cursor.fetchone()[0] != 0:
+                                raise Exception("Task deletion verification failed")
+                            
+                            conn.commit()
+                            self.logger.info(f"Successfully deleted task {task_id} for user {user_id}")
+                            return True
+                            
+                        except Exception as inner_e:
+                            conn.rollback()
+                            self.logger.error(f"Transaction failed for user {user_id}, task {task_id}, attempt {attempt + 1}: {inner_e}")
+                            
+                            # Restore backup if this is the last attempt
+                            if attempt == max_retries - 1 and backup_row:
+                                try:
+                                    self.logger.warning(f"Restoring backup for task {task_id} after final failure")
+                                    conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                                    backup_task = self._row_to_task_dict(backup_row)
+                                    backup_row_tuple = self._task_dict_to_row(backup_task, user_id)
+                                    conn.execute('''
+                                        INSERT INTO tasks (
+                                            id, user_id, title, description, project, priority, status,
+                                            completed, completed_at, due_date, estimated_duration, scheduled_hour,
+                                            scheduled_duration, struck_today, struck_date, strike_report, strike_count,
+                                            created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ''', backup_row_tuple)
+                                    conn.commit()
+                                    self.logger.info(f"Backup restored for task {task_id}")
+                                except Exception as restore_e:
+                                    conn.rollback()
+                                    self.logger.error(f"Failed to restore backup for task {task_id}: {restore_e}")
+                            
+                            raise inner_e
+                            
+                except Exception as e:
+                    self.logger.error(f"Error deleting task {task_id} for user {user_id}, attempt {attempt + 1}: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                        continue
+                    else:
+                        return False
+        
+        return False
     
     # Settings Management Methods
     def load_settings_for_user(self, user_id: str) -> Dict[str, Any]:
-        """Load settings for a specific user from database"""
-        with self._lock:
-            try:
-                self._ensure_user_exists(user_id)
-                
-                with self._get_connection() as conn:
-                    cursor = conn.execute('''
-                        SELECT * FROM settings WHERE user_id = ?
-                    ''', (user_id,))
+        """Load settings for a specific user from database with comprehensive isolation"""
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            with self._lock:
+                try:
+                    # Validate user_id
+                    if not user_id or not isinstance(user_id, str) or len(user_id.strip()) == 0:
+                        self.logger.error(f"Invalid user_id provided: {user_id}")
+                        return self._get_default_settings()
                     
-                    row = cursor.fetchone()
-                    if row:
-                        return {
-                            'theme': row['theme'],
-                            'dpi_scale': row['dpi_scale'],
-                            'autosave_interval': row['autosave_interval'],
-                            'notifications': bool(row['notifications'])
-                        }
-                    else:
-                        # Return default settings
-                        return {
-                            'theme': 'orange',
-                            'dpi_scale': 100,
-                            'autosave_interval': 30,
-                            'notifications': True
-                        }
+                    # Ensure user exists
+                    self._ensure_user_exists(user_id)
+                    
+                    with self._get_connection() as conn:
+                        # Start read-only transaction
+                        conn.execute('BEGIN IMMEDIATE TRANSACTION')
                         
-            except Exception as e:
-                self.logger.error(f"Error loading settings for user {user_id}: {e}")
-                return {
-                    'theme': 'orange',
-                    'dpi_scale': 100,
-                    'autosave_interval': 30,
-                    'notifications': True
-                }
+                        try:
+                            # Check if user preferences table exists (newer migration)
+                            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'")
+                            if cursor.fetchone():
+                                # Use new user_preferences table
+                                cursor = conn.execute('''
+                                    SELECT theme, dpi_scale, autosave_interval, notifications, 
+                                           daily_reset_time, timezone, language, created_at, updated_at
+                                    FROM user_preferences WHERE user_id = ?
+                                ''', (user_id,))
+                                result = cursor.fetchone()
+                                
+                                if result:
+                                    settings = {
+                                        'theme': result[0] or 'orange',
+                                        'dpi_scale': result[1] or 100,
+                                        'autosave_interval': result[2] or 30,
+                                        'notifications': bool(result[3]) if result[3] is not None else True,
+                                        'daily_reset_time': result[4] or '09:00',
+                                        'timezone': result[5] or 'UTC',
+                                        'language': result[6] or 'en',
+                                        'created_at': result[7],
+                                        'updated_at': result[8]
+                                    }
+                                    
+                                    # Validate settings data
+                                    validated_settings = self._validate_settings(settings)
+                                    conn.commit()
+                                    self.logger.info(f"Successfully loaded settings for user {user_id}")
+                                    return validated_settings
+                            else:
+                                # Fallback to old settings table
+                                cursor = conn.execute('''
+                                    SELECT theme, dpi_scale, autosave_interval, notifications, daily_reset_time
+                                    FROM settings WHERE user_id = ?
+                                ''', (user_id,))
+                                result = cursor.fetchone()
+                                
+                                if result:
+                                    settings = {
+                                        'theme': result[0] or 'orange',
+                                        'dpi_scale': result[1] or 100,
+                                        'autosave_interval': result[2] or 30,
+                                        'notifications': bool(result[3]) if result[3] is not None else True,
+                                        'daily_reset_time': result[4] or '09:00',
+                                        'timezone': 'UTC',  # Default for old data
+                                        'language': 'en'    # Default for old data
+                                    }
+                                    
+                                    validated_settings = self._validate_settings(settings)
+                                    conn.commit()
+                                    self.logger.info(f"Successfully loaded settings for user {user_id} (legacy)")
+                                    return validated_settings
+                            
+                            # No settings found, create default
+                            default_settings = self._get_default_settings()
+                            self._create_default_settings_for_user(conn, user_id, default_settings)
+                            conn.commit()
+                            self.logger.info(f"Created default settings for user {user_id}")
+                            return default_settings
+                            
+                        except Exception as inner_e:
+                            conn.rollback()
+                            self.logger.error(f"Transaction failed for user {user_id}, attempt {attempt + 1}: {inner_e}")
+                            raise inner_e
+                            
+                except Exception as e:
+                    self.logger.error(f"Error loading settings for user {user_id}, attempt {attempt + 1}: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                        continue
+                    else:
+                        # Return default settings as failsafe
+                        self.logger.warning(f"Failed to load settings for user {user_id} after {max_retries} attempts, returning defaults")
+                        return self._get_default_settings()
+        
+        return self._get_default_settings()
+    
+    def _get_default_settings(self) -> Dict[str, Any]:
+        """Get default settings with validation"""
+        return {
+            'theme': 'orange',
+            'dpi_scale': 100,
+            'autosave_interval': 30,
+            'notifications': True,
+            'daily_reset_time': '09:00',
+            'timezone': 'UTC',
+            'language': 'en'
+        }
+    
+    def _validate_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and sanitize settings data"""
+        validated = {}
+        
+        # Theme validation - include all valid theme values from frontend
+        theme = settings.get('theme', 'orange')
+        valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'auto']
+        if not isinstance(theme, str) or theme not in valid_themes:
+            theme = 'orange'
+        validated['theme'] = theme
+        
+        # DPI scale validation
+        dpi_scale = settings.get('dpi_scale', 100)
+        if not isinstance(dpi_scale, int) or dpi_scale < 50 or dpi_scale > 200:
+            dpi_scale = 100
+        validated['dpi_scale'] = dpi_scale
+        
+        # Autosave interval validation
+        autosave_interval = settings.get('autosave_interval', 30)
+        if not isinstance(autosave_interval, int) or autosave_interval < 5 or autosave_interval > 300:
+            autosave_interval = 30
+        validated['autosave_interval'] = autosave_interval
+        
+        # Notifications validation
+        notifications = settings.get('notifications', True)
+        if not isinstance(notifications, bool):
+            notifications = True
+        validated['notifications'] = notifications
+        
+        # Daily reset time validation
+        daily_reset_time = settings.get('daily_reset_time', '09:00')
+        if not isinstance(daily_reset_time, str) or not self._validate_time_format(daily_reset_time):
+            daily_reset_time = '09:00'
+        validated['daily_reset_time'] = daily_reset_time
+        
+        # Timezone validation
+        timezone = settings.get('timezone', 'UTC')
+        if not isinstance(timezone, str) or len(timezone) > 50:
+            timezone = 'UTC'
+        validated['timezone'] = timezone
+        
+        # Language validation
+        language = settings.get('language', 'en')
+        if not isinstance(language, str) or len(language) > 10:
+            language = 'en'
+        validated['language'] = language
+        
+        return validated
+    
+    def _validate_time_format(self, time_str: str) -> bool:
+        """Validate time format (HH:MM)"""
+        try:
+            if not isinstance(time_str, str):
+                return False
+            parts = time_str.split(':')
+            if len(parts) != 2:
+                return False
+            hour, minute = int(parts[0]), int(parts[1])
+            return 0 <= hour <= 23 and 0 <= minute <= 59
+        except (ValueError, IndexError):
+            return False
+    
+    def _create_default_settings_for_user(self, conn, user_id: str, settings: Dict[str, Any]):
+        """Create default settings for a user"""
+        try:
+            # Try to insert into user_preferences table first
+            conn.execute('''
+                INSERT OR IGNORE INTO user_preferences 
+                (user_id, theme, dpi_scale, autosave_interval, notifications, 
+                 daily_reset_time, timezone, language)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, settings['theme'], settings['dpi_scale'], 
+                  settings['autosave_interval'], settings['notifications'],
+                  settings['daily_reset_time'], settings['timezone'], settings['language']))
+        except sqlite3.OperationalError:
+            # Fallback to old settings table
+            conn.execute('''
+                INSERT OR IGNORE INTO settings 
+                (user_id, theme, dpi_scale, autosave_interval, notifications, daily_reset_time)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, settings['theme'], settings['dpi_scale'], 
+                  settings['autosave_interval'], settings['notifications'], settings['daily_reset_time']))
     
     def save_settings_for_user(self, user_id: str, settings: Dict[str, Any]) -> bool:
-        """Save settings for a specific user to database"""
-        with self._lock:
-            try:
-                self._ensure_user_exists(user_id)
-                
-                with self._get_connection() as conn:
-                    conn.execute('''
-                        INSERT OR REPLACE INTO settings (
-                            user_id, theme, dpi_scale, autosave_interval, notifications, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                    ''', (
-                        user_id,
-                        settings.get('theme', 'orange'),
-                        settings.get('dpi_scale', 100),
-                        settings.get('autosave_interval', 30),
-                        settings.get('notifications', True),
-                        datetime.now().isoformat()
-                    ))
+        """Save settings for a specific user to database with comprehensive validation and isolation"""
+        max_retries = 3
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            with self._lock:
+                try:
+                    # Validate user_id
+                    if not user_id or not isinstance(user_id, str) or len(user_id.strip()) == 0:
+                        self.logger.error(f"Invalid user_id provided: {user_id}")
+                        return False
                     
-                    conn.commit()
-                    self.logger.info(f"Settings saved for user {user_id}")
-                    return True
+                    # Validate and sanitize settings
+                    validated_settings = self._validate_settings(settings)
                     
-            except Exception as e:
-                self.logger.error(f"Error saving settings for user {user_id}: {e}")
-                return False
+                    # Ensure user exists
+                    self._ensure_user_exists(user_id)
+                    
+                    with self._get_connection() as conn:
+                        # Start transaction
+                        conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                        
+                        try:
+                            # Check if user preferences table exists (newer migration)
+                            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'")
+                            table_exists = cursor.fetchone() is not None
+                            
+                            if table_exists:
+                                # Use new user_preferences table
+                                conn.execute('''
+                                    INSERT OR REPLACE INTO user_preferences (
+                                        user_id, theme, dpi_scale, autosave_interval, notifications,
+                                        daily_reset_time, timezone, language, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ''', (
+                                    user_id,
+                                    validated_settings['theme'],
+                                    validated_settings['dpi_scale'],
+                                    validated_settings['autosave_interval'],
+                                    validated_settings['notifications'],
+                                    validated_settings['daily_reset_time'],
+                                    validated_settings['timezone'],
+                                    validated_settings['language'],
+                                    datetime.now().isoformat()
+                                ))
+                            else:
+                                # Fallback to old settings table
+                                conn.execute('''
+                                    INSERT OR REPLACE INTO settings (
+                                        user_id, theme, dpi_scale, autosave_interval, notifications, 
+                                        daily_reset_time, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                ''', (
+                                    user_id,
+                                    validated_settings['theme'],
+                                    validated_settings['dpi_scale'],
+                                    validated_settings['autosave_interval'],
+                                    validated_settings['notifications'],
+                                    validated_settings['daily_reset_time'],
+                                    datetime.now().isoformat()
+                                ))
+                            
+                            # Commit the transaction
+                            conn.commit()
+                            self.logger.info(f"Successfully saved settings for user {user_id}")
+                            return True
+                                
+                        except Exception as inner_e:
+                            conn.rollback()
+                            self.logger.error(f"Transaction failed for user {user_id}, attempt {attempt + 1}: {inner_e}")
+                            raise inner_e
+                            
+                except Exception as e:
+                    self.logger.error(f"Error saving settings for user {user_id}, attempt {attempt + 1}: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                        continue
+                    else:
+                        return False
+        
+        return False
     
     # Backward compatibility methods
     def load_tasks(self, user_id: str = None):

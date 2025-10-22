@@ -181,11 +181,28 @@ const Auth = {
     loadAppData() {
         console.log('loadAppData called');
         // Load all app data after authentication
-        Tasks.loadTasks();
-        loadSettings();
+        
+        // Safety check: ensure Tasks object exists before calling
+        if (typeof Tasks !== 'undefined' && Tasks.loadTasks) {
+            Tasks.loadTasks();
+        } else {
+            console.warn('Tasks object not yet loaded, trying again with delay');
+            setTimeout(() => {
+                if (typeof Tasks !== 'undefined' && Tasks.loadTasks) {
+                    Tasks.loadTasks();
+                } else {
+                    console.error('Tasks module failed to load - calling loadTasks directly');
+                    // Fallback: if Tasks still isn't defined, try calling global function
+                    if (typeof loadTasks === 'function') {
+                        loadTasks();
+                    }
+                }
+            }, 100);
+        }
+        
+        loadSettings(); // This will call applyThemeAndDPI() and hideLoadingScreen()
         loadUpdateSettings();
         generateTimeSlots();
-        applyThemeAndDPI();
         setupDailyReset();
         setupKeyboardShortcuts();
         initializeLogging();

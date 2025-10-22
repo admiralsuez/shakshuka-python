@@ -3,6 +3,36 @@
 // Import all modules
 // Note: These will be loaded in the HTML template in the correct order
 
+// Loading screen management
+function hideLoadingScreen() {
+    const loadingScreen = document.getElementById('loading-screen');
+    const appContainer = document.getElementById('app-container');
+    
+    if (loadingScreen && appContainer) {
+        // Add fade-out class
+        loadingScreen.classList.add('fade-out');
+        
+        // Show app container
+        appContainer.style.display = 'block';
+        
+        // Remove loading screen after fade animation
+        setTimeout(() => {
+            loadingScreen.style.display = 'none';
+        }, 500);
+    }
+}
+
+// Show loading screen initially
+function showLoadingScreen() {
+    const loadingScreen = document.getElementById('loading-screen');
+    const appContainer = document.getElementById('app-container');
+    
+    if (loadingScreen && appContainer) {
+        loadingScreen.style.display = 'flex';
+        appContainer.style.display = 'none';
+    }
+}
+
 // Add Task Options Modal
 function showAddTaskOptions() {
     // Create or show a modal with options for different ways to add tasks
@@ -61,6 +91,9 @@ function closeAddTaskOptions() {
 // Initialize the application when DOM is ready
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('Shakshuka application initializing...');
+    
+    // Show loading screen immediately
+    showLoadingScreen();
 
     // Check authentication status and wait for it to complete
     await Auth.checkAuthStatus();
@@ -76,41 +109,6 @@ document.addEventListener('DOMContentLoaded', async function() {
 
 // Setup all event listeners
 // Page navigation
-function navigateToPage(page) {
-    console.log('Navigating to page:', page);
-
-    // Update state
-    AppState.set('currentPage', page);
-
-    // Hide all pages
-    document.querySelectorAll('.page').forEach(p => {
-        p.classList.remove('active');
-    });
-
-    // Show target page
-    const targetPage = document.getElementById(`${page}-page`);
-    if (targetPage) {
-        targetPage.classList.add('active');
-
-        // Load page-specific data
-        if (page === 'tasks') {
-            Tasks.loadTasks();
-        } else if (page === 'planner') {
-            loadPlannerData();
-        } else if (page === 'settings') {
-            loadSettingsPage();
-        }
-    } else {
-        console.error('Page not found:', page);
-    }
-
-    // Update navigation
-    document.querySelectorAll('.nav-item').forEach(item => {
-        item.classList.remove('active');
-    });
-    document.querySelector(`[data-page="${page}"]`).classList.add('active');
-}
-
 // Layout management
 function setLayout(layout) {
     AppState.set('currentLayout', layout);
@@ -210,41 +208,60 @@ async function updateDailyResetTime() {
 
 async function updateTheme() {
     const theme = document.getElementById('theme-selector').value;
+    
     try {
-        const response = await Utils.makeAuthenticatedRequest('/api/settings/theme', {
-            method: 'POST',
-            body: JSON.stringify({ theme })
+        console.log('Updating theme to:', theme);
+        const response = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ theme: theme })
         });
 
+        console.log('Theme update response:', response.status, response.statusText);
+        
         if (response.ok) {
+            const settings = AppState.get('currentSettings') || {};
+            settings.theme = theme;
+            AppState.set('currentSettings', settings);
             applyThemeAndDPI();
-            Utils.safeShowNotification('Theme updated', 'success');
+            showNotification('Theme updated successfully!', 'success');
         } else {
-            Utils.safeShowNotification('Failed to update theme', 'error');
+            const errorText = await response.text();
+            console.error('Theme update failed:', response.status, errorText);
+            throw new Error(`Failed to update theme: ${response.status} ${errorText}`);
         }
     } catch (error) {
-        Utils.Logger.error('Failed to update theme:', error);
-        Utils.safeShowNotification('Failed to update theme', 'error');
+        console.error('Error updating theme:', error);
+        showNotification('Error updating theme', 'error');
     }
 }
 
 async function updateIntensity() {
     const intensity = document.getElementById('intensity-selector').value;
+    
     try {
-        const response = await Utils.makeAuthenticatedRequest('/api/settings/intensity', {
-            method: 'POST',
-            body: JSON.stringify({ intensity })
+        const response = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ intensity: intensity })
         });
 
         if (response.ok) {
+            const settings = AppState.get('currentSettings') || {};
+            settings.intensity = intensity;
+            AppState.set('currentSettings', settings);
             applyThemeAndDPI();
-            Utils.safeShowNotification('Color intensity updated', 'success');
+            showNotification('Color intensity updated successfully!', 'success');
         } else {
-            Utils.safeShowNotification('Failed to update color intensity', 'error');
+            throw new Error('Failed to update intensity');
         }
     } catch (error) {
-        Utils.Logger.error('Failed to update intensity:', error);
-        Utils.safeShowNotification('Failed to update color intensity', 'error');
+        console.error('Error updating intensity:', error);
+        showNotification('Error updating intensity', 'error');
     }
 }
 
@@ -589,13 +606,13 @@ async function savePassword() {
 
 // Load settings page data
 function loadSettingsPage() {
-    loadSettings();
+    // loadSettings(); // Use the complete version at line 2712 instead
     loadUpdateSettings();
     loadAccountSettings();
 }
 
 // Load settings from server
-async function loadSettings() {
+async function loadSettingsLegacy() {
     try {
         const response = await Utils.makeAuthenticatedRequest('/api/settings');
         const settings = await response.json();
@@ -728,7 +745,28 @@ function setupDailyReset() {
 function resetDailyStrikes() {
     // This function would reset all "struck today" tasks
     console.log('Resetting daily strikes');
-    Tasks.loadTasks();
+    
+    // Call the backend API to reset daily strikes
+    fetch('/api/tasks/reset-daily-strikes', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('Daily strikes reset successfully');
+            // Reload tasks to reflect the reset
+            loadTasks();
+            updateDashboardStats();
+        } else {
+            console.error('Failed to reset daily strikes:', data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error resetting daily strikes:', error);
+    });
 }
 
 // Setup keyboard shortcuts
@@ -779,27 +817,154 @@ async function loadChangelog() {
     }
 }
 
-function formatChangelogMarkdown(markdown) {
-    // Simple markdown formatter for changelog display
-    return markdown
-        // Headers
-        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-        // Lists
-        .replace(/^\* (.*$)/gim, '<li>$1</li>')
-        .replace(/^- (.*$)/gim, '<li>$1</li>')
-        // Code blocks
-        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-        // Inline code
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        // Bold text
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        // Italic text
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        // Line breaks
-        .replace(/\n\n/g, '</p><p>')
-        .replace(/\n/g, '<br>');
+function parseChangelogToSections(markdown) {
+    // Parse the changelog markdown into version sections
+    const sections = [];
+    const lines = markdown.split('\n');
+    let currentSection = null;
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        // Check for version headers (## Version X.X.X)
+        if (line.startsWith('## Version ')) {
+            if (currentSection) {
+                sections.push(currentSection);
+            }
+            currentSection = {
+                version: line.replace('## Version ', '').split(' - ')[0],
+                title: line.replace('## Version ', ''),
+                content: [],
+                date: null
+            };
+        }
+        // Check for release date
+        else if (line.startsWith('Release Date:') && currentSection) {
+            currentSection.date = line.replace('Release Date:', '').trim();
+        }
+        // Add content to current section
+        else if (currentSection && line) {
+            currentSection.content.push(line);
+        }
+    }
+    
+    // Add the last section
+    if (currentSection) {
+        sections.push(currentSection);
+    }
+    
+    // Sort by version (latest first) - simple version comparison
+    sections.sort((a, b) => {
+        const versionA = a.version.split('.').map(Number);
+        const versionB = b.version.split('.').map(Number);
+        
+        for (let i = 0; i < Math.max(versionA.length, versionB.length); i++) {
+            const numA = versionA[i] || 0;
+            const numB = versionB[i] || 0;
+            if (numA !== numB) {
+                return numB - numA; // Descending order (latest first)
+            }
+        }
+        return 0;
+    });
+    
+    return sections;
+}
+
+function formatChangelogSections(sections) {
+    let html = '<div class="changelog-sections">';
+    
+    sections.forEach((section, index) => {
+        const isExpanded = index === 0; // Expand first (latest) section by default
+        const sectionId = `changelog-section-${index}`;
+        
+        html += `
+            <div class="changelog-section">
+                <div class="changelog-section-header" onclick="toggleChangelogSection('${sectionId}')">
+                    <div class="changelog-section-title">
+                        <h3>${section.title}</h3>
+                        ${section.date ? `<span class="changelog-date">${section.date}</span>` : ''}
+                    </div>
+                    <div class="changelog-section-toggle">
+                        <i class="fas fa-chevron-${isExpanded ? 'up' : 'down'}"></i>
+                    </div>
+                </div>
+                <div class="changelog-section-content ${isExpanded ? 'expanded' : ''}" id="${sectionId}">
+                    <div class="changelog-section-text">
+                        ${formatChangelogContent(section.content)}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    return html;
+}
+
+function formatChangelogContent(contentLines) {
+    let html = '';
+    let inCodeBlock = false;
+    let codeBlockContent = '';
+    
+    for (const line of contentLines) {
+        if (line.startsWith('```')) {
+            if (inCodeBlock) {
+                // End code block
+                html += `<pre><code>${codeBlockContent}</code></pre>`;
+                codeBlockContent = '';
+                inCodeBlock = false;
+            } else {
+                // Start code block
+                inCodeBlock = true;
+            }
+        } else if (inCodeBlock) {
+            codeBlockContent += line + '\n';
+        } else if (line.startsWith('### ')) {
+            html += `<h4>${line.replace('### ', '')}</h4>`;
+        } else if (line.startsWith('## ')) {
+            html += `<h3>${line.replace('## ', '')}</h3>`;
+        } else if (line.startsWith('# ')) {
+            html += `<h2>${line.replace('# ', '')}</h2>`;
+        } else if (line.startsWith('- **')) {
+            // Bold list item
+            const boldText = line.match(/\*\*(.*?)\*\*/);
+            if (boldText) {
+                html += `<li><strong>${boldText[1]}</strong>${line.replace(/- \*\*.*?\*\*/, '').trim()}</li>`;
+            } else {
+                html += `<li>${line.replace('- ', '')}</li>`;
+            }
+        } else if (line.startsWith('- ')) {
+            html += `<li>${line.replace('- ', '')}</li>`;
+        } else if (line.startsWith('**') && line.endsWith('**')) {
+            html += `<strong>${line.replace(/\*\*/g, '')}</strong>`;
+        } else if (line.trim() === '---') {
+            html += '<hr>';
+        } else if (line.trim()) {
+            html += `<p>${line}</p>`;
+        }
+    }
+    
+    // Close any remaining code block
+    if (inCodeBlock && codeBlockContent) {
+        html += `<pre><code>${codeBlockContent}</code></pre>`;
+    }
+    
+    return html;
+}
+
+function toggleChangelogSection(sectionId) {
+    const content = document.getElementById(sectionId);
+    const header = content.previousElementSibling;
+    const toggle = header.querySelector('.changelog-section-toggle i');
+    
+    if (content.classList.contains('expanded')) {
+        content.classList.remove('expanded');
+        toggle.className = 'fas fa-chevron-down';
+    } else {
+        content.classList.add('expanded');
+        toggle.className = 'fas fa-chevron-up';
+    }
 }
 
 async function openChangelogModal() {
@@ -819,9 +984,10 @@ async function openChangelogModal() {
 
     try {
         const changelogText = await loadChangelog();
-        const formattedChangelog = formatChangelogMarkdown(changelogText);
+        const sections = parseChangelogToSections(changelogText);
+        const formattedChangelog = formatChangelogSections(sections);
 
-        content.innerHTML = `<div class="changelog-content">${formattedChangelog}</div>`;
+        content.innerHTML = formattedChangelog;
     } catch (error) {
         content.innerHTML = `
             <div class="changelog-content">
@@ -872,6 +1038,7 @@ async function getCSRFToken() {
 // Helper function to make authenticated requests with CSRF token
 async function makeAuthenticatedRequest(url, options = {}) {
     const token = await getCSRFToken();
+    console.log('CSRF Token:', token);
     
     const defaultOptions = {
         headers: {
@@ -880,6 +1047,7 @@ async function makeAuthenticatedRequest(url, options = {}) {
         }
     };
     
+    console.log('Request headers:', defaultOptions.headers);
     return fetch(url, { ...defaultOptions, ...options });
 }
 
@@ -1188,7 +1356,7 @@ function setupEventListeners() {
     console.log('Navigation event listeners set up complete');
 
     // Task modals
-    safeAddEventListener('add-task-btn-2', 'click', () => openTaskModal());
+    safeAddEventListener('quick-add-btn', 'click', () => openTaskModal());
     safeAddEventListener('quick-add-btn', 'click', () => openQuickAddModal());
     
     // Modal controls
@@ -1206,7 +1374,7 @@ function setupEventListeners() {
     safeAddEventListener('close-changelog-modal', 'click', () => closeChangelogModal());
     
     // User session management
-    safeAddEventListener('reset-user-session-btn', 'click', () => {
+    safeAddEventListener('clear-data-btn', 'click', () => {
         if (confirm('This will reset your user session and you will get a new user ID. All your current data will be lost. Are you sure?')) {
             Auth.resetUserSession();
         }
@@ -1359,6 +1527,12 @@ function navigateToPage(page) {
         return;
     }
     
+    if (page === 'import') {
+        // Import - don't navigate, just open import modal
+        openImportModal();
+        return;
+    }
+    
     // Update navigation
     console.log('Updating navigation for page:', page);
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -1395,6 +1569,49 @@ function navigateToPage(page) {
         loadTasks();
     } else if (page === 'analytics') {
         updateDashboardStats();
+    } else if (page === 'settings') {
+        loadSettingsPage();
+    }
+}
+
+// Missing navigation functions
+function toggleSidebar() {
+    console.log('Toggle sidebar called');
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+        sidebar.classList.toggle('collapsed');
+        console.log('Sidebar toggled');
+    } else {
+        console.error('Sidebar element not found');
+    }
+}
+
+function killApp() {
+    console.log('Kill app called');
+    if (confirm('Are you sure you want to stop the Shakshuka server?')) {
+        // Send request to kill the app
+        fetch('/api/kill', { method: 'POST' })
+            .then(() => {
+                console.log('App kill request sent');
+                window.close();
+            })
+            .catch(error => {
+                console.error('Error killing app:', error);
+                // Fallback: just close the window
+                window.close();
+            });
+    }
+}
+
+// Missing utility functions
+function showLoading(show) {
+    const loadingElement = document.getElementById('loading-screen');
+    if (loadingElement) {
+        if (show) {
+            loadingElement.style.display = 'flex';
+        } else {
+            loadingElement.style.display = 'none';
+        }
     }
 }
 
@@ -1462,11 +1679,56 @@ async function loadTasks() {
     }
 }
 
+// Task operation lock to prevent race conditions
+let taskOperationLock = false;
+const TASK_OPERATION_TIMEOUT = 10000; // 10 seconds
+
+function acquireTaskOperationLock() {
+    if (taskOperationLock) {
+        return false;
+    }
+    taskOperationLock = true;
+    
+    // Auto-release lock after timeout
+    setTimeout(() => {
+        if (taskOperationLock) {
+            console.warn('Task operation lock timeout, releasing lock');
+            taskOperationLock = false;
+        }
+    }, TASK_OPERATION_TIMEOUT);
+    
+    return true;
+}
+
+function releaseTaskOperationLock() {
+    taskOperationLock = false;
+}
+
+function isTaskOperationInProgress() {
+    return taskOperationLock;
+}
+
 async function createTask(taskData) {
+    // Check if another task operation is in progress
+    if (!acquireTaskOperationLock()) {
+        console.warn('Task operation already in progress, skipping create');
+        showNotification('Another task operation is in progress, please wait', 'warning');
+        return null;
+    }
+    
     try {
         console.log('Creating task with data:', taskData);
-        const response = await makeAuthenticatedRequest('/api/tasks', {
+        
+        // Validate task data before sending
+        if (!taskData.title || taskData.title.trim().length === 0) {
+            throw new Error('Task title is required');
+        }
+        
+        const response = await fetch('/api/tasks', {
             method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
             body: JSON.stringify(taskData)
         });
 
@@ -1479,7 +1741,7 @@ async function createTask(taskData) {
             console.log('New task created:', newTask);
             
             console.log('Adding task to AppState...');
-            AppState.addTask(newTask);
+            await AppState.addTask(newTask);
             
             console.log('Updating dashboard stats...');
             updateDashboardStats();
@@ -1491,6 +1753,8 @@ async function createTask(taskData) {
             } else if (AppState.get('currentPage') === 'dashboard') {
                 console.log('Rendering recent tasks...');
                 renderRecentTasks();
+            } else if (AppState.get('currentPage') === 'analytics') {
+                // Analytics page doesn't need re-rendering, stats are updated via updateDashboardStats()
             }
             
             console.log('Showing success notification...');
@@ -1504,19 +1768,32 @@ async function createTask(taskData) {
     } catch (error) {
         console.error('Error creating task:', error);
         showNotification(error.message || 'Error creating task', 'error');
+        return null;
+    } finally {
+        releaseTaskOperationLock();
     }
 }
 
 async function updateTask(taskId, taskData) {
+    // Check if another task operation is in progress
+    if (!acquireTaskOperationLock()) {
+        console.warn('Task operation already in progress, skipping update');
+        showNotification('Another task operation is in progress, please wait', 'warning');
+        return null;
+    }
+    
     try {
-        const response = await makeAuthenticatedRequest(`/api/tasks/${taskId}`, {
+        const response = await fetch(`/api/tasks/${taskId}`, {
             method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
             body: JSON.stringify(taskData)
         });
 
         if (response.ok) {
             const updatedTask = await response.json();
-            AppState.updateTask(taskId, updatedTask);
+            await AppState.updateTask(taskId, updatedTask);
             
             updateDashboardStats();
             
@@ -1524,6 +1801,8 @@ async function updateTask(taskId, taskData) {
                 renderTasks();
             } else if (AppState.get('currentPage') === 'dashboard') {
                 renderRecentTasks();
+            } else if (AppState.get('currentPage') === 'analytics') {
+                // Analytics page doesn't need re-rendering, stats are updated via updateDashboardStats()
             }
             
             showNotification('Task updated successfully!', 'success');
@@ -1536,28 +1815,44 @@ async function updateTask(taskId, taskData) {
         if (error.message && error.message.toLowerCase().includes('login')) {
             showNotification('Please log in to update tasks', 'error');
         } else {
-        showNotification('Error updating task', 'error');
+            showNotification('Error updating task', 'error');
         }
+        return null;
+    } finally {
+        releaseTaskOperationLock();
     }
 }
 
 async function deleteTask(taskId) {
+    // Check if another task operation is in progress
+    if (!acquireTaskOperationLock()) {
+        console.warn('Task operation already in progress, skipping delete');
+        showNotification('Another task operation is in progress, please wait', 'warning');
+        return null;
+    }
+    
     try {
-        const response = await makeAuthenticatedRequest(`/api/tasks/${taskId}`, {
-            method: 'DELETE'
+        const response = await fetch(`/api/tasks/${taskId}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
         });
 
         if (response.ok) {
-            AppState.removeTask(taskId);
+            await AppState.removeTask(taskId);
             updateDashboardStats();
             
             if (AppState.get('currentPage') === 'tasks') {
                 renderTasks();
             } else if (AppState.get('currentPage') === 'dashboard') {
                 renderRecentTasks();
+            } else if (AppState.get('currentPage') === 'analytics') {
+                // Analytics page doesn't need re-rendering, stats are updated via updateDashboardStats()
             }
             
             showNotification('Task deleted successfully!', 'success');
+            return true;
         } else {
             throw new Error('Failed to delete task');
         }
@@ -1566,12 +1861,22 @@ async function deleteTask(taskId) {
         if (error.message && error.message.toLowerCase().includes('login')) {
             showNotification('Please log in to delete tasks', 'error');
         } else {
-        showNotification('Error deleting task', 'error');
+            showNotification('Error deleting task', 'error');
         }
+        return false;
+    } finally {
+        releaseTaskOperationLock();
     }
 }
 
 async function completeTask(taskId) {
+    // Check if another task operation is in progress
+    if (!acquireTaskOperationLock()) {
+        console.warn('Task operation already in progress, skipping complete');
+        showNotification('Another task operation is in progress, please wait', 'warning');
+        return null;
+    }
+    
     try {
         const response = await fetch(`/api/tasks/${taskId}/complete`, {
             method: 'POST'
@@ -1579,7 +1884,7 @@ async function completeTask(taskId) {
 
         if (response.ok) {
             const completedTask = await response.json();
-            AppState.updateTask(taskId, completedTask);
+            await AppState.updateTask(taskId, completedTask);
             
             updateDashboardStats();
             
@@ -1587,9 +1892,13 @@ async function completeTask(taskId) {
                 renderTasks();
             } else if (AppState.get('currentPage') === 'dashboard') {
                 renderRecentTasks();
+            } else if (AppState.get('currentPage') === 'analytics') {
+                // Analytics page doesn't need re-rendering, stats are updated via updateDashboardStats()
+                // But we can add a visual refresh indicator if needed
             }
             
             showNotification('Task completed! 🎉', 'success');
+            return completedTask;
         } else {
             throw new Error('Failed to complete task');
         }
@@ -1598,8 +1907,11 @@ async function completeTask(taskId) {
         if (error.message && error.message.toLowerCase().includes('login')) {
             showNotification('Please log in to complete tasks', 'error');
         } else {
-        showNotification('Error completing task', 'error');
+            showNotification('Error completing task', 'error');
         }
+        return null;
+    } finally {
+        releaseTaskOperationLock();
     }
 }
 
@@ -1821,16 +2133,21 @@ function updateDashboardStats() {
     // Calculate productivity score (completion rate)
     const productivityScore = calculateProductivityScore();
 
+    // Calculate striked today
+    const strikedToday = tasks.filter(task => task.struck_today && !task.completed).length;
+
     // Update DOM elements
     const completedTodayEl = document.getElementById('completed-today');
     const expiredTasksEl = document.getElementById('expired-tasks');
     const streakDaysEl = document.getElementById('streak-days');
     const productivityScoreEl = document.getElementById('productivity-score');
+    const strikedTodayEl = document.getElementById('striked-today');
     
     if (completedTodayEl) completedTodayEl.textContent = completedToday;
     if (expiredTasksEl) expiredTasksEl.textContent = expiredTasks;
     if (streakDaysEl) streakDaysEl.textContent = streakDays;
     if (productivityScoreEl) productivityScoreEl.textContent = productivityScore + '%';
+    if (strikedTodayEl) strikedTodayEl.textContent = strikedToday;
 }
 
 function calculateStreak() {
@@ -1943,6 +2260,16 @@ function closeQuickAddModal() {
         form.reset();
     }
 }
+
+// Create Tasks object with the modal functions for showAddTaskOptions
+window.Tasks = {
+    openTaskModal,
+    openQuickAddModal,
+    openScheduleModal,
+    closeTaskModal,
+    closeQuickAddModal,
+    closeScheduleModal
+};
 
 function editTask(taskId) {
     openTaskModal(taskId);
@@ -2415,8 +2742,13 @@ async function loadSettings() {
         document.getElementById('dpi-selector').value = settings.dpi_scale || 100;
         
         applyThemeAndDPI();
+        
+        // Hide loading screen after settings are applied
+        hideLoadingScreen();
     } catch (error) {
         console.error('Error loading settings:', error);
+        // Hide loading screen even if there's an error
+        hideLoadingScreen();
     }
 }
 
@@ -2522,6 +2854,7 @@ function applyThemeAndDPI() {
 
 function updateThemeCSSVariables(theme, intensity) {
     const root = document.documentElement;
+    const body = document.body;
     
     // Define theme color mappings
     const themeColors = {
@@ -2654,17 +2987,37 @@ function updateThemeCSSVariables(theme, intensity) {
         }
     }
     
-    // Apply the theme colors to CSS custom properties
-    const colors = themeColors[theme] || themeColors['light'];
-    Object.entries(colors).forEach(([property, value]) => {
-        root.style.setProperty(`--${property}`, value);
-    });
+        // Apply the theme colors to CSS custom properties
+        const colors = themeColors[theme] || themeColors['light'];
+        Object.entries(colors).forEach(([property, value]) => {
+            root.style.setProperty(`--${property}`, value);
+        });
+        
+        // Apply additional CSS custom properties that are used in the CSS
+        const settings = AppState.get('currentSettings') || {};
+        const dpiScale = settings.dpi_scale || 100;
+        const additionalProperties = {
+            'surface-finish-gradient': colors['secondary-gradient'],
+            'box-shadow-primary': `0 ${4 * (dpiScale / 100)}px ${12 * (dpiScale / 100)}px ${colors['shadow-color']}`,
+            'border-finish': `1px solid ${colors['border-color']}`,
+            'backdrop-filter': 'blur(10px)',
+            'text-primary': colors['text-color'],
+            'text-secondary': colors['text-secondary'],
+            'accent-gradient': colors['primary-gradient']
+        };
+        
+        // Set CSS custom properties on both root and body for maximum compatibility
+        Object.entries(additionalProperties).forEach(([property, value]) => {
+            root.style.setProperty(`--${property}`, value);
+            body.style.setProperty(`--${property}`, value);
+        });
 }
 
 async function updateTheme() {
     const theme = document.getElementById('theme-selector').value;
     
     try {
+        console.log('Updating theme to:', theme);
         const response = await fetch('/api/settings', {
             method: 'PUT',
             headers: {
@@ -2673,6 +3026,8 @@ async function updateTheme() {
             body: JSON.stringify({ theme: theme })
         });
 
+        console.log('Theme update response:', response.status, response.statusText);
+        
         if (response.ok) {
             const settings = AppState.get('currentSettings') || {};
             settings.theme = theme;
@@ -2680,7 +3035,9 @@ async function updateTheme() {
             applyThemeAndDPI();
             showNotification('Theme updated successfully!', 'success');
         } else {
-            throw new Error('Failed to update theme');
+            const errorText = await response.text();
+            console.error('Theme update failed:', response.status, errorText);
+            throw new Error(`Failed to update theme: ${response.status} ${errorText}`);
         }
     } catch (error) {
         console.error('Error updating theme:', error);
@@ -2738,7 +3095,7 @@ async function updateIntensity() {
         }
     } catch (error) {
         console.error('Error updating intensity:', error);
-        showNotification('Error updating color intensity', 'error');
+        showNotification('Error updating intensity', 'error');
     }
 }
 

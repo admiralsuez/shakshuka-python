@@ -17,19 +17,12 @@ async function getCSRFToken() {
 
 // Helper function to make authenticated requests with CSRF token
 async function makeAuthenticatedRequest(url, options = {}) {
-    const token = await getCSRFToken();
-    console.log('CSRF Token:', token);
+    // Authentication disabled - use simple fetch
+    console.log('Authentication disabled - using simple fetch');
     
-    // Get user ID from AppState
-    const userId = (typeof AppState !== 'undefined' && AppState && AppState.get) ? AppState.get('userId') : 'default_user';
-    console.log('User ID:', userId);
-
     const defaultOptions = {
-        credentials: 'include', // Include session cookies
         headers: {
             'Content-Type': 'application/json',
-            ...(token && { 'X-CSRF-Token': token }),
-            ...(userId && { 'X-User-ID': userId })
         }
     };
 

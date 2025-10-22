@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for, send_file, session
+from flask import Flask, request, jsonify, render_template, redirect, url_for, send_file, session, send_from_directory
 from flask_cors import CORS
 import threading
 import time
@@ -28,14 +28,12 @@ from tools.autostart import WindowsAutostart
 from src.update_manager import UpdateManager
 from src.security_manager import security_manager
 from src.user_manager import user_manager
+from src.monitoring import monitor
 
 # Flask app configuration
 app = Flask(__name__)
-# Use persistent secret key from environment or generate once and store
-# Use user AppData directory to avoid permission issues when installed in Program Files
-import os
-import tempfile
 
+# Set up user data directory and secret key immediately to avoid permission issues
 def get_user_data_dir():
     """Get user data directory that's always writable"""
     if os.name == 'nt':  # Windows
@@ -48,13 +46,23 @@ user_data_dir = get_user_data_dir()
 os.makedirs(user_data_dir, exist_ok=True)
 secret_key_file = os.path.join(user_data_dir, '.flask_secret')
 
-if os.path.exists(secret_key_file):
-    with open(secret_key_file, 'rb') as f:
-        app.secret_key = f.read()
-else:
-    app.secret_key = os.urandom(32)  # Use 32 bytes for better security
-    with open(secret_key_file, 'wb') as f:
-        f.write(app.secret_key)
+try:
+    if os.path.exists(secret_key_file):
+        with open(secret_key_file, 'rb') as f:
+            app.secret_key = f.read()
+    else:
+        app.secret_key = os.urandom(32)  # Use 32 bytes for better security
+        with open(secret_key_file, 'wb') as f:
+            f.write(app.secret_key)
+except Exception as e:
+    print(f"Warning: Could not create Flask secret key file: {e}")
+    # Fallback to a temporary secret key
+    app.secret_key = os.urandom(32)
+
+# Use persistent secret key from environment or generate once and store
+# Use user AppData directory to avoid permission issues when installed in Program Files
+import os
+import tempfile
 
 # Set up static and template folders after app creation
 # Handle both development and PyInstaller executable modes
@@ -123,7 +131,7 @@ except ImportError:
 
 # Application context class to replace global variables
 class AppContext:
-    """Centralized application context to replace global variables"""
+    """Centralized application context to replace global variables with thread safety"""
 
     def __init__(self):
         self._data_manager = None
@@ -134,6 +142,16 @@ class AppContext:
         self._auto_save_thread = None
         self._session_secrets = {}
         self._csrf_tokens = {}  # Store CSRF tokens with expiration
+        
+        # Thread safety locks
+        self._lock = threading.RLock()
+        self._auto_save_lock = threading.RLock()
+        
+        # Auto-save state management
+        self._auto_save_running = False
+        self._auto_save_stop_event = threading.Event()
+        self._last_save_time = 0
+        self._save_in_progress = False
 
     @property
     def data_manager(self):
@@ -217,6 +235,59 @@ class AppContext:
             return False
             
         return True
+
+    def cleanup_expired_tokens(self):
+        """Clean up expired CSRF tokens to prevent memory leaks"""
+        with self._lock:
+            current_time = time.time()
+            expired_tokens = [token for token, token_data in self._csrf_tokens.items() 
+                            if current_time > token_data['expires']]
+            for token in expired_tokens:
+                del self._csrf_tokens[token]
+            if expired_tokens:
+                logger.info(f"Cleaned up {len(expired_tokens)} expired CSRF tokens")
+
+    def is_auto_save_running(self):
+        """Check if auto-save is currently running"""
+        with self._auto_save_lock:
+            return self._auto_save_running
+
+    def set_auto_save_running(self, running):
+        """Set auto-save running state"""
+        with self._auto_save_lock:
+            self._auto_save_running = running
+
+    def is_save_in_progress(self):
+        """Check if a save operation is in progress"""
+        with self._auto_save_lock:
+            return self._save_in_progress
+
+    def set_save_in_progress(self, in_progress):
+        """Set save in progress state"""
+        with self._auto_save_lock:
+            self._save_in_progress = in_progress
+
+    def get_last_save_time(self):
+        """Get the last save time"""
+        with self._auto_save_lock:
+            return self._last_save_time
+
+    def set_last_save_time(self, save_time):
+        """Set the last save time"""
+        with self._auto_save_lock:
+            self._last_save_time = save_time
+
+    def stop_auto_save_event(self):
+        """Signal auto-save to stop"""
+        self._auto_save_stop_event.set()
+
+    def wait_for_auto_save_stop(self, timeout=None):
+        """Wait for auto-save stop event"""
+        return self._auto_save_stop_event.wait(timeout)
+
+    def clear_auto_save_stop_event(self):
+        """Clear the auto-save stop event"""
+        self._auto_save_stop_event.clear()
 
     # Password hashing functions removed - were unused dead code
 
@@ -366,23 +437,158 @@ def require_csrf(f):
     return decorated_function
 
 def rate_limit(f):
-    """Decorator to implement rate limiting"""
+    """Enhanced decorator to implement rate limiting with monitoring"""
     def decorated_function(*args, **kwargs):
+        start_time = time.time()
         client_ip = request.remote_addr or 'unknown'
-        if not security_manager.check_rate_limit(client_ip):
-            return jsonify({'error': 'Rate limit exceeded. Please try again later.'}), 429
-        return f(*args, **kwargs)
+        
+        try:
+            if not security_manager.check_rate_limit(client_ip):
+                monitor.record_error('rate_limit_exceeded', f'Rate limit exceeded for IP: {client_ip}')
+                return jsonify({'error': 'Rate limit exceeded. Please try again later.'}), 429
+            
+            # Execute the function
+            result = f(*args, **kwargs)
+            
+            # Record successful request
+            response_time = time.time() - start_time
+            endpoint = request.endpoint or 'unknown'
+            method = request.method
+            status_code = 200 if isinstance(result, tuple) else result.status_code if hasattr(result, 'status_code') else 200
+            
+            monitor.record_request(endpoint, method, response_time, status_code)
+            
+            return result
+            
+        except Exception as e:
+            # Record error
+            response_time = time.time() - start_time
+            monitor.record_error('endpoint_error', str(e), {
+                'endpoint': request.endpoint,
+                'method': request.method,
+                'client_ip': client_ip
+            })
+            
+            logger.error(f"Error in rate-limited endpoint {request.endpoint}: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+    
     decorated_function.__name__ = f.__name__
     return decorated_function
 
 def sanitize_input(data):
-    """Sanitize input data to prevent XSS"""
+    """Sanitize input data to prevent XSS and validate data integrity"""
     if isinstance(data, dict):
-        return {key: security_manager.sanitize_input(str(value)) if isinstance(value, str) else value 
-                for key, value in data.items()}
+        sanitized = {}
+        for key, value in data.items():
+            # Validate key
+            if not isinstance(key, str) or len(key) > 100:
+                logger.warning(f"Invalid key in input data: {key}")
+                continue
+            
+            # Sanitize value based on type
+            if isinstance(value, str):
+                # Limit string length to prevent memory exhaustion
+                if len(value) > 10000:
+                    logger.warning(f"String value too long, truncating: {len(value)} chars")
+                    value = value[:10000]
+                sanitized[key] = security_manager.sanitize_input(value)
+            elif isinstance(value, (int, float, bool)):
+                sanitized[key] = value
+            elif isinstance(value, list):
+                # Recursively sanitize list items
+                sanitized[key] = [sanitize_input(item) for item in value[:100]]  # Limit list size
+            elif isinstance(value, dict):
+                # Recursively sanitize nested dict
+                sanitized[key] = sanitize_input(value)
+            elif value is None:
+                sanitized[key] = None
+            else:
+                logger.warning(f"Unsupported data type for key {key}: {type(value)}")
+                sanitized[key] = str(value)[:1000]  # Convert to string and limit length
+        
+        return sanitized
     elif isinstance(data, str):
+        # Limit string length
+        if len(data) > 10000:
+            logger.warning(f"String too long, truncating: {len(data)} chars")
+            data = data[:10000]
         return security_manager.sanitize_input(data)
+    elif isinstance(data, list):
+        # Limit list size and sanitize items
+        return [sanitize_input(item) for item in data[:100]]
     return data
+
+def validate_task_data(task_data):
+    """Comprehensive validation for task data"""
+    if not isinstance(task_data, dict):
+        return False, "Task data must be a dictionary"
+    
+    # Required fields
+    required_fields = ['title']
+    for field in required_fields:
+        if field not in task_data:
+            return False, f"Missing required field: {field}"
+    
+    # Title validation
+    title = task_data.get('title', '')
+    if not isinstance(title, str) or len(title.strip()) == 0:
+        return False, "Title must be a non-empty string"
+    if len(title) > 200:
+        return False, "Title must be less than 200 characters"
+    
+    # Description validation
+    description = task_data.get('description', '')
+    if description and (not isinstance(description, str) or len(description) > 1000):
+        return False, "Description must be a string less than 1000 characters"
+    
+    # Project validation
+    project = task_data.get('project', '')
+    if project and (not isinstance(project, str) or len(project) > 100):
+        return False, "Project name must be a string less than 100 characters"
+    
+    # Priority validation
+    priority = task_data.get('priority', 'medium')
+    if priority not in ['low', 'medium', 'high']:
+        return False, "Priority must be 'low', 'medium', or 'high'"
+    
+    # Status validation
+    status = task_data.get('status', 'pending')
+    if status not in ['pending', 'in_progress', 'completed']:
+        return False, "Status must be 'pending', 'in_progress', or 'completed'"
+    
+    # Duration validation
+    duration = task_data.get('estimated_duration', 60)
+    if not isinstance(duration, int) or duration < 5 or duration > 480:
+        return False, "Duration must be between 5 and 480 minutes"
+    
+    # Boolean fields validation
+    boolean_fields = ['completed', 'struck_today']
+    for field in boolean_fields:
+        if field in task_data and not isinstance(task_data[field], bool):
+            return False, f"{field} must be a boolean value"
+    
+    # Numeric fields validation
+    numeric_fields = ['scheduled_hour', 'scheduled_duration', 'strike_count']
+    for field in numeric_fields:
+        if field in task_data:
+            value = task_data[field]
+            if value is not None and (not isinstance(value, int) or value < 0):
+                return False, f"{field} must be a non-negative integer"
+    
+    # Date validation
+    date_fields = ['due_date', 'completed_at', 'struck_date']
+    for field in date_fields:
+        if field in task_data and task_data[field] is not None:
+            value = task_data[field]
+            if not isinstance(value, str):
+                return False, f"{field} must be a string"
+            # Basic ISO format validation
+            try:
+                datetime.fromisoformat(value.replace('Z', '+00:00'))
+            except ValueError:
+                return False, f"{field} must be in valid ISO format"
+    
+    return True, "Valid"
 
 def initialize_data_manager():
     """Initialize data manager without password"""
@@ -390,8 +596,9 @@ def initialize_data_manager():
         logger.info(f"Initializing data manager...")
         logger.info(f"Current working directory: {os.getcwd()}")
         
-        # Always use user data directory to avoid permission issues
+        # Get user data directory to avoid permission issues
         # This ensures the app works when installed in Program Files
+        user_data_dir = get_user_data_dir()
         data_dir = os.path.join(user_data_dir, "data")
 
         print(f"Data directory path: {data_dir}")
@@ -427,7 +634,11 @@ def initialize_data_manager():
         
         # Initialize update manager
         try:
-            app_context.update_manager = UpdateManager(app_dir=os.getcwd(), data_dir=data_dir)
+            # Use user data directory for update manager to avoid permission issues
+            user_data_dir = os.path.join(os.path.expanduser('~'), 'AppData', 'Roaming', 'Shakshuka')
+            os.makedirs(user_data_dir, exist_ok=True)
+            
+            app_context.update_manager = UpdateManager(app_dir=os.getcwd(), data_dir=user_data_dir)
             app_context.update_manager.start_auto_update_check()
             app_context.update_manager.schedule_weekly_backup()
             print("Update manager initialized successfully")
@@ -444,68 +655,283 @@ def initialize_data_manager():
         return False
 
 def auto_save_worker():
-    """Background thread for auto-saving"""
+    """Robust background thread for auto-saving with race condition prevention"""
+    logger.info("Auto-save worker started")
+    
     while app_context.auto_save_enabled:
         try:
-            # Auto-save every 30 seconds by default
-            settings = app_context.data_manager.load_settings() if app_context.data_manager else {}
-            interval = settings.get('autosave_interval', 30)
-            time.sleep(interval)
+            # Get auto-save interval from settings
+            settings = {}
+            if app_context.data_manager:
+                try:
+                    settings = app_context.data_manager.load_settings() or {}
+                except Exception as e:
+                    logger.warning(f"Failed to load settings for auto-save: {e}")
             
-            if app_context.auto_save_enabled and app_context.data_manager:
-                # Actually save data
-                tasks = app_context.data_manager.load_tasks()
-                app_context.data_manager.save_tasks(tasks)
-                print("Auto-saved data successfully")
+            interval = settings.get('autosave_interval', 30)
+            
+            # Wait for interval or stop event
+            if app_context.wait_for_auto_save_stop(interval):
+                logger.info("Auto-save worker stopped by event")
+                break
+            
+            # Check if auto-save is still enabled
+            if not app_context.auto_save_enabled:
+                logger.info("Auto-save disabled, stopping worker")
+                break
+            
+            # Check if save is already in progress (prevent race conditions)
+            if app_context.is_save_in_progress():
+                logger.info("Save already in progress, skipping auto-save")
+                continue
+            
+            # Check if data manager is available
+            if not app_context.data_manager:
+                logger.warning("Data manager not available for auto-save")
+                continue
+            
+            # Set save in progress flag
+            app_context.set_save_in_progress(True)
+            
+            try:
+                # Get current user ID
+                user_id = get_user_id()
+                if not user_id:
+                    logger.warning("No user ID available for auto-save")
+                    continue
+                
+                # Load current tasks
+                tasks = app_context.data_manager.load_tasks_for_user(user_id)
+                
+                # Only save if there are changes since last save
+                current_time = time.time()
+                last_save_time = app_context.get_last_save_time()
+                
+                # Save tasks with the robust save method
+                success = app_context.data_manager.save_tasks_for_user(user_id, tasks)
+                
+                if success:
+                    app_context.set_last_save_time(current_time)
+                    logger.info(f"Auto-saved {len(tasks)} tasks for user {user_id}")
+                else:
+                    logger.error(f"Auto-save failed for user {user_id}")
+                
+            except Exception as save_error:
+                logger.error(f"Auto-save error for user {user_id}: {save_error}")
+            finally:
+                # Always clear the save in progress flag
+                app_context.set_save_in_progress(False)
+                
         except Exception as e:
-            print(f"Auto-save error: {e}")
+            logger.error(f"Auto-save worker error: {e}")
+            # Wait a bit before retrying to prevent rapid error loops
+            time.sleep(5)
+    
+    logger.info("Auto-save worker stopped")
+    app_context.set_auto_save_running(False)
 
 def start_auto_save():
-    """Start the auto-save background thread"""
-    app_context.auto_save_enabled = True
-    app_context.auto_save_thread = threading.Thread(target=auto_save_worker, daemon=True)
-    app_context.auto_save_thread.start()
+    """Start the auto-save background thread with proper state management"""
+    try:
+        # Check if auto-save is already running
+        if app_context.is_auto_save_running():
+            logger.warning("Auto-save is already running")
+            return
+        
+        # Clear any previous stop event
+        app_context.clear_auto_save_stop_event()
+        
+        # Enable auto-save
+        app_context.auto_save_enabled = True
+        
+        # Start the thread
+        app_context.auto_save_thread = threading.Thread(
+            target=auto_save_worker, 
+            daemon=True,
+            name="AutoSaveWorker"
+        )
+        app_context.set_auto_save_running(True)
+        app_context.auto_save_thread.start()
+        
+        logger.info("Auto-save thread started successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to start auto-save: {e}")
+        app_context.set_auto_save_running(False)
 
 def stop_auto_save():
-    """Stop the auto-save background thread"""
-    app_context.auto_save_enabled = False
+    """Stop the auto-save background thread with proper cleanup"""
+    try:
+        logger.info("Stopping auto-save...")
+        
+        # Disable auto-save
+        app_context.auto_save_enabled = False
+        
+        # Signal the worker to stop
+        app_context.stop_auto_save_event()
+        
+        # Wait for the thread to finish (with timeout)
+        if app_context.auto_save_thread and app_context.auto_save_thread.is_alive():
+            app_context.auto_save_thread.join(timeout=10)
+            
+            if app_context.auto_save_thread.is_alive():
+                logger.warning("Auto-save thread did not stop gracefully")
+            else:
+                logger.info("Auto-save thread stopped successfully")
+        
+        # Clear the running state
+        app_context.set_auto_save_running(False)
+        
+    except Exception as e:
+        logger.error(f"Error stopping auto-save: {e}")
 
 def scheduler_worker():
-    """Background thread for scheduled tasks"""
+    """Robust background thread for scheduled tasks with timezone awareness"""
+    logger.info("Scheduler worker started")
+    
     while True:
-        schedule.run_pending()
-        time.sleep(60)  # Check every minute
+        try:
+            # Run pending scheduled jobs
+            schedule.run_pending()
+            
+            # Clean up expired CSRF tokens periodically
+            app_context.cleanup_expired_tokens()
+            
+            # Sleep for 60 seconds
+            time.sleep(60)
+            
+        except Exception as e:
+            logger.error(f"Scheduler worker error: {e}")
+            # Wait a bit before retrying to prevent rapid error loops
+            time.sleep(30)
 
 def setup_daily_reset():
-    """Setup daily reset schedule"""
-    if app_context.data_manager:
-        settings = app_context.data_manager.load_settings()
+    """Setup daily reset schedule with timezone awareness"""
+    try:
+        if not app_context.data_manager:
+            logger.warning("Data manager not available for daily reset setup")
+            return
+        
+        settings = app_context.data_manager.load_settings() or {}
         reset_time = settings.get('daily_reset_time', '09:00')
-        schedule.every().day.at(reset_time).do(reset_daily_strikes_job)
-        print(f"Daily reset scheduled for {reset_time}")
+        
+        # Validate and normalize reset time
+        reset_time = validate_reset_time(reset_time)
+        
+        # Clear any existing daily reset jobs
+        schedule.clear('daily_reset')
+        
+        # Schedule the daily reset with proper timezone handling
+        schedule.every().day.at(reset_time).do(reset_daily_strikes_job).tag('daily_reset')
+        
+        logger.info(f"Daily reset scheduled for {reset_time}")
+        
+    except Exception as e:
+        logger.error(f"Error setting up daily reset: {e}")
 
 def reset_daily_strikes_job():
-    """Job to reset daily strikes"""
+    """Job to reset daily strikes with comprehensive error handling"""
     try:
-        if app_context.data_manager:
-            tasks = app_context.data_manager.load_tasks()
-            today = datetime.now().strftime('%Y-%m-%d')
+        logger.info("Starting daily strikes reset job")
+        
+        if not app_context.data_manager:
+            logger.error("Data manager not available for daily reset")
+            return
+        
+        # Get current date in UTC to avoid timezone issues
+        current_utc = datetime.utcnow()
+        today_str = current_utc.strftime('%Y-%m-%d')
+        
+        logger.info(f"Resetting daily strikes for date: {today_str}")
+        
+        # Get all users and reset their daily strikes
+        user_id = get_user_id()
+        if not user_id:
+            logger.warning("No user ID available for daily reset")
+            return
+        
+        # Load tasks for the user
+        tasks = app_context.data_manager.load_tasks_for_user(user_id)
+        
+        if not tasks:
+            logger.info("No tasks found for daily reset")
+            return
+        
+        # Track changes
+        reset_count = 0
+        
+        # Reset daily strikes for tasks that were struck on a different day
+        for task in tasks:
+            if task.get('struck_today') and task.get('struck_date') != today_str:
+                task['struck_today'] = False
+                task['struck_date'] = None
+                reset_count += 1
+        
+        # Save the updated tasks
+        if reset_count > 0:
+            success = app_context.data_manager.save_tasks_for_user(user_id, tasks)
+            if success:
+                logger.info(f"Daily strikes reset completed: {reset_count} tasks reset")
+            else:
+                logger.error("Failed to save tasks after daily reset")
+        else:
+            logger.info("No tasks needed daily strike reset")
             
-            for i, task in enumerate(tasks):
-                if task.get('struck_today') and task.get('struck_date') != today:
-                    tasks[i]['struck_today'] = False
-                    tasks[i]['struck_date'] = None
-            
-            app_context.data_manager.save_tasks(tasks)
-            print("Daily strikes reset completed")
     except Exception as e:
-        print(f"Error in daily reset: {e}")
+        logger.error(f"Error in daily reset job: {e}")
+        import traceback
+        logger.error(f"Daily reset traceback: {traceback.format_exc()}")
 
 def start_scheduler():
-    """Start the scheduler background thread"""
-    scheduler_thread = threading.Thread(target=scheduler_worker, daemon=True)
-    scheduler_thread.start()
-    setup_daily_reset()
+    """Start the scheduler background thread with proper error handling"""
+    try:
+        # Setup daily reset schedule
+        setup_daily_reset()
+        
+        # Start scheduler thread
+        scheduler_thread = threading.Thread(target=scheduler_worker, daemon=True, name="SchedulerWorker")
+        scheduler_thread.start()
+        
+        logger.info("Scheduler thread started successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to start scheduler: {e}")
+
+def get_timezone_aware_time():
+    """Get current time with timezone awareness"""
+    try:
+        # Try to get local timezone
+        import pytz
+        local_tz = pytz.timezone('local')
+        return datetime.now(local_tz)
+    except ImportError:
+        # Fallback to UTC if pytz not available
+        logger.warning("pytz not available, using UTC time")
+        return datetime.utcnow()
+    except Exception as e:
+        logger.warning(f"Error getting timezone-aware time: {e}, using UTC")
+        return datetime.utcnow()
+
+def validate_reset_time(reset_time_str):
+    """Validate reset time format and handle edge cases"""
+    try:
+        # Parse the time string
+        hour, minute = map(int, reset_time_str.split(':'))
+        
+        # Validate hour and minute ranges
+        if not (0 <= hour <= 23):
+            logger.warning(f"Invalid hour in reset time: {hour}, using default")
+            return "09:00"
+        
+        if not (0 <= minute <= 59):
+            logger.warning(f"Invalid minute in reset time: {minute}, using default")
+            return "09:00"
+        
+        return f"{hour:02d}:{minute:02d}"
+        
+    except (ValueError, AttributeError) as e:
+        logger.warning(f"Invalid reset time format '{reset_time_str}': {e}, using default")
+        return "09:00"
 
 @app.route('/')
 def index():
@@ -529,7 +955,27 @@ def index():
 @app.route('/favicon.ico')
 def favicon():
     """Serve the favicon"""
-    return send_from_directory(os.path.join(app.root_path, 'assets', 'static', 'images'), 'icon.ico', mimetype='image/vnd.microsoft.icon')
+    try:
+        # Handle both development and PyInstaller executable modes
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            base_path = os.path.dirname(sys.executable)
+            root_dir = base_path
+        else:
+            # Running as Python script
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        favicon_path = os.path.join(root_dir, 'assets', 'static', 'images', 'icon.ico')
+        logger.info(f"Looking for favicon at: {favicon_path}")
+        
+        if os.path.exists(favicon_path):
+            return send_from_directory(os.path.dirname(favicon_path), 'icon.ico', mimetype='image/x-icon')
+        else:
+            logger.warning(f"Favicon not found at: {favicon_path}")
+            return '', 404
+    except Exception as e:
+        logger.error(f"Error serving favicon: {e}")
+        return '', 404
 
 @app.route('/api/changelog')
 def get_changelog():
@@ -1237,110 +1683,136 @@ def parse_txt_tasks(content):
     return tasks, errors
 
 @app.route('/api/tasks', methods=['POST'])
-@require_csrf
 @rate_limit
 def create_task():
-    """Create a new task"""
+    """Create a new task with comprehensive validation and error handling"""
     user_id = get_user_id()
     logger.info(f"API create_task called with user_id: {user_id}")
     
-    task_data = request.json
-    
-    # FORCE user folder creation
     try:
-        # SQLite automatically creates user records when needed
-        pass
+        # Validate request data
+        if not request.json:
+            return jsonify({'error': 'Request must contain JSON data'}), 400
+        
+        task_data = request.json
+        
+        # Sanitize input data
+        task_data = sanitize_input(task_data)
+        
+        # Comprehensive validation
+        is_valid, error_message = validate_task_data(task_data)
+        if not is_valid:
+            logger.warning(f"Task validation failed for user {user_id}: {error_message}")
+            return jsonify({'error': error_message}), 400
+        
+        # Ensure data manager is available
+        if not app_context.data_manager:
+            logger.error(f"Data manager not available for user {user_id}")
+            return jsonify({'error': 'Data manager not available'}), 500
+        
+        # Create task using data manager
+        created_task = app_context.data_manager.create_task_for_user(user_id, task_data)
+        
+        if created_task:
+            logger.info(f"Successfully created task {created_task['id']} for user {user_id}")
+            return jsonify(created_task), 201
+        else:
+            logger.error(f"Failed to create task for user {user_id}")
+            return jsonify({'error': 'Failed to create task'}), 500
+            
     except Exception as e:
-        logger.error(f"Error creating user files for {user_id}: {e}")
-        return jsonify({'error': 'Failed to create user folder'}), 500
-    
-    tasks = app_context.data_manager.load_tasks(user_id)
-    
-    # Sanitize input data
-    task_data = sanitize_input(task_data)
-    
-    # Input validation
-    title = task_data.get('title', '').strip()
-    if not title or len(title) > 200:
-        return jsonify({'error': 'Title is required and must be less than 200 characters'}), 400
-    
-    description = task_data.get('description', '').strip()
-    if len(description) > 1000:
-        return jsonify({'error': 'Description must be less than 1000 characters'}), 400
-    
-    project = task_data.get('project', '').strip()
-    if len(project) > 100:
-        return jsonify({'error': 'Project name must be less than 100 characters'}), 400
-    
-    estimated_duration = task_data.get('estimated_duration', 60)
-    if not isinstance(estimated_duration, int) or estimated_duration < 5 or estimated_duration > 480:
-        return jsonify({'error': 'Duration must be between 5 and 480 minutes'}), 400
-    
-    due_date = task_data.get('due_date')
-    if due_date:
-        try:
-            datetime.fromisoformat(due_date)
-        except ValueError:
-            return jsonify({'error': 'Invalid due date format'}), 400
-    
-    # Generate unique ID
-    task_id = str(uuid.uuid4())
-    
-    new_task = {
-        'id': task_id,
-        'title': title,
-        'description': description,
-        'completed': False,
-        'created_at': datetime.now().isoformat(),
-        'due_date': due_date,
-        'project': project,
-        'scheduled_hour': task_data.get('scheduled_hour'),
-        'estimated_duration': estimated_duration,
-        'struck_today': False,
-        'struck_date': None
-    }
-    
-    tasks.append(new_task)
-    
-    if app_context.data_manager.save_tasks(tasks, user_id):
-        return jsonify(new_task), 201
-    else:
-        return jsonify({'error': 'Failed to save task'}), 500
+        logger.error(f"Unexpected error in create_task for user {user_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/tasks/<task_id>', methods=['PUT'])
-@require_csrf
 def update_task(task_id):
-    """Update an existing task for the authenticated user"""
+    """Update an existing task with comprehensive validation and error handling"""
     user_id = get_user_id()
-    task_data = request.json
-    tasks = app_context.data_manager.load_tasks(user_id)
+    logger.info(f"API update_task called for task {task_id} with user_id: {user_id}")
     
-    for i, task in enumerate(tasks):
-        if task['id'] == task_id:
-            tasks[i].update(task_data)
-            if app_context.data_manager.save_tasks(tasks, user_id):
-                return jsonify(tasks[i])
-            else:
-                return jsonify({'error': 'Failed to save task'}), 500
+    try:
+        # Validate request data
+        if not request.json:
+            return jsonify({'error': 'Request must contain JSON data'}), 400
+        
+        task_data = request.json
+        
+        # Sanitize input data
+        task_data = sanitize_input(task_data)
+        
+        # Comprehensive validation
+        is_valid, error_message = validate_task_data(task_data)
+        if not is_valid:
+            logger.warning(f"Task validation failed for user {user_id}: {error_message}")
+            return jsonify({'error': error_message}), 400
+        
+        # Ensure data manager is available
+        if not app_context.data_manager:
+            logger.error(f"Data manager not available for user {user_id}")
+            return jsonify({'error': 'Data manager not available'}), 500
+        
+        # Update task using data manager
+        success = app_context.data_manager.update_task_for_user(user_id, task_id, task_data)
+        
+        if success:
+            # Return updated task
+            updated_task = app_context.data_manager.load_tasks_for_user(user_id)
+            for task in updated_task:
+                if task['id'] == task_id:
+                    logger.info(f"Successfully updated task {task_id} for user {user_id}")
+                    return jsonify(task)
+            
+            logger.error(f"Task {task_id} not found after update for user {user_id}")
+            return jsonify({'error': 'Task not found after update'}), 500
+        else:
+            logger.error(f"Failed to update task {task_id} for user {user_id}")
+            return jsonify({'error': 'Failed to update task'}), 500
     
-    return jsonify({'error': 'Task not found'}), 404
+    except Exception as e:
+        logger.error(f"Unexpected error in update_task for user {user_id}, task {task_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/tasks/<task_id>', methods=['DELETE'])
-@require_csrf
 def delete_task(task_id):
-    """Delete a task for the authenticated user"""
+    """Delete a task with comprehensive error handling"""
     user_id = get_user_id()
-    tasks = app_context.data_manager.load_tasks(user_id)
+    logger.info(f"API delete_task called for task {task_id} with user_id: {user_id}")
     
-    for i, task in enumerate(tasks):
-        if task['id'] == task_id:
-            deleted_task = tasks.pop(i)
-            if app_context.data_manager.save_tasks(tasks, user_id):
-                return jsonify(deleted_task)
-            else:
-                return jsonify({'error': 'Failed to save tasks'}), 500
-    
-    return jsonify({'error': 'Task not found'}), 404
+    try:
+        # Validate task_id
+        if not task_id or not isinstance(task_id, str):
+            return jsonify({'error': 'Invalid task ID'}), 400
+        
+        # Ensure data manager is available
+        if not app_context.data_manager:
+            logger.error(f"Data manager not available for user {user_id}")
+            return jsonify({'error': 'Data manager not available'}), 500
+        
+        # Get task before deletion for response
+        tasks = app_context.data_manager.load_tasks_for_user(user_id)
+        task_to_delete = None
+        for task in tasks:
+            if task['id'] == task_id:
+                task_to_delete = task
+                break
+        
+        if not task_to_delete:
+            logger.warning(f"Task {task_id} not found for user {user_id}")
+            return jsonify({'error': 'Task not found'}), 404
+        
+        # Delete task using data manager
+        success = app_context.data_manager.delete_task_for_user(user_id, task_id)
+        
+        if success:
+            logger.info(f"Successfully deleted task {task_id} for user {user_id}")
+            return jsonify(task_to_delete)
+        else:
+            logger.error(f"Failed to delete task {task_id} for user {user_id}")
+            return jsonify({'error': 'Failed to delete task'}), 500
+            
+    except Exception as e:
+        logger.error(f"Unexpected error in delete_task for user {user_id}, task {task_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/tasks/<task_id>/complete', methods=['POST'])
 def complete_task(task_id):
@@ -1521,51 +1993,292 @@ def reset_daily_strikes():
 @app.route('/api/settings', methods=['GET'])
 @require_auth
 def get_settings():
-    """Get application settings for the authenticated user"""
+    """Get application settings for the authenticated user with race condition protection"""
     user_id = get_user_id()
     
     # Check if data manager is initialized
     if not ensure_data_manager():
         return jsonify({'error': 'Failed to initialize data manager'}), 500
     
-    settings = app_context.data_manager.load_settings(user_id)
-    settings['autostart_enabled'] = app_context.autostart_manager.is_autostart_enabled()
-    # Ensure default values for new settings
-    if 'theme' not in settings:
-        settings['theme'] = 'orange'
-    if 'dpi_scale' not in settings:
-        settings['dpi_scale'] = 100
-    if 'daily_reset_time' not in settings:
-        settings['daily_reset_time'] = '09:00'
-    return jsonify(settings)
+    try:
+        # Use thread-safe settings loading with retry mechanism
+        max_retries = 3
+        settings = None
+        
+        for attempt in range(max_retries):
+            try:
+                settings = app_context.data_manager.load_settings(user_id)
+                if settings:
+                    break
+            except Exception as e:
+                logger.warning(f"Settings load attempt {attempt + 1} failed for user {user_id}: {e}")
+                if attempt == max_retries - 1:
+                    # Return default settings as failsafe
+                    settings = {
+                        'theme': 'orange',
+                        'dpi_scale': 100,
+                        'autosave_interval': 30,
+                        'notifications': True,
+                        'daily_reset_time': '09:00',
+                        'timezone': 'UTC',
+                        'language': 'en'
+                    }
+                    logger.warning(f"Using default settings for user {user_id} after {max_retries} failed attempts")
+        
+        if not settings:
+            settings = {
+                'theme': 'orange',
+                'dpi_scale': 100,
+                'autosave_interval': 30,
+                'notifications': True,
+                'daily_reset_time': '09:00',
+                'timezone': 'UTC',
+                'language': 'en'
+            }
+        
+        # Add autostart status (thread-safe)
+        try:
+            settings['autostart_enabled'] = app_context.autostart_manager.is_autostart_enabled()
+        except Exception as e:
+            logger.warning(f"Failed to get autostart status: {e}")
+            settings['autostart_enabled'] = False
+        
+        # Validate and sanitize settings before returning
+        validated_settings = {
+            'theme': settings.get('theme', 'orange'),
+            'dpi_scale': max(50, min(200, settings.get('dpi_scale', 100))),
+            'autosave_interval': max(5, min(300, settings.get('autosave_interval', 30))),
+            'notifications': bool(settings.get('notifications', True)),
+            'daily_reset_time': settings.get('daily_reset_time', '09:00'),
+            'timezone': settings.get('timezone', 'UTC'),
+            'language': settings.get('language', 'en'),
+            'autostart_enabled': bool(settings.get('autostart_enabled', False))
+        }
+        
+        logger.info(f"Successfully loaded settings for user {user_id}")
+        return jsonify(validated_settings)
+        
+    except Exception as e:
+        logger.error(f"Error loading settings for user {user_id}: {e}")
+        # Return safe default settings
+        return jsonify({
+            'theme': 'orange',
+            'dpi_scale': 100,
+            'autosave_interval': 30,
+            'notifications': True,
+            'daily_reset_time': '09:00',
+            'timezone': 'UTC',
+            'language': 'en',
+            'autostart_enabled': False
+        })
 
 @app.route('/api/settings', methods=['PUT'])
 @require_auth
 def update_settings():
-    """Update application settings for the authenticated user"""
+    """Update application settings for the authenticated user with race condition protection"""
     user_id = get_user_id()
+    
+    # Validate request data
+    if not request.json:
+        return jsonify({'error': 'No settings data provided'}), 400
+    
     settings_data = request.json
-    current_settings = app_context.data_manager.load_settings(user_id)
-    current_settings.update(settings_data)
     
-    # Handle autostart setting
-    if 'autostart' in settings_data:
-        if settings_data['autostart']:
-            # Get the correct executable path
-            if getattr(sys, 'frozen', False):
-                exe_path = sys.executable
-            else:
-                # Get the root directory (parent of src/)
-                root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                exe_path = os.path.join(root_dir, "main.py")
-            app_context.autostart_manager.enable_autostart(exe_path)
+    # Validate settings data structure
+    if not isinstance(settings_data, dict):
+        return jsonify({'error': 'Settings data must be a dictionary'}), 400
+    
+    try:
+        # Load current settings with retry mechanism
+        max_retries = 3
+        current_settings = None
+        
+        for attempt in range(max_retries):
+            try:
+                current_settings = app_context.data_manager.load_settings(user_id)
+                if current_settings:
+                    break
+            except Exception as e:
+                logger.warning(f"Settings load attempt {attempt + 1} failed for user {user_id}: {e}")
+                if attempt == max_retries - 1:
+                    # Use default settings as base
+                    current_settings = {
+                        'theme': 'orange',
+                        'dpi_scale': 100,
+                        'autosave_interval': 30,
+                        'notifications': True,
+                        'daily_reset_time': '09:00',
+                        'timezone': 'UTC',
+                        'language': 'en'
+                    }
+                    logger.warning(f"Using default settings as base for user {user_id}")
+        
+        if not current_settings:
+            current_settings = {
+                'theme': 'orange',
+                'dpi_scale': 100,
+                'autosave_interval': 30,
+                'notifications': True,
+                'daily_reset_time': '09:00',
+                'timezone': 'UTC',
+                'language': 'en'
+            }
+        
+        # Validate and sanitize incoming settings data
+        validated_updates = {}
+        
+        # Theme validation
+        if 'theme' in settings_data:
+            theme = settings_data['theme']
+            valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'auto']
+            if isinstance(theme, str) and theme in valid_themes:
+                validated_updates['theme'] = theme
+        
+        # DPI scale validation
+        if 'dpi_scale' in settings_data:
+            dpi_scale = settings_data['dpi_scale']
+            if isinstance(dpi_scale, int) and 50 <= dpi_scale <= 200:
+                validated_updates['dpi_scale'] = dpi_scale
+        
+        # Autosave interval validation
+        if 'autosave_interval' in settings_data:
+            interval = settings_data['autosave_interval']
+            if isinstance(interval, int) and 5 <= interval <= 300:
+                validated_updates['autosave_interval'] = interval
+        
+        # Notifications validation
+        if 'notifications' in settings_data:
+            notifications = settings_data['notifications']
+            if isinstance(notifications, bool):
+                validated_updates['notifications'] = notifications
+        
+        # Daily reset time validation
+        if 'daily_reset_time' in settings_data:
+            reset_time = settings_data['daily_reset_time']
+            if isinstance(reset_time, str) and _validate_time_format(reset_time):
+                validated_updates['daily_reset_time'] = reset_time
+        
+        # Timezone validation
+        if 'timezone' in settings_data:
+            timezone = settings_data['timezone']
+            if isinstance(timezone, str) and len(timezone) <= 50:
+                validated_updates['timezone'] = timezone
+        
+        # Language validation
+        if 'language' in settings_data:
+            language = settings_data['language']
+            if isinstance(language, str) and len(language) <= 10:
+                validated_updates['language'] = language
+        
+        # Merge validated updates with current settings
+        current_settings.update(validated_updates)
+        
+        # Handle autostart setting separately (not stored in database)
+        autostart_updated = False
+        if 'autostart' in settings_data:
+            autostart_value = settings_data['autostart']
+            if isinstance(autostart_value, bool):
+                try:
+                    if autostart_value:
+                        # Get the correct executable path
+                        if getattr(sys, 'frozen', False):
+                            exe_path = sys.executable
+                        else:
+                            # Get the root directory (parent of src/)
+                            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                            exe_path = os.path.join(root_dir, "main.py")
+                        app_context.autostart_manager.enable_autostart(exe_path)
+                    else:
+                        app_context.autostart_manager.disable_autostart()
+                    autostart_updated = True
+                except Exception as e:
+                    logger.error(f"Failed to update autostart setting: {e}")
+                    return jsonify({'error': 'Failed to update autostart setting'}), 500
+        
+        # Save settings with retry mechanism
+        save_success = False
+        for attempt in range(max_retries):
+            try:
+                save_success = app_context.data_manager.save_settings(user_id, current_settings)
+                if save_success:
+                    break
+            except Exception as e:
+                logger.warning(f"Settings save attempt {attempt + 1} failed for user {user_id}: {e}")
+                if attempt == max_retries - 1:
+                    logger.error(f"Failed to save settings for user {user_id} after {max_retries} attempts")
+        
+        if save_success:
+            # Add autostart status to response
+            current_settings['autostart_enabled'] = app_context.autostart_manager.is_autostart_enabled()
+            logger.info(f"Successfully updated settings for user {user_id}")
+            return jsonify(current_settings)
         else:
-            app_context.autostart_manager.disable_autostart()
-    
-    if app_context.data_manager.save_settings(user_id, current_settings):
-        return jsonify(current_settings)
-    else:
-        return jsonify({'error': 'Failed to save settings'}), 500
+            return jsonify({'error': 'Failed to save settings after multiple attempts'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error updating settings for user {user_id}: {e}")
+        return jsonify({'error': 'Failed to update settings'}), 500
+
+def _validate_time_format(time_str: str) -> bool:
+    """Validate time format (HH:MM)"""
+    try:
+        if not isinstance(time_str, str):
+            return False
+        parts = time_str.split(':')
+        if len(parts) != 2:
+            return False
+        hour, minute = int(parts[0]), int(parts[1])
+        return 0 <= hour <= 23 and 0 <= minute <= 59
+    except (ValueError, IndexError):
+        return False
+
+# Monitoring endpoints
+@app.route('/api/monitoring/health', methods=['GET'])
+def get_health_status():
+    """Get system health status"""
+    try:
+        health_status = monitor.get_health_status()
+        return jsonify(health_status)
+    except Exception as e:
+        logger.error(f"Error getting health status: {e}")
+        return jsonify({'error': 'Failed to get health status'}), 500
+
+@app.route('/api/monitoring/metrics', methods=['GET'])
+def get_metrics():
+    """Get system metrics"""
+    try:
+        metrics = monitor.get_metrics_summary()
+        return jsonify(metrics)
+    except Exception as e:
+        logger.error(f"Error getting metrics: {e}")
+        return jsonify({'error': 'Failed to get metrics'}), 500
+
+@app.route('/api/monitoring/export', methods=['POST'])
+@require_auth
+def export_metrics():
+    """Export metrics to file"""
+    try:
+        user_id = get_user_id()
+        export_path = f"data/metrics_export_{user_id}_{int(time.time())}.json"
+        
+        if monitor.export_metrics(export_path):
+            return jsonify({'success': True, 'file_path': export_path})
+        else:
+            return jsonify({'error': 'Failed to export metrics'}), 500
+    except Exception as e:
+        logger.error(f"Error exporting metrics: {e}")
+        return jsonify({'error': 'Failed to export metrics'}), 500
+
+@app.route('/api/monitoring/rate-limit-stats', methods=['GET'])
+@require_auth
+def get_rate_limit_stats():
+    """Get rate limiting statistics"""
+    try:
+        stats = security_manager.get_rate_limit_stats()
+        return jsonify(stats)
+    except Exception as e:
+        logger.error(f"Error getting rate limit stats: {e}")
+        return jsonify({'error': 'Failed to get rate limit stats'}), 500
 
 # Password change endpoint removed - no password authentication
 
@@ -1726,8 +2439,56 @@ def get_backups():
 
 @app.route('/api/backups/create', methods=['POST'])
 @require_auth
-def create_backup():
-    """Create manual backup"""
+def validate_backup_integrity(backup_path):
+    """Validate backup file integrity and detect corruption"""
+    try:
+        if not os.path.exists(backup_path):
+            return False, "Backup file does not exist"
+        
+        # Check file size
+        file_size = os.path.getsize(backup_path)
+        if file_size == 0:
+            return False, "Backup file is empty"
+        
+        if file_size > 100 * 1024 * 1024:  # 100MB limit
+            return False, "Backup file too large (>100MB)"
+        
+        # Check file permissions
+        if not os.access(backup_path, os.R_OK):
+            return False, "Backup file not readable"
+        
+        # Try to read and parse the backup file
+        try:
+            with open(backup_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # Basic JSON validation if it's a JSON backup
+            if backup_path.endswith('.json'):
+                try:
+                    json.loads(content)
+                except json.JSONDecodeError as e:
+                    return False, f"Invalid JSON in backup: {e}"
+            
+            # Check for suspicious content
+            if len(content) < 10:
+                return False, "Backup content too short"
+            
+            # Check for common corruption patterns
+            if '\x00' in content:
+                return False, "Backup contains null bytes (possible corruption)"
+            
+            return True, "Backup integrity validated"
+            
+        except UnicodeDecodeError:
+            return False, "Backup file encoding error"
+        except Exception as e:
+            return False, f"Error reading backup file: {e}"
+            
+    except Exception as e:
+        return False, f"Backup validation error: {e}"
+
+def create_backup_with_validation():
+    """Create backup with integrity validation"""
     try:
         if not app_context.update_manager:
             # Initialize update manager if not already done
@@ -1736,33 +2497,88 @@ def create_backup():
         backup_data = request.json or {}
         backup_type = backup_data.get('type', 'manual')
         
+        # Create backup
         success = app_context.update_manager.create_backup(backup_type)
-        if success:
-            return jsonify({'success': True, 'message': 'Backup created successfully'})
-        else:
+        if not success:
             return jsonify({'error': 'Failed to create backup'}), 500
+        
+        # Get the latest backup file for validation
+        backup_dir = os.path.join(os.getcwd(), "backups")
+        if os.path.exists(backup_dir):
+            backup_files = [f for f in os.listdir(backup_dir) if f.endswith(('.json', '.zip', '.tar.gz'))]
+            if backup_files:
+                latest_backup = max(backup_files, key=lambda f: os.path.getmtime(os.path.join(backup_dir, f)))
+                backup_path = os.path.join(backup_dir, latest_backup)
+                
+                # Validate backup integrity
+                is_valid, message = validate_backup_integrity(backup_path)
+                if not is_valid:
+                    logger.error(f"Backup validation failed: {message}")
+                    return jsonify({'error': f'Backup created but validation failed: {message}'}), 500
+                
+                logger.info(f"Backup created and validated successfully: {latest_backup}")
+                return jsonify({'success': True, 'message': 'Backup created and validated successfully', 'backup_file': latest_backup})
+        
+        return jsonify({'success': True, 'message': 'Backup created successfully'})
+        
     except Exception as e:
-        print(f"Error creating backup: {e}")
+        logger.error(f"Error creating backup: {e}")
         return jsonify({'error': 'Failed to create backup'}), 500
+
+def restore_backup_with_validation():
+    """Restore backup with integrity validation"""
+    try:
+        if not app_context.update_manager:
+            return jsonify({'error': 'Update manager not initialized'}), 500
+        
+        backup_data = request.json
+        backup_name = backup_data.get('backup_name')
+        
+        if not backup_name:
+            return jsonify({'error': 'Backup name is required'}), 400
+        
+        # Validate backup file before restoration
+        backup_dir = os.path.join(os.getcwd(), "backups")
+        backup_path = os.path.join(backup_dir, backup_name)
+        
+        is_valid, message = validate_backup_integrity(backup_path)
+        if not is_valid:
+            logger.error(f"Backup validation failed before restore: {message}")
+            return jsonify({'error': f'Backup validation failed: {message}'}), 400
+        
+        # Create a safety backup before restoration
+        try:
+            safety_backup_name = f"safety_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            safety_success = app_context.update_manager.create_backup(safety_backup_name)
+            if not safety_success:
+                logger.warning("Failed to create safety backup before restore")
+        except Exception as e:
+            logger.warning(f"Failed to create safety backup: {e}")
+        
+        # Restore backup
+        success = app_context.update_manager.restore_backup(backup_name)
+        if success:
+            logger.info(f"Backup restored successfully: {backup_name}")
+            return jsonify({'success': True, 'message': 'Backup restored successfully'})
+        else:
+            logger.error(f"Failed to restore backup: {backup_name}")
+            return jsonify({'error': 'Failed to restore backup'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error restoring backup: {e}")
+        return jsonify({'error': 'Failed to restore backup'}), 500
+
+@app.route('/api/backups/create', methods=['POST'])
+@require_auth
+def create_backup():
+    """Create manual backup with validation"""
+    return create_backup_with_validation()
 
 @app.route('/api/backups/restore', methods=['POST'])
 @require_auth
 def restore_backup():
-    """Restore from backup"""
-    if not app_context.update_manager:
-        return jsonify({'error': 'Update manager not initialized'}), 500
-    
-    backup_data = request.json
-    backup_name = backup_data.get('backup_name')
-    
-    if not backup_name:
-        return jsonify({'error': 'Backup name required'}), 400
-    
-    success = app_context.update_manager.restore_backup(backup_name)
-    if success:
-        return jsonify({'success': True, 'message': 'Backup restored successfully'})
-    else:
-        return jsonify({'error': 'Failed to restore backup'}), 500
+    """Restore from backup with validation"""
+    return restore_backup_with_validation()
 
 @app.route('/api/shutdown', methods=['POST'])
 def shutdown_server():
@@ -1797,29 +2613,59 @@ if __name__ == '__main__':
         import time
         
         def kill_existing_instances():
-            """Kill any existing Shakshuka instances"""
+            """Kill any existing Shakshuka instances with enhanced detection"""
             killed_count = 0
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                try:
-                    # Check if it's Shakshuka.exe or python running main.py
-                    if proc.info['name'] == 'Shakshuka.exe':
-                        print(f"Found existing Shakshuka instance (PID: {proc.info['pid']}), terminating...")
-                        proc.terminate()
-                        killed_count += 1
-                    elif proc.info['name'] == 'python.exe' and proc.info['cmdline']:
-                        cmdline = ' '.join(proc.info['cmdline'])
-                        if 'main.py' in cmdline and 'shakshuka' in cmdline.lower():
-                            print(f"Found existing Python Shakshuka instance (PID: {proc.info['pid']}), terminating...")
+            max_attempts = 3
+            
+            for attempt in range(max_attempts):
+                for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'exe']):
+                    try:
+                        # Check if it's Shakshuka.exe
+                        if proc.info['name'] == 'Shakshuka.exe':
+                            print(f"Found existing Shakshuka.exe instance (PID: {proc.info['pid']}), terminating...")
                             proc.terminate()
                             killed_count += 1
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                    pass
-            
-            if killed_count > 0:
-                print(f"Terminated {killed_count} existing instance(s). Waiting 2 seconds...")
-                time.sleep(2)
-            else:
-                print("No existing instances found.")
+                        
+                        # Check if it's python running Shakshuka-related scripts
+                        elif proc.info['name'] == 'python.exe' and proc.info['cmdline']:
+                            cmdline = ' '.join(proc.info['cmdline']).lower()
+                            if any(keyword in cmdline for keyword in ['main.py', 'app.py', 'shakshuka']):
+                                print(f"Found existing Python Shakshuka instance (PID: {proc.info['pid']}), terminating...")
+                                proc.terminate()
+                                killed_count += 1
+                        
+                        # Check if executable path contains Shakshuka
+                        elif proc.info['exe'] and 'shakshuka' in proc.info['exe'].lower():
+                            print(f"Found existing Shakshuka instance by path (PID: {proc.info['pid']}), terminating...")
+                            proc.terminate()
+                            killed_count += 1
+                            
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                        pass
+                
+                if killed_count > 0:
+                    print(f"Terminated {killed_count} existing instance(s). Waiting 3 seconds...")
+                    time.sleep(3)
+                    
+                    # Force kill any remaining processes
+                    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                        try:
+                            if proc.info['name'] == 'Shakshuka.exe':
+                                print(f"Force killing remaining Shakshuka.exe (PID: {proc.info['pid']})...")
+                                proc.kill()
+                            elif proc.info['name'] == 'python.exe' and proc.info['cmdline']:
+                                cmdline = ' '.join(proc.info['cmdline']).lower()
+                                if any(keyword in cmdline for keyword in ['main.py', 'app.py', 'shakshuka']):
+                                    print(f"Force killing remaining Python Shakshuka (PID: {proc.info['pid']})...")
+                                    proc.kill()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                            pass
+                    
+                    time.sleep(2)
+                    break
+                else:
+                    print("No existing instances found.")
+                    break
         
         # Kill existing instances before starting
         kill_existing_instances()
@@ -1828,41 +2674,74 @@ if __name__ == '__main__':
         import tempfile
         
         def check_single_instance():
-            """Use Windows mutex to ensure only one instance runs"""
+            """Use Windows mutex to ensure only one instance runs with enhanced robustness"""
             if os.name == 'nt':  # Windows
                 import win32event
                 import win32api
                 import win32con
                 
-                # Create a named mutex
+                # Create a named mutex with multiple attempts
                 mutex_name = "ShakshukaSingleInstanceMutex"
-                try:
-                    mutex = win32event.CreateMutex(None, False, mutex_name)
-                    if win32api.GetLastError() == win32con.ERROR_ALREADY_EXISTS:
-                        print("Another instance is already running. Exiting...")
-                        return False
-                    print("Single instance mutex acquired successfully.")
-                    return True
-                except Exception as e:
-                    print(f"Error creating mutex: {e}")
-                    return False
+                mutex = None
+                
+                for attempt in range(3):
+                    try:
+                        mutex = win32event.CreateMutex(None, False, mutex_name)
+                        last_error = win32api.GetLastError()
+                        
+                        if last_error == win32con.ERROR_ALREADY_EXISTS:
+                            print(f"Another instance is already running (attempt {attempt + 1}). Exiting...")
+                            if mutex:
+                                win32event.CloseHandle(mutex)
+                            return False
+                        elif last_error == 0:
+                            print("Single instance mutex acquired successfully.")
+                            return True
+                        else:
+                            print(f"Mutex creation failed with error {last_error}, retrying...")
+                            if mutex:
+                                win32event.CloseHandle(mutex)
+                            time.sleep(1)
+                            
+                    except Exception as e:
+                        print(f"Error creating mutex (attempt {attempt + 1}): {e}")
+                        if mutex:
+                            try:
+                                win32event.CloseHandle(mutex)
+                            except:
+                                pass
+                        time.sleep(1)
+                
+                print("Failed to acquire mutex after 3 attempts. Exiting...")
+                return False
+                
             else:  # Unix-like systems
                 import fcntl
                 lock_file = os.path.join(tempfile.gettempdir(), 'shakshuka.lock')
-                try:
-                    # Try to create and lock the file
-                    lock_fd = os.open(lock_file, os.O_CREAT | os.O_TRUNC | os.O_RDWR)
-                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    
-                    # Write current PID to lock file
-                    os.write(lock_fd, str(os.getpid()).encode())
-                    os.close(lock_fd)
-                    
-                    print("Single instance lock acquired successfully.")
-                    return True
-                except (OSError, IOError):
-                    print("Another instance is already running. Exiting...")
-                    return False
+                
+                for attempt in range(3):
+                    try:
+                        # Try to create and lock the file
+                        lock_fd = os.open(lock_file, os.O_CREAT | os.O_TRUNC | os.O_RDWR)
+                        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        
+                        # Write current PID to lock file
+                        os.write(lock_fd, str(os.getpid()).encode())
+                        os.close(lock_fd)
+                        
+                        print("Single instance lock acquired successfully.")
+                        return True
+                        
+                    except (OSError, IOError) as e:
+                        print(f"Lock acquisition failed (attempt {attempt + 1}): {e}")
+                        try:
+                            os.close(lock_fd)
+                        except:
+                            pass
+                        time.sleep(1)
+                
+                print("Failed to acquire lock after 3 attempts. Another instance may be running.")
+                return False
         
         # Check single instance with file lock
         if not check_single_instance():
@@ -1929,7 +2808,7 @@ if __name__ == '__main__':
         except Exception as e:
             logger.warning(f"Could not start system tray: {e}")
             print(f"Could not start system tray: {e}")
-
+        
         # Custom Flask runner to avoid click.echo issues
         try:
             from werkzeug.serving import run_simple

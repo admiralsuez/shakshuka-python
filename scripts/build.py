@@ -2,7 +2,43 @@ import os
 import sys
 import subprocess
 import shutil
+import json
 from pathlib import Path
+from datetime import datetime
+
+def get_version_info():
+    """Get version information from config/version.json"""
+    try:
+        with open('config/version.json', 'r') as f:
+            version_data = json.load(f)
+        return version_data.get('version', '1.0.0'), version_data.get('build', '1')
+    except Exception as e:
+        print(f"Warning: Could not read version.json: {e}")
+        return '1.0.0', '1'
+
+def increment_build_number():
+    """Increment the build number and update version.json"""
+    try:
+        with open('config/version.json', 'r') as f:
+            version_data = json.load(f)
+        
+        # Increment build number
+        current_build = int(version_data.get('build', 0))
+        new_build = current_build + 1
+        
+        # Update version data
+        version_data['build'] = str(new_build)
+        version_data['release_date'] = datetime.now().isoformat()
+        
+        # Write back to file
+        with open('config/version.json', 'w') as f:
+            json.dump(version_data, f, indent=2)
+        
+        print(f"Build number incremented: {current_build} -> {new_build}")
+        return version_data.get('version', '1.0.0'), str(new_build)
+    except Exception as e:
+        print(f"Warning: Could not increment build number: {e}")
+        return get_version_info()
 
 def build_executable():
     """Build the executable using PyInstaller"""
@@ -73,14 +109,19 @@ def build_executable():
         '--collect-all=flask',
         '--collect-all=werkzeug',
         '--collect-all=jinja2',
-        '--add-data=src/update_manager.py;.',
-        '--add-data=src/user_manager.py;.',
-        '--add-data=src/security_manager.py;.',
-        '--add-data=src/sqlite_data_manager.py;.',
+        '--add-data=src;src',
         '--add-data=tools/autostart.py;.',
         '--add-data=config/version.json;.',
-        '--add-data=main.py;.',
-        '--add-data=src;src',
+        '--hidden-import=src.core',
+        '--hidden-import=src.core.config',
+        '--hidden-import=src.core.app_context',
+        '--hidden-import=src.core.launcher',
+        '--hidden-import=src.middleware',
+        '--hidden-import=src.middleware.auth_middleware',
+        '--hidden-import=src.middleware.csrf_middleware',
+        '--hidden-import=src.utils',
+        '--hidden-import=src.utils.validators',
+        '--hidden-import=src.utils.sanitizers',
         'main.py'
     ]
     
@@ -98,7 +139,7 @@ def build_executable():
         # Clean up build files
         cleanup_build_files()
         
-        print("\nBuild complete! You can now run Shakshuka.exe")
+        print("\nExecutable build complete!")
         
     except subprocess.CalledProcessError as e:
         print(f"Build failed: {e}")
@@ -109,6 +150,115 @@ def build_executable():
         return False
     
     return True
+
+def find_inno_setup():
+    """Find Inno Setup 6 installation"""
+    possible_paths = [
+        r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+        r"C:\Program Files\Inno Setup 6\ISCC.exe",
+        r"C:\Program Files (x86)\Inno Setup\ISCC.exe",
+        r"C:\Program Files\Inno Setup\ISCC.exe"
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    
+    # Try to find it in PATH
+    try:
+        result = subprocess.run(['where', 'iscc'], capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip().split('\n')[0]
+    except:
+        pass
+    
+    return None
+
+def build_installer():
+    """Build installer using Inno Setup 6"""
+    print("\nBuilding installer with Inno Setup 6...")
+    
+    # Find Inno Setup
+    inno_path = find_inno_setup()
+    if not inno_path:
+        print("ERROR: Inno Setup 6 not found!")
+        print("Please install Inno Setup 6 from: https://jrsoftware.org/isinfo.php")
+        print("Or ensure it's in your PATH")
+        return False
+    
+    print(f"Found Inno Setup at: {inno_path}")
+    
+    # Get version info
+    version, build = get_version_info()
+    print(f"Building installer for version {version} (build {build})")
+    
+    # Update installer script with current version
+    update_installer_script(version, build)
+    
+    # Build installer
+    installer_script = Path('scripts/installer.iss')
+    if not installer_script.exists():
+        print(f"ERROR: Installer script not found: {installer_script}")
+        return False
+    
+    try:
+        cmd = [inno_path, str(installer_script)]
+        print(f"Running: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        print("Installer built successfully!")
+        
+        # Check if installer was created with build number
+        full_version = f"{version}-b{build}"
+        installer_path = Path('scripts/dist/Shakshuka-Setup-v' + full_version + '.exe')
+        if installer_path.exists():
+            print(f"Installer created: {installer_path}")
+            print(f"Size: {installer_path.stat().st_size / (1024*1024):.1f} MB")
+            
+            # Copy to root directory for easy access
+            root_installer = Path('Shakshuka-Setup-v' + full_version + '.exe')
+            shutil.copy2(installer_path, root_installer)
+            print(f"Installer copied to: {root_installer}")
+            
+            return True
+        else:
+            print("ERROR: Installer file not found after build")
+            return False
+            
+    except subprocess.CalledProcessError as e:
+        print(f"Installer build failed: {e}")
+        print(f"Error output: {e.stderr}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error building installer: {e}")
+        return False
+
+def update_installer_script(version, build):
+    """Update the installer script with current version"""
+    installer_script = Path('scripts/installer.iss')
+    
+    if not installer_script.exists():
+        print(f"Warning: Installer script not found: {installer_script}")
+        return
+    
+    try:
+        # Read the current script
+        with open(installer_script, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Update version and build number - include build in filename
+        import re
+        full_version = f"{version}-b{build}"
+        content = re.sub(r'#define MyAppVersion "[^"]*"', f'#define MyAppVersion "{full_version}"', content)
+        
+        # Write back the updated script
+        with open(installer_script, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        print(f"Updated installer script with version {full_version}")
+        
+    except Exception as e:
+        print(f"Warning: Could not update installer script: {e}")
 
 def cleanup_build_files():
     """Clean up PyInstaller build files"""
@@ -149,9 +299,126 @@ def install_dependencies():
         print(f"Failed to install dependencies: {e}")
         return False
 
+def generate_build_report(version, build, build_success=True):
+    """Generate a detailed build report"""
+    from datetime import datetime
+    
+    # Create build_reports directory if it doesn't exist
+    report_dir = Path('build_reports')
+    report_dir.mkdir(exist_ok=True)
+    
+    # Generate report filename
+    report_filename = f"BUILD_REPORT_v{version}-b{build}.md"
+    report_path = report_dir / report_filename
+    
+    # Gather build information
+    exe_path = Path('Shakshuka.exe')
+    installer_path = Path(f'Shakshuka-Setup-v{version}-b{build}.exe')
+    
+    exe_size = exe_path.stat().st_size / (1024*1024) if exe_path.exists() else 0
+    installer_size = installer_path.stat().st_size / (1024*1024) if installer_path.exists() else 0
+    
+    # Read changelog
+    changelog = "Not available"
+    try:
+        with open('config/changelog.txt', 'r', encoding='utf-8') as f:
+            changelog = f.read()
+    except:
+        pass
+    
+    # Generate report content
+    report_content = f"""# Build Report - Shakshuka v{version}-b{build}
+
+## Build Information
+- **Version:** {version}
+- **Build Number:** {build}
+- **Build Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- **Build Status:** {'✅ SUCCESS' if build_success else '❌ FAILED'}
+- **Platform:** Windows (x86_64)
+
+## Build Artifacts
+
+### 1. Standalone Executable
+- **Filename:** `Shakshuka.exe`
+- **Size:** {exe_size:.2f} MB
+- **Type:** PyInstaller Single-File Executable
+- **Status:** {'✅ Created' if exe_path.exists() else '❌ Not Found'}
+
+### 2. Installer Package
+- **Filename:** `Shakshuka-Setup-v{version}-b{build}.exe`
+- **Size:** {installer_size:.2f} MB
+- **Type:** Inno Setup Installer
+- **Status:** {'✅ Created' if installer_path.exists() else '❌ Not Found'}
+
+## Build Configuration
+- **Python Version:** {sys.version.split()[0]}
+- **Build Script:** `scripts/build.py`
+- **Installer Script:** `scripts/installer.iss`
+- **PyInstaller:** Single-file, console mode
+- **Architecture:** 64-bit (x86_64)
+
+## Features Included
+- Flask web server (port 8989)
+- SQLite database backend
+- System tray integration
+- Auto-save functionality
+- Task management system
+- User authentication (optional)
+- Settings persistence
+- Auto-update capability
+- Monitoring and analytics
+
+## File Locations
+- **Executable:** `{exe_path.absolute()}`
+- **Installer:** `{installer_path.absolute()}`
+- **Source Distribution:** `scripts/dist/`
+
+## Installation Methods
+
+### Method 1: Standalone Executable
+1. Run `Shakshuka.exe` directly
+2. No installation required
+3. Portable - can run from any location
+
+### Method 2: Professional Installer
+1. Run `Shakshuka-Setup-v{version}-b{build}.exe`
+2. Follow installation wizard
+3. Installs to `Program Files`
+4. Creates Start Menu shortcuts
+5. Adds uninstaller
+
+## Changelog
+{changelog}
+
+## Next Steps
+1. Test the standalone executable
+2. Test the installer package
+3. Verify all features work correctly
+4. Check for any errors in logs
+5. Update documentation if needed
+
+## Build System
+- **Auto-Increment:** Build number automatically incremented
+- **Version File:** `config/version.json`
+- **Build Reports:** Saved to `build_reports/`
+
+---
+*Report generated automatically by build.py*
+"""
+    
+    # Write report to file
+    try:
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(report_content)
+        print(f"\nBuild report generated: {report_path}")
+        return str(report_path)
+    except Exception as e:
+        print(f"Warning: Could not generate build report: {e}")
+        return None
+
 def main():
     """Main build process"""
-    print("Shakshuka Build Script")
+    print("Shakshuka Build Script with Inno Setup 6")
     print("=" * 50)
     
     # Check if we're on Windows
@@ -164,16 +431,42 @@ def main():
     # Create icon
     create_icon()
     
+    # Increment build number
+    version, build = increment_build_number()
+    
     # Build executable
-    if build_executable():
-        print("\nBuild completed successfully!")
-        print("\nNext steps:")
-        print("1. Run Shakshuka.exe to start the application")
-        print("2. The app will open in your default browser at http://127.0.0.1:8989")
-        print("3. Your data will be stored in the 'data' folder")
-        print("4. Enable autostart in Settings if desired")
-    else:
+    if not build_executable():
         print("\nBuild failed. Please check the error messages above.")
+        return
+    
+    # Build installer
+    if build_installer():
+        print("\n" + "=" * 50)
+        print("BUILD COMPLETED SUCCESSFULLY!")
+        print("=" * 50)
+        print("\nFiles created:")
+        print("1. Shakshuka.exe - Standalone executable")
+        
+        version, build = get_version_info()
+        installer_name = f"Shakshuka-Setup-v{version}-b{build}.exe"
+        print(f"2. {installer_name} - Professional Windows installer")
+        
+        # Generate build report
+        generate_build_report(version, build, build_success=True)
+        
+        print("\nNext steps:")
+        print("1. Test the standalone executable: Run Shakshuka.exe")
+        print("2. Test the installer: Run the installer to install Shakshuka")
+        print("3. The app will open in your default browser at http://127.0.0.1:8989")
+        print("4. Your data will be stored in the 'data' folder")
+        print("5. Enable autostart in Settings if desired")
+    else:
+        print("\nInstaller build failed, but executable was created successfully.")
+        print("You can still run Shakshuka.exe directly.")
+        
+        # Generate build report even if installer failed
+        version, build = get_version_info()
+        generate_build_report(version, build, build_success=False)
 
 if __name__ == '__main__':
     main()

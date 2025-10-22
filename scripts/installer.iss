@@ -2,9 +2,9 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Shakshuka"
-#define MyAppVersion "1.0.9"
-#define MyAppPublisher "Shakshuka Team"
-#define MyAppURL "https://github.com/shakshuka/shakshuka"
+#define MyAppVersion "1.5.0-b36"
+#define MyAppPublisher "vibinandvanshika.in"
+#define MyAppURL "https://github.com/shakshuka-python"
 #define MyAppExeName "Shakshuka.exe"
 
 [Setup]
@@ -56,6 +56,7 @@ Source: "..\data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs 
 Source: "..\config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Management scripts
 Source: "Start-Shakshuka.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Start-Shakshuka-Verbose.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Start-Shakshuka-Silent.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Start-Shakshuka-Silent.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Stop-Shakshuka.bat"; DestDir: "{app}"; Flags: ignoreversion
@@ -66,7 +67,8 @@ Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs 
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"
-Name: "{group}\Start Shakshuka"; Filename: "{app}\Start-Shakshuka.bat"; IconFilename: "{app}\assets\static\images\icon.ico"
+Name: "{group}\Start Shakshuka (Silent)"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"
+Name: "{group}\Start Shakshuka (Verbose)"; Filename: "{app}\Start-Shakshuka-Verbose.bat"; IconFilename: "{app}\assets\static\images\icon.ico"
 Name: "{group}\Stop Shakshuka"; Filename: "{app}\Stop-Shakshuka.bat"; IconFilename: "{app}\assets\static\images\icon.ico"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"; Tasks: desktopicon
@@ -113,10 +115,34 @@ begin
   // Check if Shakshuka is already running
   if CheckForMutexes('ShakshukaMutex') then
   begin
-    if MsgBox('Shakshuka is currently running. Please close it before continuing with the installation.', mbConfirmation, MB_OKCANCEL) = IDOK then
+    if MsgBox('Shakshuka is currently running. The installer will stop it before continuing.', mbConfirmation, MB_OKCANCEL) = IDOK then
     begin
-      // Try to stop Shakshuka
+      // Try to stop Shakshuka processes with multiple methods
       Exec('taskkill', '/F /IM Shakshuka.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Exec('taskkill', '/F /IM python.exe /FI "WINDOWTITLE eq Shakshuka*"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Exec('taskkill', '/F /IM python.exe /FI "COMMANDLINE eq *main.py*"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Exec('taskkill', '/F /IM python.exe /FI "COMMANDLINE eq *app.py*"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      
+      // Also try to kill any processes with "shakshuka" in the command line
+      Exec('taskkill', '/F /IM python.exe /FI "COMMANDLINE eq *shakshuka*"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      
+      Sleep(3000); // Wait longer for processes to terminate
+      
+      // Check if processes are still running and try again
+      if CheckForMutexes('ShakshukaMutex') then
+      begin
+        if MsgBox('Shakshuka is still running. Do you want to force close it?', mbConfirmation, MB_YESNO) = IDYES then
+        begin
+          // Force kill with more aggressive methods
+          Exec('taskkill', '/F /T /IM Shakshuka.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+          Exec('taskkill', '/F /T /IM python.exe /FI "WINDOWTITLE eq Shakshuka*"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+          Sleep(2000);
+        end
+        else
+        begin
+          Result := False;
+        end;
+      end;
     end
     else
     begin

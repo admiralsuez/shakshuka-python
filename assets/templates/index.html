@@ -4,12 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shakshuka - Modern Task Manager</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=1.0.1">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fontawesome.css') }}?v={{ version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fontawesome.css') }}?v=1.0.1">
 </head>
 <body>
-    <div class="app-container">
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-logo">
+                <div class="logo-icon" aria-hidden="true">
+                    <i class="fas fa-leaf"></i>
+                </div>
+                <h1>Shakshuka</h1>
+            </div>
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+            </div>
+            <p class="loading-text">Loading your tasks...</p>
+        </div>
+    </div>
+
+    <div class="app-container" id="app-container" style="display: none;">
         <!-- Sidebar Navigation -->
         <nav class="sidebar" role="navigation" aria-label="Main navigation">
             <div class="sidebar-header">
@@ -102,6 +118,16 @@
                         <div class="stats-content">
                             <h3 id="productivity-score">85%</h3>
                             <p>Productivity</p>
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <div class="stats-icon">
+                            <i class="fas fa-times-circle"></i>
+                        </div>
+                        <div class="stats-content">
+                            <h3 id="striked-today">0</h3>
+                            <p>Striked Today</p>
                         </div>
                     </div>
 
@@ -318,14 +344,20 @@
                                 <i class="fas fa-sync"></i>
                                 Check for Updates
                             </button>
+                        </div>
+                        <div class="setting-item">
                             <button class="btn-primary" id="github-update-btn">
-                                <i class="fab fa-github"></i>
+                                <i class="fas fa-code-branch"></i>
                                 Update from GitHub
                             </button>
+                        </div>
+                        <div class="setting-item">
                             <button class="btn-secondary" id="create-backup-btn">
                                 <i class="fas fa-save"></i>
                                 Create Backup
                             </button>
+                        </div>
+                        <div class="setting-item">
                             <button class="btn-secondary" id="manage-backups-btn">
                                 <i class="fas fa-history"></i>
                                 Manage Backups
@@ -396,39 +428,35 @@
                         </div>
                     </div>
                     
-                    <div class="settings-section">
-                        <h3>Account</h3>
-                    </div>
 
                     <div class="settings-section">
-                        <h3>About & Changelog</h3>
+                        <h3>About</h3>
                         <div class="setting-item">
                             <div class="version-info">
                                 <div class="version-header">
                                     <h4>Shakshuka Task Manager</h4>
-                                    <span class="version-number">v1.1.0</span>
+                                    <span class="version-number">v1.0.20</span>
                                 </div>
-                                <p class="version-description">Modern task management with mental health themes and daily planning</p>
+                                <p class="version-description">Made with <span class="heart">♥</span> by <a href="https://vibinandvanshika.in/" target="_blank" rel="noopener noreferrer">vibinandvanshika.in</a></p>
+                                <div class="social-links">
+                                    <a href="https://wa.me/9769586810?text=Hey!%20What%27s%20step%202?" target="_blank" rel="noopener noreferrer" class="social-link whatsapp" title="Contact us on WhatsApp">
+                                        <i class="fas fa-phone"></i>
+                                    </a>
+                                    <a href="https://github.com/admiralsuez/shakshuka-python.git" target="_blank" rel="noopener noreferrer" class="social-link github" title="View on GitHub">
+                                        <i class="fas fa-code-branch"></i>
+                                    </a>
+                                </div>
                             </div>
                         </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Changelog</h3>
                         <div class="setting-item">
                             <button class="btn-secondary" id="view-changelog-btn">
                                 <i class="fas fa-history"></i>
                                 View Changelog
                             </button>
-                        </div>
-                        <div class="setting-item">
-                            <button class="btn-warning" id="reset-user-session-btn">
-                                <i class="fas fa-user-times"></i>
-                                Reset User Session
-                            </button>
-                        </div>
-                        <div class="setting-item">
-                            <div class="app-info">
-                                <p><strong>Built:</strong> <span id="build-date">October 18, 2025</span></p>
-                                <p><strong>Channel:</strong> <span id="update-channel-display">Stable</span></p>
-                                <p><strong>Features:</strong> Task Management, Daily Planner, Analytics, Settings</p>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -778,10 +806,10 @@
 
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <script src="{{ url_for('static', filename='js/state.js') }}?v=1.0.7"></script>
-    <script src="{{ url_for('static', filename='js/auth.js') }}?v=1.0.7"></script>
-    <script src="{{ url_for('static', filename='js/utils.js') }}?v=1.0.7"></script>
-    <script src="{{ url_for('static', filename='js/tasks.js') }}?v=1.0.7"></script>
-    <script src="{{ url_for('static', filename='js/app.js') }}?v=1.0.7"></script>
+    <script src="{{ url_for('static', filename='js/state.js') }}?v=1.0.8"></script>
+    <script src="{{ url_for('static', filename='js/utils.js') }}?v=1.0.8"></script>
+    <script src="{{ url_for('static', filename='js/tasks.js') }}?v=1.0.8"></script>
+    <script src="{{ url_for('static', filename='js/auth.js') }}?v=1.0.8"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=1.0.8"></script>
 </body>
 </html>
