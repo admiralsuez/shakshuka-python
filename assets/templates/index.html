@@ -4,7 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shakshuka - Modern Task Manager</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=1.0.1">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
+    <link rel="shortcut icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2.0.0">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fontawesome.css') }}?v=1.0.1">
 </head>
@@ -165,10 +170,10 @@
                 <div class="page-header">
                     <h2>My Tasks</h2>
                     <div class="header-actions">
-                        <div class="filter-tabs">
-                            <button class="filter-tab active" data-filter="active">Active</button>
-                            <button class="filter-tab" data-filter="expired">Expired</button>
-                            <button class="filter-tab" data-filter="completed">Completed</button>
+                        <div class="mini-analytics" title="Tasks you have striked today" aria-live="polite">
+                            <i class="fas fa-bolt" aria-hidden="true"></i>
+                            <span class="mini-label">Tasks striked today:</span>
+                            <span id="header-striked-today" class="mini-number">0</span>
                         </div>
                         <div class="layout-toggle">
                             <button class="layout-btn active" data-layout="list" title="List View">
@@ -184,6 +189,15 @@
                                 Add Task
                             </button>
                         </div>
+                    </div>
+                </div>
+                
+                <!-- Moved filter tabs just above the tasks container -->
+                <div class="tasks-subheader">
+                    <div class="filter-tabs">
+                        <button class="filter-tab active" data-filter="active">Active</button>
+                        <button class="filter-tab" data-filter="expired">Expired</button>
+                        <button class="filter-tab" data-filter="completed">Completed</button>
                     </div>
                 </div>
 
@@ -806,10 +820,10 @@
 
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <script src="{{ url_for('static', filename='js/state.js') }}?v=1.0.8"></script>
-    <script src="{{ url_for('static', filename='js/utils.js') }}?v=1.0.8"></script>
-    <script src="{{ url_for('static', filename='js/tasks.js') }}?v=1.0.8"></script>
-    <script src="{{ url_for('static', filename='js/auth.js') }}?v=1.0.8"></script>
-    <script src="{{ url_for('static', filename='js/app.js') }}?v=1.0.8"></script>
+    <script src="{{ url_for('static', filename='js/state.js') }}?v=2.0.0"></script>
+    <script src="{{ url_for('static', filename='js/utils.js') }}?v=2.0.0"></script>
+    <script src="{{ url_for('static', filename='js/tasks.js') }}?v=2.0.0"></script>
+    <script src="{{ url_for('static', filename='js/auth.js') }}?v=2.0.0"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=2.0.0"></script>
 </body>
 </html>

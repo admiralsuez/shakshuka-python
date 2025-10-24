@@ -471,6 +471,23 @@ function updateTaskStats() {
             element.textContent = value;
         }
     });
+
+    // Update mini analytics in tasks header if present
+    const headerStrikedToday = document.getElementById('header-striked-today');
+    if (headerStrikedToday) {
+        headerStrikedToday.textContent = stats.today;
+        console.log('Updated header striked today:', stats.today);
+    } else {
+        console.log('Header striked today element not found');
+    }
+    
+    // Also check if mini-analytics container exists
+    const miniAnalytics = document.querySelector('.mini-analytics');
+    if (miniAnalytics) {
+        console.log('Mini analytics container found:', miniAnalytics);
+    } else {
+        console.log('Mini analytics container not found');
+    }
 }
 
 // Export functions for use in other modules

@@ -1204,9 +1204,9 @@ class SQLiteDataManager:
                                 ))
                             
                             # Commit the transaction
-                            conn.commit()
-                            self.logger.info(f"Successfully saved settings for user {user_id}")
-                            return True
+                                conn.commit()
+                                self.logger.info(f"Successfully saved settings for user {user_id}")
+                                return True
                                 
                         except Exception as inner_e:
                             conn.rollback()

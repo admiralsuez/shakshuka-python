@@ -220,7 +220,7 @@ async function updateTheme() {
         });
 
         console.log('Theme update response:', response.status, response.statusText);
-        
+
         if (response.ok) {
             const settings = AppState.get('currentSettings') || {};
             settings.theme = theme;
@@ -2148,6 +2148,18 @@ function updateDashboardStats() {
     if (streakDaysEl) streakDaysEl.textContent = streakDays;
     if (productivityScoreEl) productivityScoreEl.textContent = productivityScore + '%';
     if (strikedTodayEl) strikedTodayEl.textContent = strikedToday;
+    
+    // Update mini analytics in tasks header
+    const headerStrikedToday = document.getElementById('header-striked-today');
+    if (headerStrikedToday) {
+        headerStrikedToday.textContent = strikedToday;
+        console.log('Updated header striked today:', strikedToday);
+    }
+    
+    // Also call updateTaskStats from tasks.js if available
+    if (typeof Tasks !== 'undefined' && Tasks.updateTaskStats) {
+        Tasks.updateTaskStats();
+    }
 }
 
 function calculateStreak() {
@@ -2583,7 +2595,7 @@ function loadAvailableTasks() {
 }
 
 function loadScheduledTasks() {
-    const currentDate = new Date(); // Always use current date, not stored date
+    const currentDate = AppState.get('currentDate'); // Use the selected date from state
     const scheduledDate = currentDate.toISOString().split('T')[0];
     const tasks = AppState.getTasks();
     

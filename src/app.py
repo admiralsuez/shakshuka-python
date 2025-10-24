@@ -1866,8 +1866,8 @@ def strike_task(task_id):
             elif strike_type == 'forever':
                 tasks[i]['completed'] = True
                 tasks[i]['completed_at'] = datetime.now().isoformat()
-                tasks[i]['struck_today'] = False
-                tasks[i]['struck_date'] = None
+                tasks[i]['struck_today'] = True  # Strike forever should also count as today's strike
+                tasks[i]['struck_date'] = today
                 tasks[i]['strike_report'] = report
                 tasks[i]['strike_count'] = tasks[i].get('strike_count', 0) + 1
             
@@ -1889,19 +1889,31 @@ def undo_strike(task_id):
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
             if task.get('struck_today'):
-                # Update daily strikes
-                daily_strikes = task.get('daily_strikes', {})
-                strikes_today = daily_strikes.get(today, 0)
-                if strikes_today > 0:
-                    daily_strikes[today] = strikes_today - 1
-                    tasks[i]['daily_strikes'] = daily_strikes
+                # Check if this was a "strike forever" (completed task)
+                was_completed = task.get('completed', False)
                 
-                # If no more strikes today, mark as not struck
-                if daily_strikes.get(today, 0) == 0:
-                    tasks[i]["struck_today"] = False
-                    tasks[i]["struck_date"] = None
-                    tasks[i]["strike_report"] = None
-                # Don't decrease strike_count as it tracks total strikes
+                if was_completed:
+                    # Undo strike forever - revert to incomplete state
+                    tasks[i]['completed'] = False
+                    tasks[i]['completed_at'] = None
+                    tasks[i]['struck_today'] = False
+                    tasks[i]['struck_date'] = None
+                    tasks[i]['strike_report'] = None
+                    tasks[i]['strike_count'] = max(0, tasks[i].get('strike_count', 0) - 1)
+                else:
+                    # Undo regular strike today
+                    daily_strikes = task.get("daily_strikes", {})
+                    strikes_today = daily_strikes.get(today, 0)
+                    if strikes_today > 0:
+                        daily_strikes[today] = strikes_today - 1
+                        tasks[i]["daily_strikes"] = daily_strikes
+
+                    # If no more strikes today, mark as not struck
+                    if daily_strikes.get(today, 0) == 0:
+                        tasks[i]["struck_today"] = False
+                        tasks[i]["struck_date"] = None
+                        tasks[i]["strike_report"] = None
+                        # Don't decrease strike_count for regular strikes
                 
                 if app_context.data_manager.save_tasks(tasks, user_id):
                     return jsonify(tasks[i])

@@ -953,6 +953,42 @@ body[data-theme="anxiety"][data-intensity="10"] {
     flex-wrap: wrap;
     gap: calc(1rem * var(--dpi-scale));
 }
+.mini-analytics {
+    display: inline-flex !important;
+    align-items: center;
+    gap: calc(0.5rem * var(--dpi-scale));
+    background: var(--surface-color);
+    padding: calc(0.6rem * var(--dpi-scale)) calc(0.8rem * var(--dpi-scale));
+    border: 1px solid var(--border-color);
+    border-radius: calc(12px * var(--dpi-scale));
+    box-shadow: 0 calc(4px * var(--dpi-scale)) calc(12px * var(--dpi-scale)) var(--shadow-color);
+    font-size: calc(0.9rem * var(--dpi-scale));
+    visibility: visible !important;
+    opacity: 1 !important;
+    min-height: calc(40px * var(--dpi-scale));
+}
+.mini-analytics i {
+    color: var(--accent-color);
+    font-size: calc(1rem * var(--dpi-scale));
+}
+.mini-analytics .mini-label {
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.mini-analytics .mini-number {
+    font-weight: 800;
+    color: var(--text-color);
+    font-size: calc(1rem * var(--dpi-scale));
+}
+.tasks-subheader {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: calc(1rem * var(--dpi-scale));
+    visibility: visible !important;
+    opacity: 1 !important;
+}
 .page-header h2 {
     font-size: calc(2.5rem * var(--dpi-scale));
     font-weight: 700;
@@ -2580,13 +2616,25 @@ select:focus {
 
 .task-card.struck-today {
     background: var(--secondary-gradient) !important;
-    opacity: 0.6;
+    opacity: 0.9; /* Increased from 0.6 for better readability */
     border: 2px solid var(--accent-color);
-    filter: grayscale(0.3) brightness(0.8);
+    filter: grayscale(0.1) brightness(1.0); /* Reduced grayscale and increased brightness */
 }
 
 .task-card.struck-today .task-title-main.struck-today {
     text-decoration: line-through;
+    color: var(--text-color) !important; /* Ensure text color is visible */
+    font-weight: 600; /* Make struck text slightly bolder */
+}
+
+.task-card.struck-today .task-description {
+    color: var(--text-secondary) !important; /* Ensure description is readable */
+    opacity: 0.9; /* Slightly reduce opacity but keep readable */
+}
+
+.task-card.struck-today .task-meta {
+    color: var(--text-secondary) !important; /* Ensure meta info is readable */
+    opacity: 0.8; /* Keep meta info visible */
 }
 
 /* Action buttons in top left corner */

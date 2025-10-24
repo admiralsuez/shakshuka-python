@@ -189,7 +189,7 @@ const Auth = {
             console.warn('Tasks object not yet loaded, trying again with delay');
             setTimeout(() => {
                 if (typeof Tasks !== 'undefined' && Tasks.loadTasks) {
-                    Tasks.loadTasks();
+        Tasks.loadTasks();
                 } else {
                     console.error('Tasks module failed to load - calling loadTasks directly');
                     // Fallback: if Tasks still isn't defined, try calling global function

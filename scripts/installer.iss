@@ -2,7 +2,7 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Shakshuka"
-#define MyAppVersion "1.5.0-b36"
+#define MyAppVersion "2.0.0-b3"
 #define MyAppPublisher "vibinandvanshika.in"
 #define MyAppURL "https://github.com/shakshuka-python"
 #define MyAppExeName "Shakshuka.exe"
@@ -59,6 +59,7 @@ Source: "Start-Shakshuka.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Start-Shakshuka-Verbose.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Start-Shakshuka-Silent.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Start-Shakshuka-Silent.vbs"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Start-Shakshuka-Autostart.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Stop-Shakshuka.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "run.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "build.bat"; DestDir: "{app}"; Flags: ignoreversion
@@ -81,8 +82,8 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 Filename: "{app}\Stop-Shakshuka.bat"; RunOnceId: "StopShakshuka"
 
 [Registry]
-; Add to Windows startup if selected
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Shakshuka"; ValueData: """{app}\Start-Shakshuka-Silent.vbs"""; Flags: uninsdeletevalue; Tasks: autostart
+; Add to Windows startup if selected - use batch file for better reliability
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Shakshuka"; ValueData: """{app}\Start-Shakshuka-Autostart.bat"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -181,5 +182,9 @@ begin
     end;
   end;
 end;
+
+
+
+
 
 

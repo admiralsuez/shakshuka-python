@@ -1,6 +1,148 @@
 # Shakshuka Changelog
 # This file tracks all changes and improvements made to the Shakshuka task management application
 
+## Version 2.0.0 - Major Release: Complete Application Overhaul
+Release Date: 2025-10-24T19:17:00.000000
+
+### 🚀 MAJOR VERSION RELEASE
+
+This is a major version release marking the completion of significant architectural improvements and feature enhancements.
+
+#### What's New in 2.0.0
+- **Complete Application Refactoring**: Modularized codebase for better maintainability
+- **Enhanced UI/UX**: Improved task management interface with better visual feedback
+- **Robust Build System**: Automated versioning and professional installer generation
+- **Improved Performance**: Optimized database operations and frontend loading
+- **Better Error Handling**: Comprehensive error management and user feedback
+- **Professional Distribution**: Inno Setup installer with autostart capabilities
+
+#### Key Features
+- ✅ Task Management with Strike System
+- ✅ Daily Planner with Time Grid
+- ✅ Analytics Dashboard with Productivity Metrics
+- ✅ Multiple Theme Support (9 themes including accessibility options)
+- ✅ Responsive Design (List/Grid views)
+- ✅ Auto-save and Data Persistence
+- ✅ System Tray Integration
+- ✅ Windows Autostart Support
+- ✅ Professional Installer Package
+
+#### Technical Improvements
+- **Modular Architecture**: Separated concerns into focused modules
+- **Database Optimization**: Thread-safe SQLite operations with migrations
+- **Frontend Modularization**: Clean JavaScript module structure
+- **Build Automation**: Automated version incrementing and artifact generation
+- **Cache Management**: Proper cache busting for seamless updates
+- **Error Recovery**: Defensive programming and graceful error handling
+
+#### Bug Fixes
+- **Daily Planner Date Selector**: Fixed issue where changing dates in the daily planner didn't update the time-grid to show tasks for the selected date
+  - **Issue**: `loadScheduledTasks()` was using current date instead of selected date
+  - **Fix**: Updated function to use `AppState.get('currentDate')` for proper date filtering
+  - **Impact**: Users can now properly plan tasks for different days using the date selector
+- **Python Indentation Errors**: Fixed all indentation errors across the entire codebase
+  - **Issue**: Multiple indentation errors in `src/app.py` and other Python files
+  - **Fix**: Corrected all indentation to proper Python standards using automated script
+  - **Impact**: Application now runs without syntax errors and follows proper coding standards
+- **Inno Setup Script Errors**: Fixed duplicate functions and orphaned code in installer script
+  - **Issue**: Installer script had duplicate `InitializeSetup()` and `CurUninstallStepChanged()` functions
+  - **Fix**: Removed duplicate code and cleaned up script structure
+  - **Impact**: Professional installer now builds successfully without compilation errors
+
+#### Distribution
+- **Professional Installer**: Created `Shakshuka-Setup-v2.0.0-b3.exe` (23.7 MB)
+  - **Features**: Full Windows installer with autostart support
+  - **Installation**: Program Files installation with proper uninstaller
+  - **Data Management**: User data stored in AppData with migration support
+  - **Registry Integration**: Proper Windows registry entries for uninstall
+  - **Process Management**: Smart process detection and termination during install/uninstall
+
+#### Migration Notes
+- **Database**: Automatic migration from previous versions
+- **Settings**: All user preferences preserved during upgrade
+- **Tasks**: Complete task history maintained
+- **Themes**: Enhanced theme system with new options
+
+---
+
+## Version 1.5.0-b37 - Beta: UI Improvements & Autostart Fix
+Release Date: 2025-10-24T16:30:00.000000
+
+### 🎨 UI IMPROVEMENTS
+
+#### Grid View Readability Fix
+- **Issue**: Struck tasks in grid view were hard to read due to low opacity and grayscale filter
+- **Fix**: 
+  - Increased opacity from 0.6 to 0.9 for better visibility
+  - Reduced grayscale filter from 0.3 to 0.1
+  - Increased brightness from 0.8 to 1.0
+  - Added explicit text color rules for struck tasks
+  - Made struck text slightly bolder (font-weight: 600)
+  - Ensured description and meta info remain readable
+
+#### Mini Analytics Height Fix
+- **Issue**: Mini analytics bar height didn't match layout-toggle buttons
+- **Fix**: Matched exact padding and height of layout-toggle buttons for perfect alignment
+
+### 🔧 STRIKE SYSTEM IMPROVEMENTS
+
+#### Strike Forever Counter Fix
+- **Issue**: "Strike forever" wasn't incrementing the "Tasks striked today" counter
+- **Fix**: 
+  - Backend now sets `struck_today = True` for strike forever
+  - Sets `struck_date = today` instead of `None`
+  - Strike forever now properly counts towards daily strike goal
+
+#### Undo Strike Counter Fix
+- **Issue**: Undoing strikes didn't properly revert counters
+- **Fix**: 
+  - Undo strike forever: reverts to incomplete state and decreases strike count
+  - Undo strike today: properly decreases daily strike count
+  - Both undo types now correctly update mini analytics counter
+
+### 🚀 AUTOSTART IMPROVEMENTS
+
+#### Windows Autostart Reliability Fix
+- **Issue**: VBS script wasn't reliably starting on Windows boot
+- **Fix**: 
+  - Created dedicated `Start-Shakshuka-Autostart.bat` for autostart
+  - Updated installer registry entry to use batch file instead of VBS
+  - Batch files are more reliable for Windows autostart than VBS scripts
+  - Added explicit `wscript.exe` fallback for VBS if needed
+
+### 📦 BUILD SYSTEM UPDATES
+
+#### Installer Configuration
+- **Added**: `Start-Shakshuka-Autostart.bat` to installer files
+- **Updated**: Registry entry for more reliable autostart
+- **Improved**: Error handling and process detection in installer
+
+### 🎯 TECHNICAL DETAILS
+
+#### Backend Changes (src/app.py)
+- Fixed strike forever logic to properly set struck_today = True
+- Enhanced undo strike logic to handle both strike types correctly
+- Improved strike counter management
+
+#### Frontend Changes (assets/static/css/style.css)
+- Enhanced struck task visibility in grid view
+- Improved text contrast and readability
+- Better visual hierarchy for struck content
+
+#### Installer Changes (scripts/installer.iss)
+- Added autostart batch file to installation
+- Updated registry entry for better reliability
+- Improved Windows startup integration
+
+### 🔍 TESTING NOTES
+- Test grid view with struck tasks - text should now be clearly readable
+- Test strike forever - should increment daily counter
+- Test undo strike - should properly decrement counters
+- Test autostart - should reliably start on Windows boot
+- Verify mini analytics height matches layout toggle buttons
+
+---
+
 ## Version 1.5.0-b28 - Beta: Comprehensive Bug Fixes & Documentation
 Release Date: 2025-10-22T22:00:00.000000
 
