@@ -1,7 +1,7 @@
 {
-  "version": "6.1",
-  "build": "5",
-  "release_date": "2025-11-06T14:34:57.605696",
+  "version": "6.2",
+  "build": "3",
+  "release_date": "2025-11-06T20:48:57.251211",
   "update_channel": "stable",
-  "build_notes": "Birthday Update: daily strike reset reliability + UI sync, planner cleanup at reset, analytics fixes, installer naming simplified to v6.x."
+  "build_notes": "Task View Fixes: filter preservation on delete, proper view switching on create. Version Build System: fixed Inno Setup version incrementing."
 }

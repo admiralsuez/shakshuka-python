@@ -1,9 +1,9 @@
-# Build Report - Shakshuka v6.1-b5
+# Build Report - Shakshuka v6.1-b6
 
 ## Build Information
 - **Version:** 6.1
-- **Build Number:** 5
-- **Build Date:** 2025-11-06 14:35:48
+- **Build Number:** 6
+- **Build Date:** 2025-11-06 19:40:26
 - **Build Status:** ✅ SUCCESS
 - **Platform:** Windows (x86_64)
 
@@ -52,7 +52,7 @@
 3. Portable - can run from any location
 
 ### Method 2: Professional Installer
-1. Run `Shakshuka-Setup-v6.1-b5.exe`
+1. Run `Shakshuka-Setup-v6.1-b6.exe`
 2. Follow installation wizard
 3. Installs to `Program Files`
 4. Creates Start Menu shortcuts

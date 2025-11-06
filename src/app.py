@@ -951,7 +951,13 @@ def setup_daily_reset():
         logger.error(f"Error setting up daily reset: {e}")
 
 def reset_daily_strikes_job():
-    """Job to reset daily strikes and clean overdue schedule (local time)."""
+    """Job to reset daily strikes and clean all scheduled tasks (local time).
+    
+    Behavior:
+    - Tasks struck TODAY: Clear strike flag AND all scheduling -> move to available tasks
+    - Tasks struck FOREVER (completed): Don't show in available tasks
+    - All other scheduled tasks: Clear scheduling to return to available pool
+    """
     try:
         logger.info("Starting daily strikes reset job")
         
@@ -975,25 +981,42 @@ def reset_daily_strikes_job():
             logger.info("No tasks found for daily reset")
             return
         
-        # 1) Clear today's strike flags unconditionally
+        # 1) Clear today's strike flags and ALL scheduling for struck-today tasks
         reset_count = 0
         for task in tasks:
             if task.get('struck_today'):
+                # Check if task was struck forever (completed)
+                is_struck_forever = task.get('completed', False)
+                
+                # Clear the today's strike flag
                 task['struck_today'] = False
                 task['struck_date'] = None
                 task['strike_report'] = None
                 reset_count += 1
+                
+                # If struck TODAY (not forever), clear scheduling so it returns to available tasks
+                if not is_struck_forever:
+                    task['scheduled_hour'] = None
+                    task['scheduled_minute'] = None
+                    task['scheduled_date'] = None
+                    task['scheduled_duration'] = None
+                    logger.debug(f"Task '{task.get('title', 'Unknown')}' unscheduled after today's strike reset")
         
-        # 2) Unschedule previous-day tasks that aren't completed
+        # 2) Clear ALL remaining scheduled tasks (from any day, not just previous days)
+        # This ensures the planner is clean at the start of each day
         unscheduled = 0
         for t in tasks:
-            sd = t.get('scheduled_date')
-            if sd and sd < today_str_local:
+            # Only unschedule if task is not completed (struck forever)
+            is_completed = t.get('completed', False)
+            has_schedule = t.get('scheduled_date') is not None
+            
+            if has_schedule and not is_completed:
                 t['scheduled_hour'] = None
                 t['scheduled_minute'] = None
                 t['scheduled_date'] = None
                 t['scheduled_duration'] = None
                 unscheduled += 1
+                logger.debug(f"Task '{t.get('title', 'Unknown')}' unscheduled during daily reset")
         
         if reset_count > 0 or unscheduled > 0:
             success = app_context.data_manager.save_tasks_for_user(user_id, tasks)
@@ -1024,20 +1047,8 @@ def start_scheduler():
     except Exception as e:
         logger.error(f"Failed to start scheduler: {e}")
 
-def get_timezone_aware_time():
-    """Get current time with timezone awareness"""
-    try:
-        # Try to get local timezone
-        import pytz
-        local_tz = pytz.timezone('local')
-        return datetime.now(local_tz)
-    except ImportError:
-        # Fallback to UTC if pytz not available
-        logger.warning("pytz not available, using UTC time")
-        return datetime.utcnow()
-    except Exception as e:
-        logger.warning(f"Error getting timezone-aware time: {e}, using UTC")
-        return datetime.utcnow()
+# Removed: get_timezone_aware_time() - unused function.
+# App uses local time (datetime.now()) exclusively for consistency.
 
 def _validate_and_normalize_reset_time(reset_time_str):
     """Validate and normalize reset time format - used centrally for all reset time operations"""

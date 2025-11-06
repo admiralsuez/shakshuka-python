@@ -1776,7 +1776,9 @@ async function createTask(taskData) {
             console.log('Current page:', AppState.get('currentPage'));
             if (AppState.get('currentPage') === 'tasks') {
                 console.log('Rendering tasks...');
-                renderTasks();
+                // Switch to 'active' view so user can see the newly created task
+                setActiveFilter('active');
+                renderTasks('active');
             } else if (AppState.get('currentPage') === 'dashboard') {
                 console.log('Rendering recent tasks...');
                 renderRecentTasks();
@@ -1871,7 +1873,9 @@ async function deleteTask(taskId) {
             updateDashboardStats();
             
             if (AppState.get('currentPage') === 'tasks') {
-                renderTasks();
+                // Preserve current filter state after deletion
+                const currentFilter = AppState.get('currentFilter') || 'active';
+                renderTasks(currentFilter);
             } else if (AppState.get('currentPage') === 'dashboard') {
                 renderRecentTasks();
             } else if (AppState.get('currentPage') === 'analytics') {
@@ -1978,11 +1982,30 @@ function renderTasks(filter = AppState.get('currentFilter')) {
     });
     
     if (sortedTasks.length === 0) {
+        // Customize empty state message based on current filter
+        let emptyMessage = 'No tasks found';
+        let emptyDescription = 'Create your first task to get started!';
+        let emptyIcon = 'fa-tasks';
+        
+        if (filter === 'expired') {
+            emptyMessage = 'Yay! No missed tasks';
+            emptyDescription = 'All your tasks are on track!';
+            emptyIcon = 'fa-check-circle';
+        } else if (filter === 'active') {
+            emptyMessage = 'No active tasks';
+            emptyDescription = 'Create a new task to get started!';
+            emptyIcon = 'fa-inbox';
+        } else if (filter === 'completed') {
+            emptyMessage = 'No completed tasks';
+            emptyDescription = 'Get to work and complete some tasks!';
+            emptyIcon = 'fa-clipboard-list';
+        }
+        
         tasksList.innerHTML = `
             <div class="empty-state">
-                <i class="fas fa-tasks" style="font-size: 3rem; color: #FFB6C1; margin-bottom: 1rem;"></i>
-                <h3>No tasks found</h3>
-                <p>Create your first task to get started!</p>
+                <i class="fas ${emptyIcon}" style="font-size: 3rem; color: #FFB6C1; margin-bottom: 1rem;"></i>
+                <h3>${emptyMessage}</h3>
+                <p>${emptyDescription}</p>
             </div>
         `;
         return;

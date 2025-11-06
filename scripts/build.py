@@ -245,15 +245,30 @@ def update_installer_script(version, build):
         with open(installer_script, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # Update version without build suffix
+        # Update version and build in Inno Setup defines
         import re
+        
+        # Update MyAppVersion
         content = re.sub(r'#define MyAppVersion "[^"]*"', f'#define MyAppVersion "{version}"', content)
+        
+        # Also update VersionInfoVersion and VersionInfoProductVersion with build number
+        # Format: major.minor.patch.build
+        # Parse version string (e.g., "6.1" becomes "6.1.0")
+        version_parts = version.split('.')
+        while len(version_parts) < 3:
+            version_parts.append('0')
+        full_version = f"{'.'.join(version_parts)}.{build}"
+        
+        content = re.sub(r'VersionInfoVersion=.*', f'VersionInfoVersion={full_version}', content)
+        content = re.sub(r'VersionInfoProductVersion=.*', f'VersionInfoProductVersion={full_version}', content)
         
         # Write back the updated script
         with open(installer_script, 'w', encoding='utf-8') as f:
             f.write(content)
         
-        print(f"Updated installer script with version {version}")
+        print(f"Updated installer script with version {version} (build {build})")
+        print(f"  - MyAppVersion: {version}")
+        print(f"  - VersionInfoVersion: {full_version}")
         
     except Exception as e:
         print(f"Warning: Could not update installer script: {e}")

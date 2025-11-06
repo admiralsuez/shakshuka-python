@@ -45,7 +45,9 @@ async function loadTasks() {
         }
 
         AppState.setTasks(merged);
-        renderTasks();
+        // Preserve current filter when rendering
+        const currentFilter = (AppState && AppState.get) ? AppState.get('currentFilter') || 'active' : 'active';
+        renderTasks(currentFilter);
         updateTaskStats();
         try { if (typeof updateDashboardStats === 'function') updateDashboardStats(); } catch(e) {}
         Utils.Logger.info(`Loaded ${merged.length} tasks`);
@@ -145,9 +147,22 @@ async function deleteTask(taskId) {
             method: 'DELETE'
         });
 
-if (response.ok) {
-            // Refresh Tasks page
-            loadTasks();
+        if (response.ok) {
+            // Preserve current filter before refreshing
+            const currentFilter = (AppState && AppState.get) ? AppState.get('currentFilter') || 'active' : 'active';
+            const currentPage = (AppState && AppState.get) ? AppState.get('currentPage') : 'tasks';
+            
+            // Reload tasks while maintaining filter state
+            await loadTasks();
+            
+            // Re-apply the filter if we're on tasks page
+            if (currentPage === 'tasks') {
+                try {
+                    if (typeof setActiveFilter === 'function') setActiveFilter(currentFilter);
+                    if (typeof renderTasks === 'function') renderTasks(currentFilter);
+                } catch (e) { /* no-op */ }
+            }
+            
             try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
             // Immediately reflect deletion in Planner v2 if present
             try {
