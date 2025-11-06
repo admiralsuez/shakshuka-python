@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shakshuka - Modern Task Manager</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
+    <link rel="shortcut icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pin-auth.css') }}?v={{ version }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fontawesome.css') }}?v={{ version }}">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-logo">
+                <div class="logo-icon" aria-hidden="true">
+                    <i class="fas fa-leaf"></i>
+                </div>
+                <h1>Shakshuka</h1>
+            </div>
+            <div class="loading-spinner">
+                <div class="spinner">
+                    <div class="spinner-dot"></div>
+                    <div class="spinner-dot"></div>
+                    <div class="spinner-dot"></div>
+                </div>
+            </div>
+            <p class="loading-text">Loading your tasks...</p>
+        </div>
+    </div>
+
+    <div class="app-container" id="app-container" style="display: none;">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar" role="navigation" aria-label="Main navigation">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon" aria-hidden="true">
+                        <i class="fas fa-leaf"></i>
+                    </div>
+                    <h1>Shakshuka</h1>
+                </div>
+            </div>
+            
+            <div class="nav-menu" role="menubar">
+                <div class="nav-item active" data-page="tasks" title="View and manage all your tasks" role="menuitem" tabindex="0">
+                    <i class="fas fa-tasks" aria-hidden="true"></i>
+                    <span>My Tasks</span>
+                </div>
+                <div class="nav-item" data-page="planner" title="Plan your day with hourly scheduling" role="menuitem" tabindex="0">
+                    <i class="fas fa-calendar-alt" aria-hidden="true"></i>
+                    <span>Daily Planner</span>
+                </div>
+                <div class="nav-item" data-page="analytics" title="View your productivity analytics" role="menuitem" tabindex="0">
+                    <i class="fas fa-chart-line" aria-hidden="true"></i>
+                    <span>Analytics</span>
+                </div>
+                <div class="nav-item" id="import-tasks-btn" data-page="import" title="Import Tasks from CSV" role="menuitem" tabindex="0">
+                    <i class="fas fa-file-import" aria-hidden="true"></i>
+                    <span>Import Tasks</span>
+                </div>
+                <div class="nav-item" data-page="settings" title="Configure app settings and preferences" role="menuitem" tabindex="0">
+                    <i class="fas fa-cog" aria-hidden="true"></i>
+                    <span>Settings</span>
+                </div>
+                <!-- Compact schedule card replacing the sidebar toggle -->
+                <div class="nav-compact-schedule modern" id="nav-compact-schedule" aria-live="polite" title="Current and next scheduled tasks">
+                    <div class="entry current">
+                        <div class="label">Now</div>
+                        <div class="details">
+                            <div class="title" id="nav-current-title">No current task</div>
+                            <div class="time" id="nav-current-time">—</div>
+                        </div>
+                        <div class="badge" id="nav-current-badge">Now</div>
+                    </div>
+                    <div class="entry next">
+                        <div class="label">Next</div>
+                        <div class="details">
+                            <div class="title" id="nav-next-title">None</div>
+                            <div class="time" id="nav-next-time">—</div>
+                        </div>
+                        <div class="badge" id="nav-next-badge">Next</div>
+                    </div>
+                </div>
+                <div class="nav-item kill-app-item" id="kill-app-btn" data-page="kill" title="Stop Shakshuka Server" role="menuitem" tabindex="0">
+                    <i class="fas fa-power-off" aria-hidden="true"></i>
+                    <span>Kill App</span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content" role="main" aria-label="Main content">
+            
+            <!-- Daily Tasks Page -->
+            <!-- Analytics Page -->
+            <div id="analytics-page" class="page">
+                <div class="page-header">
+                    <h2>Analytics</h2>
+                </div>
+
+                <div class="dashboard-grid">
+                    <!-- Stats Cards -->
+                    <div class="stats-card">
+                        <div class="stats-icon">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div class="stats-content">
+                            <h3 id="completed-today">0</h3>
+                            <p>Completed Today</p>
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <div class="stats-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="stats-content">
+                            <h3 id="expired-tasks">0</h3>
+                            <p>Expired Tasks</p>
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <div class="stats-icon">
+                            <i class="fas fa-fire"></i>
+                        </div>
+                        <div class="stats-content">
+                            <h3 id="streak-days">0</h3>
+                            <p>Day Streak</p>
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <div class="stats-icon">
+                            <i class="fas fa-chart-line"></i>
+                        </div>
+                        <div class="stats-content">
+                            <h3 id="productivity-score">85%</h3>
+                            <p>Productivity</p>
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <div class="stats-icon">
+                            <i class="fas fa-times-circle"></i>
+                        </div>
+                        <div class="stats-content">
+                            <h3 id="striked-today">0</h3>
+                            <p>Striked Today</p>
+                        </div>
+                    </div>
+
+                    <!-- Recent Tasks -->
+                    <div class="recent-tasks">
+                        <h3>Recent Tasks</h3>
+                        <div id="recent-tasks-list" class="tasks-list">
+                            <!-- Tasks will be loaded here -->
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <div class="stats-icon">
+                            <i class="fas fa-plus-circle"></i>
+                        </div>
+                        <div class="stats-content">
+                            <h3 id="tasks-added">0</h3>
+                            <p>Tasks Added</p>
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <div class="stats-icon">
+                            <i class="fas fa-flag-checkered"></i>
+                        </div>
+                        <div class="stats-content">
+                            <h3 id="completed-forever">0</h3>
+                            <p>Completed Forever</p>
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <div class="stats-icon">
+                            <i class="fas fa-cog"></i>
+                        </div>
+                        <div class="stats-content">
+                            <h3 id="settings-changes">0</h3>
+                            <p>Settings Changes</p>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="quick-actions">
+                        <h3>Quick Actions</h3>
+                        <div class="action-buttons">
+                            <button class="action-btn" id="quick-add-btn" title="Quickly add a new task">
+                                <i class="fas fa-plus"></i>
+                                <span>Quick Add</span>
+                            </button>
+                            <button class="action-btn" id="focus-mode-btn" title="Enter focus mode for distraction-free work">
+                                <i class="fas fa-eye"></i>
+                                <span>Focus Mode</span>
+                            </button>
+                            <button class="action-btn" id="schedule-btn" title="Go to daily planner to schedule tasks">
+                                <i class="fas fa-calendar"></i>
+                                <span>Schedule</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tasks Page -->
+            <div id="tasks-page" class="page active">
+                <div class="page-header">
+                    <div class="quick-add-inline">
+<input type="text" id="inline-quick-add" class="quick-add-input" placeholder="quick add and press enter" aria-label="Quick add task" />
+                        <div class="quick-add-error" id="inline-quick-error" style="display: none;">
+                            <span class="oops-bubble">Oops</span>
+                            <span class="msg">Error message</span>
+                        </div>
+                    </div>
+                    <div class="header-actions">
+                        <div class="mini-analytics" title="Tasks you have striked today" aria-live="polite">
+                            <i class="fas fa-bolt" aria-hidden="true"></i>
+                            <span class="mini-label">Tasks striked today:</span>
+                            <span id="header-striked-today" class="mini-number">0</span>
+                        </div>
+                        <div class="layout-toggle">
+                            <button class="layout-btn active" data-layout="list" title="List View">
+                                <i class="fas fa-list"></i>
+                            </button>
+                            <button class="layout-btn" data-layout="grid" title="Grid View">
+                                <i class="fas fa-th"></i>
+                            </button>
+                        </div>
+                        <div class="action-buttons-group">
+<button class="btn-primary btn-icon" id="add-task-main" title="Add Task" onclick="showAddTaskOptions()">+</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Moved filter tabs just above the tasks container -->
+                <div class="tasks-subheader">
+                    <div class="filter-tabs">
+                        <button class="filter-tab active" data-filter="active">Active</button>
+                        <button class="filter-tab" data-filter="expired">Expired</button>
+                        <button class="filter-tab" data-filter="completed">Completed</button>
+                    </div>
+                </div>
+
+                <div class="tasks-container">
+                    <div id="tasks-list" class="tasks-list">
+                        <!-- Tasks will be loaded here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Daily Planner Page -->
+            <div id="planner-page" class="page">
+                <div class="page-header">
+                    <div class="header-actions">
+                        <button class="btn-secondary" id="add-task-to-planner" title="Quick Add Task">
+                            <i class="fas fa-plus"></i>
+                            Quick Add
+                        </button>
+                    </div>
+                </div>
+
+                <div class="planner-v2-container">
+                    <div class="planner-v2-main">
+                        <!-- Hours of the Day -->
+                        <div class="hours-section">
+                            <h3>Hours of the Day</h3>
+                            <div class="hours-grid" id="hours-grid">
+                                <!-- Hours will be generated here -->
+                            </div>
+                        </div>
+
+                        <!-- Available Tasks -->
+                        <div class="available-tasks-section">
+                            <h3>Available Tasks</h3>
+                            <div class="available-tasks-list" id="available-tasks">
+                                <!-- Available tasks will be loaded here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Page -->
+            <div id="settings-page" class="page">
+                <div class="page-header">
+                    <h2>Settings</h2>
+                </div>
+
+                <div class="settings-container">
+                    <div class="settings-section">
+                        <h3>General</h3>
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="autostart-toggle">
+                                <span class="toggle-slider"></span>
+                                Start with Windows
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Auto-save interval:
+                                <select id="autosave-interval">
+                                    <option value="15">15 seconds</option>
+                                    <option value="30" selected>30 seconds</option>
+                                    <option value="60">1 minute</option>
+                                    <option value="300">5 minutes</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Daily reset time:
+                                <input type="time" id="daily-reset-time" value="08:00">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Appearance</h3>
+                        <div class="setting-item">
+                            <label>
+                                Theme:
+                                <select id="theme-selector">
+                                    <option value="light">Light (Orange)</option>
+                                    <option value="dark">Dark (Blue)</option>
+                                    <option value="orange" selected>Orange/Peach</option>
+                                    <option value="self-esteem">Self-Esteem (Mint Green)</option>
+                                    <option value="anxiety">Anxiety (Sky Blue)</option>
+                                    <option value="auto">Auto</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Finish:
+                                <select id="finish-selector">
+                                    <option value="glossy" selected>Glossy</option>
+                                    <option value="matte">Matte</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Color Intensity:
+                                <select id="intensity-selector">
+                                    <option value="1">1/10 - Neutral</option>
+                                    <option value="2">2/10 - Very Subtle</option>
+                                    <option value="3">3/10 - Subtle</option>
+                                    <option value="4">4/10 - Soft</option>
+                                    <option value="5" selected>5/10 - Current</option>
+                                    <option value="6">6/10 - Enhanced</option>
+                                    <option value="7">7/10 - Rich</option>
+                                    <option value="8">8/10 - Bold</option>
+                                    <option value="9">9/10 - Vibrant</option>
+                                    <option value="10">10/10 - Maximum</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                DPI Scale:
+                                <select id="dpi-selector">
+                                    <option value="75">75% (Compact)</option>
+                                    <option value="100" selected>100% (Normal)</option>
+                                    <option value="125">125% (Large)</option>
+                                    <option value="150">150% (Extra Large)</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Navbar Planner Style:
+                                <select id="navbar-planner-style">
+                                    <option value="modern" selected>Modern</option>
+                                    <option value="clean">Clean</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h3>Data Management</h3>
+                        <div class="setting-item data-actions-row">
+                            <button class="btn-secondary" id="export-data-btn">
+                                <i class="fas fa-download"></i>
+                                Export Data
+                            </button>
+                            <button class="btn-danger" id="clear-data-btn">
+                                <i class="fas fa-trash"></i>
+                                Clear All Data
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="settings-section updates-backups">
+                        <h3>Updates & Backups</h3>
+                        <div class="setting-item updates-actions-row">
+                            <button class="btn-secondary" id="check-updates-btn">
+                                <i class="fas fa-sync"></i>
+                                Check for Updates
+                            </button>
+                            <button class="btn-primary" id="github-update-btn">
+                                <i class="fas fa-code-branch"></i>
+                                Update from GitHub
+                            </button>
+                            <button class="btn-secondary" id="create-backup-btn">
+                                <i class="fas fa-save"></i>
+                                Create Backup
+                            </button>
+                            <button class="btn-secondary" id="manage-backups-btn">
+                                <i class="fas fa-history"></i>
+                                Manage Backups
+                            </button>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Auto-check for updates</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="auto-update-check">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Auto-install updates</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="auto-update-install">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Backup before updates</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="backup-before-update" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>GitHub Auto-Update</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="github-auto-update">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3>Logs</h3>
+                        <div class="setting-item">
+                            <button class="btn-secondary" id="view-logs-btn">
+                                <i class="fas fa-bug"></i>
+                                View Logs
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>About</h3>
+                        <div class="setting-item">
+                            <div class="version-info">
+                                <div class="version-header">
+                                    <h4>Shakshuka Task Manager</h4>
+                                    <span class="version-number">v{{ version }}</span>
+                                </div>
+                                <p class="version-description">Made with <span class="heart">♥</span> by <a href="https://vibinandvanshika.in/" target="_blank" rel="noopener noreferrer">vibinandvanshika.in</a></p>
+                                <div class="social-links">
+                                    <a href="https://wa.me/9769586810?text=Hey!%20What%27s%20step%202?" target="_blank" rel="noopener noreferrer" class="social-link whatsapp" title="Contact us on WhatsApp">
+                                        <i class="fas fa-phone"></i>
+                                    </a>
+                                    <a href="https://github.com/admiralsuez/shakshuka-python.git" target="_blank" rel="noopener noreferrer" class="social-link github" title="View on GitHub">
+                                        <i class="fas fa-code-branch"></i>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Changelog</h3>
+                        <div class="setting-item">
+                            <button class="btn-secondary" id="view-changelog-btn">
+                                <i class="fas fa-history"></i>
+                                View Changelog
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Changelog Modal -->
+    <div class="modal" id="changelog-modal">
+        <div class="modal-content changelog-modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-history"></i> Changelog</h3>
+                <button class="modal-close" id="close-changelog-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body changelog-modal-body">
+                <div class="changelog-sections" id="changelog-content">
+                    <div class="loading-changelog">
+                        <div class="spinner">
+                            <div class="spinner-dot"></div>
+                            <div class="spinner-dot"></div>
+                            <div class="spinner-dot"></div>
+                        </div>
+                        <p>Loading changelog...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Modal -->
+    <div id="task-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Add New Task</h3>
+                <button class="modal-close" id="close-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="task-form">
+                    <div class="form-group">
+                        <label for="task-title">Task Title</label>
+                        <input type="text" id="task-title" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-description">Description</label>
+                        <textarea id="task-description" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-project">Project</label>
+                        <input type="text" id="task-project" placeholder="e.g., Work, Personal, Health">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="task-due-date">Due Date</label>
+                            <input type="date" id="task-due-date">
+                            <div class="quick-date-buttons" style="display: flex; gap: 8px; margin-top: 8px;">
+                                <button type="button" class="btn-quick-date" onclick="setQuickDate('today')" style="flex: 1; padding: 6px 12px; font-size: 12px;">
+                                    <i class="fas fa-calendar-day"></i> Today
+                                </button>
+                                <button type="button" class="btn-quick-date" onclick="setQuickDate('tomorrow')" style="flex: 1; padding: 6px 12px; font-size: 12px;">
+                                    <i class="fas fa-calendar-plus"></i> Tomorrow
+                                </button>
+                                <button type="button" class="btn-quick-date" onclick="setQuickDate('thisweek')" style="flex: 1; padding: 6px 12px; font-size: 12px;">
+                                    <i class="fas fa-calendar-week"></i> This Week
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-duration">Duration (minutes)</label>
+                            <input type="number" id="task-duration" value="60" min="5" max="480">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-task">Cancel</button>
+                <button type="submit" class="btn-primary" id="save-task">Save Task</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Add Modal -->
+    <div id="quick-add-modal" class="modal">
+        <div class="modal-content quick-add">
+            <div class="modal-header">
+                <h3>Quick Add Task</h3>
+                <button class="modal-close" id="close-quick-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="quick-task-form">
+                    <div class="form-group">
+                        <input type="text" id="quick-task-title" placeholder="What needs to be done?" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-quick-task">Cancel</button>
+                <button type="submit" class="btn-primary" id="save-quick-task">Add Task</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Schedule Modal -->
+        <div id="schedule-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Schedule Task</h3>
+                    <button class="modal-close" id="close-schedule-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="schedule-form">
+                        <div class="form-group">
+                            <label for="schedule-task-select">Task:</label>
+                            <select id="schedule-task-select" required>
+                                <option value="">Select a task</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="schedule-task-title">Or create new task:</label>
+                            <input type="text" id="schedule-task-title" placeholder="Enter task title">
+                        </div>
+                        <div class="form-group">
+                            <label for="schedule-task-description">Description (optional):</label>
+                            <textarea id="schedule-task-description" placeholder="Enter task description" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="schedule-task-project">Project (optional):</label>
+                            <input type="text" id="schedule-task-project" placeholder="Enter project name">
+                        </div>
+                        <div class="form-group">
+                            <label for="schedule-hour">Time:</label>
+                            <select id="schedule-hour" required>
+                                <option value="">Select time</option>
+                                <option value="06:00">6:00 AM</option>
+                                <option value="07:00">7:00 AM</option>
+                                <option value="08:00">8:00 AM</option>
+                                <option value="09:00">9:00 AM</option>
+                                <option value="10:00">10:00 AM</option>
+                                <option value="11:00">11:00 AM</option>
+                                <option value="12:00">12:00 PM</option>
+                                <option value="13:00">1:00 PM</option>
+                                <option value="14:00">2:00 PM</option>
+                                <option value="15:00">3:00 PM</option>
+                                <option value="16:00">4:00 PM</option>
+                                <option value="17:00">5:00 PM</option>
+                                <option value="18:00">6:00 PM</option>
+                                <option value="19:00">7:00 PM</option>
+                                <option value="20:00">8:00 PM</option>
+                                <option value="21:00">9:00 PM</option>
+                                <option value="22:00">10:00 PM</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="schedule-duration">Duration (minutes):</label>
+                            <select id="schedule-duration" required>
+                                <option value="15">15 minutes</option>
+                                <option value="30" selected>30 minutes</option>
+                                <option value="45">45 minutes</option>
+                                <option value="60">1 hour</option>
+                                <option value="90">1.5 hours</option>
+                                <option value="120">2 hours</option>
+                                <option value="180">3 hours</option>
+                                <option value="240">4 hours</option>
+                            </select>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" id="cancel-schedule">Cancel</button>
+                    <button type="button" class="btn-primary" id="confirm-schedule">
+                        <i class="fas fa-calendar-plus"></i>
+                        Schedule Task
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strike Modal -->
+    <div id="strike-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Strike Task</h3>
+                <button class="modal-close" id="close-strike-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="strike-form">
+                    <div class="form-group">
+                        <label for="strike-report">What did you accomplish?</label>
+                        <textarea id="strike-report" placeholder="Describe what you completed or accomplished..." rows="4"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-strike">Cancel</button>
+                <button type="button" class="btn-warning" id="strike-today-btn">
+                    <i class="fas fa-calendar-day"></i>
+                    Strike for Today
+                </button>
+                <button type="button" class="btn-danger" id="strike-forever-btn">
+                    <i class="fas fa-check-circle"></i>
+                    Strike Forever
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Developer Logs Modal -->
+    <div id="logs-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Developer Logs</h3>
+                <button class="modal-close" id="close-logs-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="logs-controls">
+                    <button class="btn-secondary" id="clear-logs-btn">
+                        <i class="fas fa-trash"></i>
+                        Clear Logs
+                    </button>
+                    <button class="btn-secondary" id="refresh-logs-btn">
+                        <i class="fas fa-refresh"></i>
+                        Refresh
+                    </button>
+                </div>
+                <div class="logs-container">
+                    <pre id="logs-content">Loading logs...</pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="close-logs-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+        </div>
+    </div>
+
+    <!-- Backup Management Modal -->
+    <div class="modal" id="backup-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Manage Backups</h3>
+                <button class="modal-close" id="close-backup-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="backup-list" id="backup-list">
+                    <!-- Backup list will be populated here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-backup">Close</button>
+                <button type="button" class="btn-primary" id="create-new-backup">
+                    <i class="fas fa-plus"></i>
+                    Create New Backup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Available Modal -->
+    <div class="modal" id="update-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Update Available</h3>
+                <button class="modal-close" id="close-update-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="update-info" id="update-info">
+                    <!-- Update information will be populated here -->
+                </div>
+                <div class="update-progress" id="update-progress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <p id="progress-text">Downloading update...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-update">Later</button>
+                <button type="button" class="btn-primary" id="download-update">
+                    <i class="fas fa-download"></i>
+                    Download & Install
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Tasks Modal -->
+    <div class="modal" id="import-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Import Tasks</h3>
+                <button class="modal-close" id="close-import-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="import-info">
+                    <p>Import tasks from CSV or TXT files. Supported formats:</p>
+                    <ul>
+                        <li><strong>CSV:</strong> title, description, project, duration, due_date, priority</li>
+                        <li><strong>TXT:</strong> Title | Description | Project | Duration | Due Date</li>
+                    </ul>
+                </div>
+                <form id="import-form" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="import-file">Select File:</label>
+                        <input type="file" id="import-file" name="file" accept=".csv,.txt" required>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="import-overwrite">
+                            Replace existing tasks (uncheck to add to existing tasks)
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <button type="button" class="btn-secondary" id="download-sample" style="margin-top: 10px;">
+                            <i class="fas fa-download"></i>
+                            Download Sample CSV Template
+                        </button>
+                    </div>
+                </form>
+                <div id="import-preview" style="display: none;">
+                    <h4>Preview:</h4>
+                    <div id="preview-content"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-import">Cancel</button>
+                <button type="button" class="btn-primary" id="confirm-import">
+                    <i class="fas fa-file-import"></i>
+                    Import Tasks
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    
+    <!-- PIN Authentication - load first -->
+    <script src="{{ url_for('static', filename='js/pin-auth.js') }}?v={{ version }}"></script>
+    
+    <!-- Core utilities - load first -->
+    <script src="{{ url_for('static', filename='js/utils-new/error-handler.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/state.js') }}?v={{ version }}"></script>
+    <script>
+        window.APP_CONFIG = {
+            authEnabled: {{ config.AUTH_ENABLED | tojson }},
+            version: "{{ version }}"
+        };
+    </script>
+    <script src="{{ url_for('static', filename='js/utils.js') }}?v={{ version }}"></script>
+    
+    <!-- Feature modules -->
+    <script src="{{ url_for('static', filename='js/core/keyboard.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/features/settings.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/tasks.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/auth.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/modules/planner-v2.js') }}?v={{ version }}"></script>
+    
+    <!-- Main application -->
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ version }}"></script>
+    
+    <!-- App initialization - load last -->
+    <script src="{{ url_for('static', filename='js/core/app-init.js') }}?v={{ version }}"></script>
+</body>
+</html>

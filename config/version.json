@@ -1,0 +1,7 @@
+{
+  "version": "6.1",
+  "build": "5",
+  "release_date": "2025-11-06T14:34:57.605696",
+  "update_channel": "stable",
+  "build_notes": "Birthday Update: daily strike reset reliability + UI sync, planner cleanup at reset, analytics fixes, installer naming simplified to v6.x."
+}
