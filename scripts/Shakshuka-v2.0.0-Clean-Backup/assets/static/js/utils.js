@@ -92,7 +92,7 @@ window.addEventListener('unhandledrejection', function(event) {
             AppState.get('developerLogs').push({
                 type: 'error',
                 message: `Promise rejection: ${event.reason}`,
-                stack: event.reason?.stack || 'No stack trace',
+                stack: (event.reason && event.reason.stack) ? event.reason.stack : 'No stack trace',
                 timestamp: new Date().toISOString()
             });
         }
@@ -282,7 +282,7 @@ function isValidUrl(url) {
     try {
         new URL(url);
         return true;
-    } catch {
+    } catch (e) {
         return false;
     }
 }

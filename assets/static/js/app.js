@@ -748,16 +748,40 @@ async function resetDailyStrikes() {
             console.log('Daily strikes reset successfully');
             // Reload tasks using the Tasks module to avoid stale merges
             try {
-                if (window.Tasks && typeof window.Tasks.loadTasks === 'function') {
-                    await window.Tasks.loadTasks();
-                    // Ensure any stale strike classes are cleared
-                    if (typeof window.Tasks.syncStrikeClassesFromState === 'function') {
-                        window.Tasks.syncStrikeClassesFromState();
-                    }
-                } else if (typeof loadTasks === 'function') {
+                if (typeof loadTasks === 'function') {
                     await loadTasks();
                 }
-            } catch (e) { /* no-op */ }
+            } catch (e) { 
+                console.warn('Error loading tasks:', e);
+            }
+            
+            // Force re-render of tasks with a slight delay to ensure data is loaded
+            // Use setTimeout to allow DOM updates to complete
+            setTimeout(() => {
+                try {
+                    // Reset filter to 'active' to show newly unstiked tasks
+                    const currentPage = (AppState && AppState.get) ? AppState.get('currentPage') : 'tasks';
+                    
+                    // If on tasks page, ensure 'active' filter is applied to show reset tasks
+                    if (currentPage === 'tasks') {
+                        AppState.set('currentFilter', 'active');
+                        if (typeof renderTasks === 'function') {
+                            renderTasks();
+                        }
+                        // Update filter tab UI to show 'active' is selected
+                        const filterTabs = document.querySelectorAll('.filter-tab');
+                        filterTabs.forEach(tab => {
+                            tab.classList.remove('active');
+                            if (tab.getAttribute('data-filter') === 'active') {
+                                tab.classList.add('active');
+                            }
+                        });
+                    }
+                } catch (e) { 
+                    console.warn('Error re-rendering tasks after reset:', e);
+                }
+            }, 100);
+            
             // Update stats immediately
             try { if (typeof updateDashboardStats === 'function') updateDashboardStats(); } catch(e) {}
             // Clean up overdue (previous-day) scheduled tasks at reset time
@@ -767,19 +791,6 @@ async function resetDailyStrikes() {
             // Refresh planner and navbar schedule card
             try { if (window.DailyPlannerV2 && typeof window.DailyPlannerV2.refresh === 'function') { window.DailyPlannerV2.refresh(); } } catch(e) {}
             try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
-            // Fallback: re-fetch a moment later to squash any race conditions
-            setTimeout(() => {
-                try {
-                    if (window.Tasks && typeof window.Tasks.loadTasks === 'function') {
-                        window.Tasks.loadTasks();
-                        if (typeof window.Tasks.syncStrikeClassesFromState === 'function') {
-                            window.Tasks.syncStrikeClassesFromState();
-                        }
-                    } else if (typeof loadTasks === 'function') {
-                        loadTasks();
-                    }
-                } catch (e) { /* no-op */ }
-            }, 1500);
         } else {
             console.error('Failed to reset daily strikes:', data && data.error);
         }
@@ -2024,7 +2035,7 @@ function renderTasks(filter = AppState.get('currentFilter')) {
                     console.log(`Rendering task ${task.title}: struck_today=${task.struck_today}, completed=${task.completed}, strike_count=${task.strike_count}`);
                     
                     return `
-                        <div class="task-card ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${task.strike_count > 1 ? 'restrike' : ''}" data-task-id="${task.id}">
+                        <div class="task-card ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${(task.struck_today && task.strike_count > 1) ? 'restrike' : ''}" data-task-id="${task.id}">
                             <div class="task-actions-top-left">
                                 ${task.struck_today && !task.completed ? `
                                     <button class="task-action undo-action" onclick="undoStrike('${task.id}')" title="Undo Strike">
@@ -2069,7 +2080,7 @@ function renderTasks(filter = AppState.get('currentFilter')) {
         tasksList.innerHTML = gridHTML;
     } else {
         tasksList.innerHTML = sortedTasks.map(task => `
-        <div class="task-item ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${task.strike_count > 1 ? 'restrike' : ''}" data-task-id="${task.id}">
+        <div class="task-item ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${(task.struck_today && task.strike_count > 1) ? 'restrike' : ''}" data-task-id="${task.id}">
             <div class="task-project-tag">
                 ${task.project ? `<span class="project-tag">${sanitizeHTML(task.project)}</span>` : '<span class="project-tag no-project">No Project</span>'}
             </div>
@@ -2143,15 +2154,27 @@ function renderRecentTasks() {
 // Remove the old filterTasksByType function - it's duplicated below
 
 function setActiveFilter(filter) {
-    currentFilter = filter; // Update global filter
+    // Delegate to Tasks module if available to ensure AppState stays in sync
+    if (window.Tasks && typeof window.Tasks.setActiveFilter === 'function') {
+        return window.Tasks.setActiveFilter(filter);
+    }
+    // Fallback: keep both global and AppState in sync and update UI
+    currentFilter = filter;
+    if (window.AppState && typeof window.AppState.set === 'function') {
+        window.AppState.set('currentFilter', filter);
+    }
     document.querySelectorAll('.filter-tab').forEach(tab => {
         tab.classList.remove('active');
     });
-    document.querySelector(`[data-filter="${filter}"]`).classList.add('active');
+    const activeTab = document.querySelector(`[data-filter="${filter}"]`);
+    if (activeTab) activeTab.classList.add('active');
 }
 
 function filterTasks(filter) {
-    currentFilter = filter; // Update global filter
+    // Ensure AppState reflects the requested filter before rendering
+    if (window.AppState && typeof window.AppState.set === 'function') {
+        window.AppState.set('currentFilter', filter);
+    }
     renderTasks(filter);
 }
 
@@ -4074,11 +4097,18 @@ async function loadUpdateSettings() {
         const response = await fetch('/api/updates/config');
         const config = await response.json();
         
-        document.getElementById('auto-update-check').checked = config.auto_check_enabled || false;
-        document.getElementById('auto-update-install').checked = config.auto_install_enabled || false;
-        document.getElementById('backup-before-update').checked = config.backup_before_update !== false;
-        document.getElementById('update-channel').value = config.update_channel || 'stable';
-        document.getElementById('check-interval').value = config.check_interval_hours || 24;
+        // Safely set values with null checks
+        const autoCheckEl = document.getElementById('auto-update-check');
+        const autoInstallEl = document.getElementById('auto-update-install');
+        const backupEl = document.getElementById('backup-before-update');
+        const channelEl = document.getElementById('update-channel');
+        const intervalEl = document.getElementById('check-interval');
+        
+        if (autoCheckEl) autoCheckEl.checked = config.auto_check_enabled || false;
+        if (autoInstallEl) autoInstallEl.checked = config.auto_install_enabled || false;
+        if (backupEl) backupEl.checked = config.backup_before_update !== false;
+        if (channelEl) channelEl.value = config.update_channel || 'stable';
+        if (intervalEl) intervalEl.value = config.check_interval_hours || 24;
     } catch (error) {
         console.error('Error loading update settings:', error);
     }

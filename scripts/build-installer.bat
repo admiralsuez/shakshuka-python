@@ -26,7 +26,20 @@ echo Compiling installer...
 if %ERRORLEVEL% EQU 0 (
     echo.
     echo SUCCESS: Installer created successfully!
-    echo Location: dist\Shakshuka-Setup-v1.0.0.exe
+    REM Read version from config/version.json using PowerShell
+    set "APPVER="
+    for /f "usebackq tokens=*" %%v in (`powershell -NoProfile -Command "(Get-Content '..\config\version.json' | ConvertFrom-Json).version"`) do set APPVER=%%v
+    if not "%APPVER%"=="" (
+        echo Location: dist\Shakshuka-Setup-v%APPVER%.exe
+    ) else (
+        REM Fallback: show newest matching installer if version read failed
+        for /f "delims=" %%f in ('dir /b /od dist\Shakshuka-Setup-v*.exe') do set LAST=%%f
+        if not "%LAST%"=="" (
+            echo Location: dist\%LAST%
+        ) else (
+            echo Location: dist\Shakshuka-Setup-vX.Y.exe
+        )
+    )
     echo.
     echo You can now distribute this installer to install Shakshuka on other computers.
 ) else (

@@ -9,6 +9,9 @@ class DailyPlannerV2 {
         this.availableTasks = [];
         this.isInitialized = false;
         this.isModalOpen = false; // Flag to prevent multiple modals
+        // Throttle/merge network fetches to cut redundant GETs
+        this._loadScheduledPromise = null;
+        this._lastScheduleFetch = 0;
         
         console.log('DailyPlannerV2 constructor - selectedDate:', this.selectedDate.toDateString());
         console.log('DailyPlannerV2 constructor - getDateKey result:', this.getDateKey(this.selectedDate));
@@ -22,7 +25,7 @@ class DailyPlannerV2 {
         this.setupEventListeners();
         this.generateHoursGrid();
         this.loadAvailableTasks();
-        this.loadScheduledTasksFromBackend(); // Load from backend on init
+        this.requestLoadScheduledTasks(); // Load from backend on init (throttled)
         this.updateDateDisplay();
         this.autoScrollToCurrentHour();
         this.cleanupOverdueIfNeeded();
@@ -37,7 +40,7 @@ class DailyPlannerV2 {
             this.selectedDate.setDate(this.selectedDate.getDate() - 1);
             this.updateDateDisplay();
             this.updateHourStates();
-            this.loadScheduledTasksFromBackend(); // Fetch from backend for new date
+            this.requestLoadScheduledTasks(); // Fetch from backend for new date (throttled)
             console.log('Navigated to previous day:', this.getDateKey(this.selectedDate));
             // Scroll to top when changing days
             const hoursGrid = document.getElementById('hours-grid');
@@ -50,7 +53,7 @@ class DailyPlannerV2 {
             this.selectedDate.setDate(this.selectedDate.getDate() + 1);
             this.updateDateDisplay();
             this.updateHourStates();
-            this.loadScheduledTasksFromBackend(); // Fetch from backend for new date
+            this.requestLoadScheduledTasks(); // Fetch from backend for new date (throttled)
             console.log('Navigated to next day:', this.getDateKey(this.selectedDate));
             // Scroll to top when changing days
             const hoursGrid = document.getElementById('hours-grid');
@@ -791,7 +794,7 @@ if (response.ok) {
                 // Refresh the available tasks
                 this.loadAvailableTasks();
                 // Refresh scheduled tasks
-                this.loadScheduledTasksFromBackend();
+                this.requestLoadScheduledTasks();
                 try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
             } else if (response.status === 409) {
                 // Conflict error - show user-friendly message
@@ -974,7 +977,7 @@ if (response.ok) {
                 // Refresh the available tasks
                 this.loadAvailableTasks();
                 // Refresh scheduled tasks
-                this.loadScheduledTasksFromBackend();
+                this.requestLoadScheduledTasks();
                 try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
             } else if (response.status === 404) {
                 // Task no longer exists (likely deleted) — remove any remnants from planner UI
@@ -1093,7 +1096,7 @@ if (response.ok) {
                         this.selectedDate.setDate(this.selectedDate.getDate() - 1);
                         this.updateDateDisplay();
                         this.updateHourStates();
-                        this.loadScheduledTasksFromBackend();
+                        this.requestLoadScheduledTasks();
                         const container = document.getElementById('hours-grid');
                         if (container) container.scrollTop = 0;
                         const cd = document.getElementById('current-date-inline');
@@ -1144,7 +1147,7 @@ if (response.ok) {
                 localStorage.setItem('planner_v2_last_cleanup', todayKey);
                 // Reload lists to reflect changes
                 this.loadAvailableTasks();
-                this.loadScheduledTasksFromBackend();
+                this.requestLoadScheduledTasks();
             }
         } catch (e) {
             console.warn('Cleanup overdue scheduled tasks failed:', e);
@@ -1167,10 +1170,27 @@ if (response.ok) {
     }
 
 
+    // Throttled requester that coalesces concurrent calls and enforces a minimal interval
+    requestLoadScheduledTasks(minIntervalMs = 1500) {
+        const now = Date.now();
+        if (this._loadScheduledPromise) {
+            return this._loadScheduledPromise; // Reuse in-flight request
+        }
+        if (now - this._lastScheduleFetch < minIntervalMs) {
+            return Promise.resolve(); // Too soon; skip
+        }
+        this._lastScheduleFetch = now;
+        this._loadScheduledPromise = this.loadScheduledTasksFromBackend()
+            .catch((e) => { console.warn('Scheduled tasks fetch failed', e); })
+            .finally(() => { this._loadScheduledPromise = null; });
+        return this._loadScheduledPromise;
+    }
+
     loadScheduledTasksFromBackend() {
         console.log('=== loadScheduledTasksFromBackend START ===');
         console.log('Fetching from: /api/planner-v2/schedule');
-        apiCall('/api/planner-v2/schedule')
+        // Return the promise chain so callers can await/catch
+        return apiCall('/api/planner-v2/schedule')
         .then(response => {
             console.log('Response status:', response.status, response.statusText);
             return response.json();
@@ -1216,7 +1236,7 @@ if (response.ok) {
 
     refresh() {
         this.loadAvailableTasks();
-        this.loadScheduledTasksFromBackend();
+        this.requestLoadScheduledTasks();
         this.updateHourStates();
         this.autoScrollToCurrentHour();
         this.cleanupOverdueIfNeeded();

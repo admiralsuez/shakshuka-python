@@ -17,6 +17,7 @@ import html
 import re
 import secrets
 import logging
+import subprocess
 from werkzeug.utils import secure_filename
 
 # Add the parent directory to Python path for imports
@@ -69,7 +70,10 @@ try:
         with open(secret_key_file, 'wb') as f:
             f.write(app.secret_key)
 except Exception as e:
-    logger.warning("Could not create Flask secret key file: %s. Using environment or generated key", e)
+    # Logging not yet initialized — use a temporary logger
+    import logging as _logging
+    _init_logger = _logging.getLogger(__name__)
+    _init_logger.warning("Could not create Flask secret key file: %s. Using environment or generated key", e)
     # Try environment variable first, then generate persistent key
     env_key = os.getenv('FLASK_SECRET_KEY')
     if env_key:
@@ -161,7 +165,7 @@ def _get_app_version():
         version_path = os.path.join(root_dir, 'config', 'version.json')
         with open(version_path, 'r') as f:
             version_data = json.load(f)
-        return f"{version_data['version']}.{version_data['build']}"
+        return str(version_data.get('version', '1.0'))
     except Exception as e:
         logger.warning(f"Failed to read version.json, falling back to 1.0.0: {e}")
         return '1.0.0'
@@ -985,8 +989,8 @@ def reset_daily_strikes_job():
         reset_count = 0
         for task in tasks:
             if task.get('struck_today'):
-                # Check if task was struck forever (completed)
-                is_struck_forever = task.get('completed', False)
+                # Check if task was struck forever
+                is_struck_forever = task.get('struck_forever', False)
                 
                 # Clear the today's strike flag
                 task['struck_today'] = False
@@ -994,23 +998,23 @@ def reset_daily_strikes_job():
                 task['strike_report'] = None
                 reset_count += 1
                 
-                # If struck TODAY (not forever), clear scheduling so it returns to available tasks
-                if not is_struck_forever:
-                    task['scheduled_hour'] = None
-                    task['scheduled_minute'] = None
-                    task['scheduled_date'] = None
-                    task['scheduled_duration'] = None
-                    logger.debug(f"Task '{task.get('title', 'Unknown')}' unscheduled after today's strike reset")
+                # ALWAYS clear scheduling during reset - all tasks should return to pool
+                # (struck_forever tasks won't appear anyway, but clearing keeps data consistent)
+                task['scheduled_hour'] = None
+                task['scheduled_minute'] = None
+                task['scheduled_date'] = None
+                task['scheduled_duration'] = None
+                logger.debug(f"Task '{task.get('title', 'Unknown')}' unscheduled after today's strike reset")
         
         # 2) Clear ALL remaining scheduled tasks (from any day, not just previous days)
         # This ensures the planner is clean at the start of each day
         unscheduled = 0
         for t in tasks:
-            # Only unschedule if task is not completed (struck forever)
-            is_completed = t.get('completed', False)
+            # Unschedule all scheduled tasks except those struck forever (those are hidden anyway)
+            is_struck_forever = t.get('struck_forever', False)
             has_schedule = t.get('scheduled_date') is not None
             
-            if has_schedule and not is_completed:
+            if has_schedule and not is_struck_forever:
                 t['scheduled_hour'] = None
                 t['scheduled_minute'] = None
                 t['scheduled_date'] = None
@@ -1091,7 +1095,7 @@ def index():
         version_path = os.path.join(root_dir, 'config', 'version.json')
         with open(version_path, 'r') as f:
             version_data = json.load(f)
-        version = f"{version_data['version']}.{version_data['build']}"
+        version = str(version_data.get('version', '1.0'))
     except Exception as e:
         logger.warning(f"Failed to read version.json, falling back to 1.0.0: {e}")
         version = '1.0.0'
@@ -1152,6 +1156,38 @@ def get_changelog():
         logger.error(f"Error reading changelog: {e}")
         return 'Error reading changelog.', 500
 
+@app.route('/api/analytics')
+def get_analytics():
+    """Return decoupled analytics counters that do not reset with daily strike reset."""
+    try:
+        from src.utils.paths import get_user_data_dir
+        import os, json
+        analytics_path = os.path.join(get_user_data_dir(), 'analytics.json')
+        today = datetime.utcnow().strftime('%Y-%m-%d')
+        data = {'today_date': today, 'today_strikes': 0, 'total_strikes': 0}
+        if os.path.exists(analytics_path):
+            try:
+                with open(analytics_path, 'r', encoding='utf-8') as f:
+                    stored = json.load(f) or {}
+                data.update({
+                    'today_date': stored.get('today_date', today),
+                    'today_strikes': int(stored.get('today_strikes', 0)),
+                    'total_strikes': int(stored.get('total_strikes', 0)),
+                })
+                # Roll day if file is from a previous date (start fresh for the new day only by date, not by reset)
+                if data['today_date'] != today:
+                    data['today_date'] = today
+                    data['today_strikes'] = 0
+                    with open(analytics_path, 'w', encoding='utf-8') as f:
+                        json.dump(data, f)
+            except Exception:
+                pass
+        return jsonify({'success': True, **data})
+    except Exception as e:
+        logger.error(f"Analytics read error: {e}")
+        return jsonify({'success': False, 'today_date': datetime.utcnow().strftime('%Y-%m-%d'), 'today_strikes': 0, 'total_strikes': 0}), 200
+
+
 @app.route('/api/check-updates')
 def check_updates():
     """Check for available updates"""
@@ -1165,7 +1201,7 @@ def check_updates():
         version_path = os.path.join(root_dir, 'config', 'version.json')
         with open(version_path, 'r') as f:
             version_data = json.load(f)
-        current_version = f"{version_data['version']}.{version_data['build']}"
+        current_version = str(version_data.get('version', '1.0'))
         
         # For now, return current version info
         # In a real implementation, this would check a remote server
@@ -1198,7 +1234,7 @@ def check_updates_legacy():
         version_path = os.path.join(root_dir, 'config', 'version.json')
         with open(version_path, 'r') as f:
             version_data = json.load(f)
-        current_version = f"{version_data['version']}.{version_data['build']}"
+        current_version = str(version_data.get('version', '1.0'))
         
         # For now, return current version info
         # In a real implementation, this would check a remote server
@@ -1273,7 +1309,7 @@ def check_github_update():
         version_path = os.path.join(root_dir, 'config', 'version.json')
         with open(version_path, 'r') as f:
             version_data = json.load(f)
-        current_version = f"{version_data['version']}.{version_data['build']}"
+        current_version = str(version_data.get('version', '1.0'))
         
         # Compare versions (semver aware)
         latest_version = str(release_data['tag_name']).lstrip('v')
@@ -1976,6 +2012,8 @@ def delete_task(task_id):
 def complete_task(task_id):
     """Mark a task as completed for the authenticated user"""
     user_id = get_user_id()
+    if not ensure_data_manager():
+        return jsonify({'error': 'Data manager not available'}), 500
     tasks = app_context.data_manager.load_tasks_for_user(user_id)
     
     for i, task in enumerate(tasks):
@@ -1994,6 +2032,8 @@ def strike_task(task_id):
     """Unified strike endpoint for both today and forever"""
     user_id = get_user_id()
     strike_data = request.json
+    if not ensure_data_manager():
+        return jsonify({'error': 'Data manager not available'}), 500
     strike_type = strike_data.get('type')
     report = strike_data.get('report', '')
     
@@ -2039,6 +2079,8 @@ def strike_task(task_id):
 def undo_strike(task_id):
     """Undo a strike for today for the authenticated user"""
     user_id = get_user_id()
+    if not ensure_data_manager():
+        return jsonify({'error': 'Data manager not available'}), 500
     tasks = app_context.data_manager.load_tasks_for_user(user_id)
     today = datetime.utcnow().strftime('%Y-%m-%d')
     
@@ -2059,17 +2101,17 @@ def undo_strike(task_id):
                 else:
                     # Undo regular strike today
                     daily_strikes = task.get("daily_strikes", {})
-                strikes_today = daily_strikes.get(today, 0)
-                if strikes_today > 0:
-                    daily_strikes[today] = strikes_today - 1
-                    tasks[i]["daily_strikes"] = daily_strikes
-                
-                # If no more strikes today, mark as not struck
-                if daily_strikes.get(today, 0) == 0:
-                    tasks[i]["struck_today"] = False
-                    tasks[i]["struck_date"] = None
-                    tasks[i]["strike_report"] = None
-                        # Don't decrease strike_count for regular strikes
+                    strikes_today = daily_strikes.get(today, 0)
+                    if strikes_today > 0:
+                        daily_strikes[today] = strikes_today - 1
+                        tasks[i]["daily_strikes"] = daily_strikes
+                    
+                    # If no more strikes today, mark as not struck
+                    if daily_strikes.get(today, 0) == 0:
+                        tasks[i]["struck_today"] = False
+                        tasks[i]["struck_date"] = None
+                        tasks[i]["strike_report"] = None
+                    # Don't decrease strike_count for regular strikes
                 
                 if app_context.data_manager.save_tasks_for_user(user_id, tasks):
                     return jsonify(tasks[i])
@@ -2090,6 +2132,8 @@ def unschedule_task(task_id):
         return jsonify({'error': 'Invalid task ID'}), 400
     
     try:
+        if not ensure_data_manager():
+            return jsonify({'error': 'Data manager not available'}), 500
         tasks = app_context.data_manager.load_tasks(user_id)
         
         for i, task in enumerate(tasks):
@@ -2142,6 +2186,8 @@ def schedule_task(task_id):
     
     logger.info(f"FINAL: Scheduling task {task_id} at {hour}:{minute} on {date} for {duration} minutes")
     
+    if not ensure_data_manager():
+        return jsonify({'error': 'Data manager not available'}), 500
     tasks = app_context.data_manager.load_tasks(user_id)
     
     # Check for conflicts with existing scheduled tasks
@@ -2196,6 +2242,8 @@ def schedule_task(task_id):
 def reset_daily_strikes():
     """Reset all daily strikes and clean overdue schedule for the authenticated user (local time)."""
     user_id = get_user_id()
+    if not ensure_data_manager():
+        return jsonify({'error': 'Data manager not available'}), 500
     tasks = app_context.data_manager.load_tasks(user_id)
     now = datetime.now()
     today_local = now.strftime('%Y-%m-%d')
@@ -2557,6 +2605,8 @@ def get_schedule():
     """Get daily schedule for the authenticated user"""
     user_id = get_user_id()
     date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    if not ensure_data_manager():
+        return jsonify({'error': 'Data manager not available'}), 500
     tasks = app_context.data_manager.load_tasks(user_id)
     
     # Filter tasks for the specific date
@@ -2854,7 +2904,6 @@ def get_backups():
         print(f"Error getting backups: {e}")
         return jsonify({'error': 'Failed to get backups'}), 500
 
-@app.route('/api/backups/create', methods=['POST'])
 def validate_backup_integrity(backup_path):
     """Validate backup file integrity and detect corruption"""
     try:

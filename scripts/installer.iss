@@ -2,7 +2,7 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Shakshuka"
-#define MyAppVersion "6.2"
+#define MyAppVersion "7.7"
 #define MyAppPublisher "vibinandvanshika.in"
 #define MyAppURL "https://github.com/shakshuka-python"
 #define MyAppExeName "Shakshuka.exe"
@@ -20,12 +20,12 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 AppContact=support@vibinandvanshika.in
 AppCopyright=Copyright (C) 2025 vibinandvanshika.in
-VersionInfoVersion=6.2.0.2
+VersionInfoVersion=7.7.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Shakshuka Task Manager - Professional productivity tool
 VersionInfoCopyright=Copyright (C) 2025 vibinandvanshika.in
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=6.2.0.2
+VersionInfoProductVersion=7.7.0.0
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
@@ -78,13 +78,17 @@ Source: "build.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"
-Name: "{group}\Start Shakshuka (Silent)"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"
-Name: "{group}\Start Shakshuka (Verbose)"; Filename: "{app}\Start-Shakshuka-Verbose.bat"; IconFilename: "{app}\assets\static\images\icon.ico"
-Name: "{group}\Stop Shakshuka"; Filename: "{app}\Stop-Shakshuka.bat"; IconFilename: "{app}\assets\static\images\icon.ico"
+; Primary shortcut uses the EXE with embedded icon
+Name: "{group}\{#MyAppName}"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"; WorkingDir: "{app}"
+; Additional shortcuts
+Name: "{group}\Start Shakshuka (Silent)"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"; WorkingDir: "{app}"
+Name: "{group}\Start Shakshuka (Verbose)"; Filename: "{app}\Start-Shakshuka-Verbose.bat"; IconFilename: "{app}\assets\static\images\icon.ico"; WorkingDir: "{app}"
+Name: "{group}\Stop Shakshuka"; Filename: "{app}\Stop-Shakshuka.bat"; IconFilename: "{app}\assets\static\images\icon.ico"; WorkingDir: "{app}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"; Tasks: desktopicon
-Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"; Tasks: quicklaunchicon
+; Desktop shortcut points to EXE to leverage embedded icon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\Start-Shakshuka-Silent.vbs"; IconFilename: "{app}\assets\static\images\icon.ico"; WorkingDir: "{app}"; Tasks: desktopicon
+; Quick Launch (legacy) to EXE
+Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\Shakshuka.exe"; WorkingDir: "{app}"; Tasks: quicklaunchicon
 
 [Run]
 ; Launch Shakshuka after installation (silent mode)

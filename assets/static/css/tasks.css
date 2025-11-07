@@ -217,8 +217,8 @@
 }
 
 .task-item.restrike {
-    text-decoration: line-through;
-    opacity: 0.5;
+    /* subtle indicator only; do NOT line-through or fade */
+    border-left: 3px dashed var(--accent-color);
 }
 
 .task-item.restrike .task-action {

@@ -1,9 +1,9 @@
-# Build Report - Shakshuka v6.2-b15
+# Build Report - Shakshuka v6.9-b22
 
 ## Build Information
-- **Version:** 6.2
-- **Build Number:** 15
-- **Build Date:** 2025-11-07 19:40:02
+- **Version:** 6.9
+- **Build Number:** 22
+- **Build Date:** 2025-11-08 02:02:15
 - **Build Status:** ✅ SUCCESS
 - **Platform:** Windows (x86_64)
 
@@ -11,13 +11,13 @@
 
 ### 1. Standalone Executable
 - **Filename:** `Shakshuka.exe`
-- **Size:** 27.07 MB
+- **Size:** 27.12 MB
 - **Type:** PyInstaller Single-File Executable
 - **Status:** ✅ Created
 
 ### 2. Installer Package
-- **Filename:** `Shakshuka-Setup-v6.2.exe`
-- **Size:** 29.18 MB
+- **Filename:** `Shakshuka-Setup-v6.9.exe`
+- **Size:** 29.25 MB
 - **Type:** Inno Setup Installer
 - **Status:** ✅ Created
 
@@ -41,7 +41,7 @@
 
 ## File Locations
 - **Executable:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-release\Shakshuka.exe`
-- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-release\Shakshuka-Setup-v6.2.exe`
+- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-release\Shakshuka-Setup-v6.9.exe`
 - **Source Distribution:** `scripts/dist/`
 
 ## Installation Methods
@@ -52,13 +52,89 @@
 3. Portable - can run from any location
 
 ### Method 2: Professional Installer
-1. Run `Shakshuka-Setup-v6.2-b15.exe`
+1. Run `Shakshuka-Setup-v6.9-b22.exe`
 2. Follow installation wizard
 3. Installs to `Program Files`
 4. Creates Start Menu shortcuts
 5. Adds uninstaller
 
 ## Changelog
+## Version 6.9 - Automated Build
+Release Date: 2025-11-08T02:01:28.015561
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.8 - Automated Build
+Release Date: 2025-11-08T01:45:49.870971
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.7 - Automated Build
+Release Date: 2025-11-08T01:28:46.777226
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.6 - Automated Build
+Release Date: 2025-11-08T01:15:55.859229
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.5 - Automated Build
+Release Date: 2025-11-08T01:07:18.988193
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+Additional Fixes (post-build)
+- Planner: throttling window doubled (1500ms) and fixed promise return to remove "catch undefined" error
+- Shortcuts: Start Menu and Desktop now launch Start-Shakshuka-Silent.vbs with correct icon path; EXE embeds app icon
+- Tasks: preserve current filter (e.g., Completed) after delete; no auto-switch to Active
+- Settings: donate card aligned to settings container width (800px) via header-inner container
+
+---
+## Version 6.4 - Automated Build
+Release Date: 2025-11-07T23:25:43.381125
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.3 - Automated Build
+Release Date: 2025-11-07T22:03:10.189876
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
 ## Version 6.2 - Task View Fixes & Version Build System
 Release Date: 2025-11-06T19:30:00Z
 

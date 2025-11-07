@@ -34,6 +34,16 @@ def install_inno_setup():
     print("4. Run this script again")
     return False
 
+def _read_version():
+    try:
+        import json
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        data = json.loads((root / 'config' / 'version.json').read_text())
+        return str(data.get('version', '1.0'))
+    except Exception:
+        return '1.0'
+
 def create_installer():
     """Create the Windows installer"""
     print("Creating Professional Windows Installer...")
@@ -57,7 +67,8 @@ def create_installer():
         print("Installer created successfully!")
         
         # Check if installer was created
-        installer_path = dist_dir / "Shakshuka-Setup-v1.0.0.exe"
+        version = _read_version()
+        installer_path = dist_dir / f"Shakshuka-Setup-v{version}.exe"
         if installer_path.exists():
             size_mb = installer_path.stat().st_size / 1024 / 1024
             print(f"\nInstaller created: {installer_path}")
@@ -186,10 +197,11 @@ def main():
         print("\n" + "=" * 50)
         print("Professional installer ready!")
         print("\nFiles created:")
-        print("- dist/Shakshuka-Setup-v1.0.0.exe (Professional installer)")
+        v = _read_version()
+        print(f"- dist/Shakshuka-Setup-v{v}.exe (Professional installer)")
         print("- dist/portable/ (Portable version)")
         print("\nTo distribute:")
-        print("1. Share the Shakshuka-Setup-v1.0.0.exe file")
+        print(f"1. Share the Shakshuka-Setup-v{v}.exe file")
         print("2. Users double-click to install like any professional software")
         print("3. Or use the portable version for no-install usage")
         

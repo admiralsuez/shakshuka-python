@@ -12,17 +12,27 @@ import tempfile
 from pathlib import Path
 import subprocess
 
-def create_installer_script():
+def _read_version():
+    try:
+        import json
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        data = json.loads((root / 'config' / 'version.json').read_text())
+        return str(data.get('version', '1.0'))
+    except Exception:
+        return '1.0'
+
+def create_installer_script(version:str):
     """Create the installer batch script"""
     installer_script = '''@echo off
 setlocal enabledelayedexpansion
 
-title Shakshuka Installer v1.0.0
+title Shakshuka Installer v%s
 color 0A
 
 echo.
 echo ===============================================
-echo           Shakshuka Installer v1.0.0
+echo           Shakshuka Installer v%s
 echo ===============================================
 echo.
 
@@ -128,7 +138,7 @@ echo [INFO] Adding to Add/Remove Programs...
 reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Shakshuka" /v "DisplayName" /t REG_SZ /d "Shakshuka" /f >nul 2>&1
 reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Shakshuka" /v "UninstallString" /t REG_SZ /d "\"%INSTALL_DIR%\\uninstall.bat\"" /f >nul 2>&1
 reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Shakshuka" /v "InstallLocation" /t REG_SZ /d "%INSTALL_DIR%" /f >nul 2>&1
-reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Shakshuka" /v "DisplayVersion" /t REG_SZ /d "1.0.0" /f >nul 2>&1
+reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Shakshuka" /v "DisplayVersion" /t REG_SZ /d "%s" /f >nul 2>&1
 reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Shakshuka" /v "Publisher" /t REG_SZ /d "Shakshuka Team" /f >nul 2>&1
 
 echo [OK] Added to Add/Remove Programs
@@ -244,7 +254,8 @@ def create_professional_installer():
         
         # Create installer script
         print("Creating installer script...")
-        installer_script = create_installer_script()
+        version = _read_version()
+        installer_script = create_installer_script(version) % (version, version, version)
         installer_bat = temp_path / "install.bat"
         with open(installer_bat, 'w', encoding='utf-8') as f:
             f.write(installer_script)
@@ -252,7 +263,8 @@ def create_professional_installer():
         print("[OK] Installer script created")
         
         # Create final installer ZIP
-        installer_name = "Shakshuka-Setup-v1.0.0.exe"
+        version = _read_version()
+        installer_name = f"Shakshuka-Setup-v{version}.exe"
         installer_path = dist_dir / installer_name
         
         print("Creating self-extracting installer...")
@@ -391,7 +403,8 @@ def main():
         print("\n" + "=" * 50)
         print("Professional installer ready!")
         print("\nFiles created:")
-        print("- dist/Shakshuka-Setup-v1.0.0.exe (Professional installer)")
+        v = _read_version()
+        print(f"- dist/Shakshuka-Setup-v{v}.exe (Professional installer)")
         print("- dist/portable/ (Portable version)")
         print("\nInstallation features:")
         print("✅ Professional Windows installer")
@@ -403,7 +416,7 @@ def main():
         print("✅ Admin privileges handling")
         print("✅ Add/Remove Programs integration")
         print("\nTo distribute:")
-        print("1. Share the Shakshuka-Setup-v1.0.0.exe file")
+        print(f"1. Share the Shakshuka-Setup-v{v}.exe file")
         print("2. Users double-click to install like any professional software")
         print("3. Or use the portable version for no-install usage")
         

@@ -1,9 +1,9 @@
-# Build Report - Shakshuka v6.2-b15
+# Build Report - Shakshuka v6.5-b18
 
 ## Build Information
-- **Version:** 6.2
-- **Build Number:** 15
-- **Build Date:** 2025-11-07 19:40:02
+- **Version:** 6.5
+- **Build Number:** 18
+- **Build Date:** 2025-11-08 01:08:08
 - **Build Status:** ✅ SUCCESS
 - **Platform:** Windows (x86_64)
 
@@ -11,13 +11,13 @@
 
 ### 1. Standalone Executable
 - **Filename:** `Shakshuka.exe`
-- **Size:** 27.07 MB
+- **Size:** 27.12 MB
 - **Type:** PyInstaller Single-File Executable
 - **Status:** ✅ Created
 
 ### 2. Installer Package
-- **Filename:** `Shakshuka-Setup-v6.2.exe`
-- **Size:** 29.18 MB
+- **Filename:** `Shakshuka-Setup-v6.5.exe`
+- **Size:** 29.25 MB
 - **Type:** Inno Setup Installer
 - **Status:** ✅ Created
 
@@ -41,7 +41,7 @@
 
 ## File Locations
 - **Executable:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-release\Shakshuka.exe`
-- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-release\Shakshuka-Setup-v6.2.exe`
+- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-release\Shakshuka-Setup-v6.5.exe`
 - **Source Distribution:** `scripts/dist/`
 
 ## Installation Methods
@@ -52,13 +52,43 @@
 3. Portable - can run from any location
 
 ### Method 2: Professional Installer
-1. Run `Shakshuka-Setup-v6.2-b15.exe`
+1. Run `Shakshuka-Setup-v6.5-b18.exe`
 2. Follow installation wizard
 3. Installs to `Program Files`
 4. Creates Start Menu shortcuts
 5. Adds uninstaller
 
 ## Changelog
+## Version 6.5 - Automated Build
+Release Date: 2025-11-08T01:07:18.988193
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.4 - Automated Build
+Release Date: 2025-11-07T23:25:43.381125
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.3 - Automated Build
+Release Date: 2025-11-07T22:03:10.189876
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
 ## Version 6.2 - Task View Fixes & Version Build System
 Release Date: 2025-11-06T19:30:00Z
 

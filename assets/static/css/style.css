@@ -1397,8 +1397,8 @@ body[data-theme="anxiety"][data-intensity="10"] {
     display: none; /* Hide from active tasks */
 }
 .task-item.restrike {
-    text-decoration: line-through;
-    opacity: 0.5;
+    /* indicate repeated strikes subtly without marking as completed */
+    border-left: 3px dashed var(--accent-color, #FFB86C);
 }
 .task-item.restrike .task-action {
     display: block;
@@ -1606,8 +1606,21 @@ body[data-theme="anxiety"][data-intensity="10"] {
     color: var(--accent-color);
 }
 /* Settings */
+.donate-card { display:flex; align-items:center; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 12px; padding: 8px 12px; box-shadow: 0 2px 8px var(--shadow-color); }
+.donate-card .donate-link { display:flex; gap:8px; align-items:center; text-decoration:none; padding-left: 4px; padding-right: 4px; }
+.donate-card .donate-text { color: var(--text-color); font-weight:600; }
+.donate-card .donate-cta { background: var(--primary-gradient); color:#fff; padding: 6px 10px; border-radius: 10px; font-weight:700; }
 .settings-container {
     max-width: 800px;
+    margin: 0 auto;
+}
+#settings-page .settings-header-inner {
+    max-width: 800px;
+    margin: 0 auto;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 .settings-section {
     background: var(--surface-finish-gradient);
@@ -2402,6 +2415,15 @@ select:focus {
     border-radius: calc(12px * var(--dpi-scale));
 }
 /* Unify button sizes within settings */
+#settings-page .setting-item { text-align: left; }
+#settings-page .time-select { justify-content: flex-start; margin-left: 0; }
+#settings-page .time-select select { min-width: 64px; }
+#settings-page .action-buttons-row { display: flex; gap: 12px; flex-wrap: wrap; }
+#settings-page .action-buttons-row .btn-secondary,
+#settings-page .action-buttons-row .btn-primary,
+#settings-page .action-buttons-row .btn-danger { min-width: 200px; justify-content: center; }
+#settings-page .stacked-setting { display:flex; align-items:center; gap:12px; width:100%; }
+#settings-page .stacked-setting .time-select { margin-left:0; }
 .settings-container .btn-primary,
 .settings-container .btn-secondary,
 .settings-container .btn-danger {

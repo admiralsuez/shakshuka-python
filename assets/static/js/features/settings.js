@@ -20,10 +20,13 @@ window.incrementSettingsChangeCount = function incrementSettingsChangeCount() {
 };
 
 const Settings = {
+    _initializing: true,
     /**
      * Load settings from server and apply them
      */
     async load() {
+        // Guard to prevent change handlers from saving defaults during init
+        this._initializing = true;
         try {
             const response = await apiCall('/api/settings');
             const settings = await response.json();
@@ -36,7 +39,9 @@ const Settings = {
             const finishSelector = document.getElementById('finish-selector');
             const intensitySelector = document.getElementById('intensity-selector');
             const dpiSelector = document.getElementById('dpi-selector');
-            const resetTimeInput = document.getElementById('daily-reset-time');
+            const hourSelect = document.getElementById('reset-hour-select');
+            const minuteSelect = document.getElementById('reset-minute-select');
+            const periodSelect = document.getElementById('reset-period-select');
             
             if (autostartToggle) autostartToggle.checked = settings.autostart || false;
             if (autosaveInterval) autosaveInterval.value = settings.autosave_interval || 30;
@@ -44,7 +49,19 @@ const Settings = {
             if (finishSelector) finishSelector.value = settings.finish || 'glossy';
             if (intensitySelector) intensitySelector.value = settings.intensity || '5';
             if (dpiSelector) dpiSelector.value = settings.dpi_scale || 100;
-            if (resetTimeInput) resetTimeInput.value = settings.daily_reset_time || '08:00';
+
+            // Build selects (once)
+            this.ensureTimeSelectOptions();
+            
+            if (hourSelect && minuteSelect) {
+                const timeStr = settings.daily_reset_time || '08:00';
+                const [hours24, minutes] = timeStr.split(':').map(Number);
+                const { hour12, period } = Settings.convert24to12(hours24);
+                hourSelect.value = String(hour12).padStart(2, '0');
+                const minuteVal = (parseInt(minutes, 10) - (parseInt(minutes, 10) % 5)).toString().padStart(2, '0');
+                minuteSelect.value = minuteVal;
+                if (periodSelect) periodSelect.value = period;
+            }
             
             this.applyThemeAndDPI();
             
@@ -57,11 +74,29 @@ const Settings = {
             if (typeof hideLoadingScreen === 'function') {
                 hideLoadingScreen();
             }
+            // End init phase
+            this._initializing = false;
+            console.log('[DEBUG] Settings initialization complete, _initializing set to false');
+            
+            // Re-bind reset time handlers after initialization
+            if (typeof window._bindResetTimeHandlers === 'function') {
+                console.log('[DEBUG] Re-binding reset time handlers after init');
+                setTimeout(() => window._bindResetTimeHandlers(), 100);
+            }
         } catch (error) {
             Utils.Logger.error('Error loading settings:', error);
             // Hide loading screen even if there's an error
             if (typeof hideLoadingScreen === 'function') {
                 hideLoadingScreen();
+            }
+            // End init phase on error as well
+            this._initializing = false;
+            console.log('[DEBUG] Settings initialization complete (with error), _initializing set to false');
+            
+            // Re-bind reset time handlers after initialization even on error
+            if (typeof window._bindResetTimeHandlers === 'function') {
+                console.log('[DEBUG] Re-binding reset time handlers after init (error path)');
+                setTimeout(() => window._bindResetTimeHandlers(), 100);
             }
         }
     },
@@ -459,6 +494,254 @@ const Settings = {
                 showNotification('Error updating DPI scale', 'error');
             }
         }
+    },
+
+    /**
+     * Ensure time select options (hours 00-23, minutes 00,05,...,55)
+     */
+    ensureTimeSelectOptions() {
+        const hourSelect = document.getElementById('reset-hour-select');
+        const minuteSelect = document.getElementById('reset-minute-select');
+        const periodSelect = document.getElementById('reset-period-select');
+        if (hourSelect && hourSelect.options.length === 0) {
+            for (let h = 1; h <= 12; h++) {
+                const opt = document.createElement('option');
+                opt.value = String(h).padStart(2, '0');
+                opt.textContent = String(h).padStart(2, '0');
+                hourSelect.appendChild(opt);
+            }
+        }
+        if (minuteSelect && minuteSelect.options.length === 0) {
+            for (let m = 0; m < 60; m += 5) {
+                const opt = document.createElement('option');
+                opt.value = String(m).padStart(2, '0');
+                opt.textContent = String(m).padStart(2, '0');
+                minuteSelect.appendChild(opt);
+            }
+        }
+        if (periodSelect && periodSelect.options.length === 0) {
+            ['am', 'pm'].forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p;
+                opt.textContent = p.toUpperCase();
+                periodSelect.appendChild(opt);
+            });
+        }
+    },
+
+    /**
+     * Update daily reset time based on the select inputs
+     * @param {boolean} forceUpdate - If true, bypass initialization check (for manual save button)
+     */
+    async updateResetTimeFromSelects(forceUpdate = false) {
+        console.log('[DEBUG] updateResetTimeFromSelects called, _initializing:', this._initializing, 'forceUpdate:', forceUpdate);
+        if (this._initializing && !forceUpdate) {
+            console.log('[DEBUG] Blocked by _initializing flag');
+            return; // Don't save while initializing
+        }
+        const hourSelect = document.getElementById('reset-hour-select');
+        const minuteSelect = document.getElementById('reset-minute-select');
+        const periodSelect = document.getElementById('reset-period-select');
+        console.log('[DEBUG] Got selects:', { hourSelect: !!hourSelect, minuteSelect: !!minuteSelect, periodSelect: !!periodSelect });
+        if (!hourSelect || !minuteSelect || !periodSelect) {
+            console.log('[DEBUG] Missing select elements');
+            return;
+        }
+
+        const hour12 = parseInt(hourSelect.value, 10);
+        const period = periodSelect.value;
+        const hour24 = this.convert12to24(hour12, period);
+        const resetTime = `${String(hour24).padStart(2, '0')}:${minuteSelect.value}`;
+        console.log('[DEBUG] Computed resetTime:', resetTime, { hour12, period, hour24, minute: minuteSelect.value });
+        
+        try {
+            console.log('[DEBUG] About to call apiCall with:', { daily_reset_time: resetTime });
+            const response = await apiCall('/api/settings', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ daily_reset_time: resetTime })
+            });
+            console.log('[DEBUG] apiCall response:', { ok: response.ok, status: response.status });
+
+            if (response.ok) {
+                const settings = AppState.get('currentSettings') || {};
+                settings.daily_reset_time = resetTime;
+                AppState.set('currentSettings', settings);
+                console.log('[DEBUG] Settings updated in AppState');
+                if (typeof showNotification === 'function') {
+                    showNotification(`Daily reset time updated to ${resetTime}`, 'success');
+                }
+                window.incrementSettingsChangeCount?.();
+                if (typeof window.setupDailyReset === 'function') {
+                    window.setupDailyReset();
+                }
+            } else {
+                throw new Error('Failed to update reset time');
+            }
+        } catch (error) {
+            console.error('[DEBUG] Error in updateResetTimeFromSelects:', error);
+            Utils.Logger.error('Error updating reset time:', error);
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating reset time', 'error');
+            }
+        }
+    },
+
+    /**
+     * Debounced save for select-based time inputs
+     */
+    debouncedUpdateResetTimeFromSelects: function() {
+        console.log('[DEBUG] debouncedUpdateResetTimeFromSelects called, _initializing:', Settings._initializing);
+        if (Settings._initializing) {
+            console.log('[DEBUG] Blocked by _initializing in debounced function');
+            return; // Guard during init
+        }
+        if (window._resetTimeTimeout) {
+            clearTimeout(window._resetTimeTimeout);
+        }
+        window._resetTimeTimeout = setTimeout(() => {
+            console.log('[DEBUG] Debounce timeout fired, calling updateResetTimeFromSelects');
+            Settings.updateResetTimeFromSelects();
+            window._resetTimeTimeout = null;
+        }, 1500);
+    },
+
+    /**
+     * Update daily reset time using spinner controls
+     */
+    async updateResetTime() {
+        const hourInput = document.getElementById('reset-hour');
+        const minuteInput = document.getElementById('reset-minute');
+        const amBtn = document.getElementById('period-am');
+        const hiddenInput = document.getElementById('daily-reset-time');
+        
+        if (!hourInput || !minuteInput) return;
+        
+        // Get 12-hour format values
+        const hour12 = parseInt(hourInput.value, 10);
+        const minute = minuteInput.value.padStart(2, '0');
+        const period = amBtn && amBtn.classList.contains('active') ? 'am' : 'pm';
+        
+        // Convert to 24-hour format for storage
+        const hour24 = this.convert12to24(hour12, period);
+        const resetTime = `${hour24.toString().padStart(2, '0')}:${minute}`;
+        
+        try {
+            const response = await apiCall('/api/settings', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ daily_reset_time: resetTime })
+            });
+
+            if (response.ok) {
+                const settings = AppState.get('currentSettings') || {};
+                settings.daily_reset_time = resetTime;
+                AppState.set('currentSettings', settings);
+                if (hiddenInput) hiddenInput.value = resetTime;
+                
+                // Show friendly 12-hour format in notification
+                const displayTime = `${hour12.toString().padStart(2, '0')}:${minute} ${period.toUpperCase()}`;
+                if (typeof showNotification === 'function') {
+                    showNotification(`Daily reset time updated to ${displayTime}`, 'success');
+                }
+                window.incrementSettingsChangeCount?.();
+                
+                // Re-setup daily reset timer
+                if (typeof window.setupDailyReset === 'function') {
+                    window.setupDailyReset();
+                }
+            } else {
+                throw new Error('Failed to update reset time');
+            }
+        } catch (error) {
+            Utils.Logger.error('Error updating reset time:', error);
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating reset time', 'error');
+            }
+        }
+    },
+
+    /**
+     * Convert 24-hour time to 12-hour with AM/PM
+     */
+    convert24to12(hours24) {
+        let hour12 = hours24 % 12;
+        if (hour12 === 0) hour12 = 12;
+        const period = hours24 >= 12 ? 'pm' : 'am';
+        return { hour12, period };
+    },
+
+    /**
+     * Convert 12-hour time to 24-hour
+     */
+    convert12to24(hour12, period) {
+        let hours24 = parseInt(hour12, 10);
+        if (period === 'pm' && hours24 !== 12) {
+            hours24 += 12;
+        } else if (period === 'am' && hours24 === 12) {
+            hours24 = 0;
+        }
+        return hours24;
+    },
+
+    /**
+     * Update AM/PM period buttons
+     */
+    updatePeriodButtons(activePeriod) {
+        const amBtn = document.getElementById('period-am');
+        const pmBtn = document.getElementById('period-pm');
+        
+        if (amBtn) {
+            amBtn.classList.toggle('active', activePeriod === 'am');
+        }
+        if (pmBtn) {
+            pmBtn.classList.toggle('active', activePeriod === 'pm');
+        }
+    },
+
+    /**
+     * Adjust time spinner value (12-hour format)
+     */
+    adjustTime(inputId, direction) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+        
+        let value = parseInt(input.value, 10);
+        
+        if (inputId === 'reset-hour') {
+            // Hours: 1-12 in 12-hour format
+            value = value + direction;
+            if (value > 12) value = 1;
+            if (value < 1) value = 12;
+        } else if (inputId === 'reset-minute') {
+            // Minutes: 0-59
+            value = (value + direction + 60) % 60;
+        }
+        
+        input.value = String(value).padStart(2, '0');
+        
+        // Debounce the update - save after 2 seconds of no changes
+        this.debouncedUpdateResetTime();
+    },
+
+    /**
+     * Debounced save function - saves after 2 seconds of inactivity
+     */
+    debouncedUpdateResetTime: function() {
+        // Clear previous timeout
+        if (window._resetTimeTimeout) {
+            clearTimeout(window._resetTimeTimeout);
+        }
+        
+        // Set new timeout for 2 seconds
+        window._resetTimeTimeout = setTimeout(() => {
+            this.updateResetTime();
+            window._resetTimeTimeout = null;
+        }, 2000);
     }
 };
 
@@ -474,3 +757,165 @@ window.updateTheme = () => Settings.updateTheme();
 window.updateFinish = () => Settings.updateFinish();
 window.updateIntensity = () => Settings.updateIntensity();
 window.updateDPI = () => Settings.updateDPI();
+window.updateResetTime = () => Settings.updateResetTime();
+
+// Initialize time select/spinner event handlers when DOM loads
+(function initResetTimeBindings(){
+    let bindAttempts = 0;
+    const MAX_BIND_ATTEMPTS = 5;
+    
+    function bind() {
+        bindAttempts++;
+        console.log(`[DEBUG] initResetTimeBindings bind() called (attempt ${bindAttempts})`);
+        
+        try { Settings.ensureTimeSelectOptions(); } catch(e) { console.error('[DEBUG] Error in ensureTimeSelectOptions:', e); }
+        
+        const hourSelect = document.getElementById('reset-hour-select');
+        const minuteSelect = document.getElementById('reset-minute-select');
+        const periodSelect = document.getElementById('reset-period-select');
+        const saveBtn = document.getElementById('save-reset-time-btn');
+        
+        console.log('[DEBUG] Found elements:', { 
+            hourSelect: !!hourSelect, 
+            minuteSelect: !!minuteSelect, 
+            periodSelect: !!periodSelect,
+            saveBtn: !!saveBtn
+        });
+        
+        // If elements not found and haven't exceeded max attempts, retry
+        if ((!hourSelect || !minuteSelect || !periodSelect || !saveBtn) && bindAttempts < MAX_BIND_ATTEMPTS) {
+            console.log(`[DEBUG] Elements not ready, retrying in 200ms...`);
+            setTimeout(bind, 200);
+            return;
+        }
+        
+        const handler = () => {
+            console.log('[DEBUG] Select change handler fired');
+            Settings.debouncedUpdateResetTimeFromSelects();
+        };
+        
+        if (hourSelect && !hourSelect._resetBound) {
+            console.log('[DEBUG] Binding hourSelect');
+            hourSelect.addEventListener('change', handler);
+            hourSelect.addEventListener('input', handler);
+            hourSelect._resetBound = true;
+        }
+        if (minuteSelect && !minuteSelect._resetBound) {
+            console.log('[DEBUG] Binding minuteSelect');
+            minuteSelect.addEventListener('change', handler);
+            minuteSelect.addEventListener('input', handler);
+            minuteSelect._resetBound = true;
+        }
+        if (periodSelect && !periodSelect._resetBound) {
+            console.log('[DEBUG] Binding periodSelect');
+            periodSelect.addEventListener('change', handler);
+            periodSelect.addEventListener('input', handler);
+            periodSelect._resetBound = true;
+        }
+        
+        // Explicit save button - immediate save, no debounce
+        if (saveBtn && !saveBtn._resetBound) {
+            console.log('[DEBUG] Setting up save button');
+            // Remove any existing onclick
+            saveBtn.onclick = null;
+            
+            const clickHandler = async function(e) {
+                console.log('[DEBUG] *** SAVE BUTTON CLICKED ***');
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const originalText = saveBtn.textContent;
+                try {
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = 'Saving…';
+                    console.log('[DEBUG] About to call updateResetTimeFromSelects directly with forceUpdate=true');
+                    // Pass forceUpdate=true to bypass initialization check
+                    await Settings.updateResetTimeFromSelects(true);
+                    console.log('[DEBUG] updateResetTimeFromSelects completed successfully');
+                    saveBtn.textContent = 'Saved!';
+                    setTimeout(() => { 
+                        saveBtn.textContent = 'Save';
+                        saveBtn.disabled = false;
+                    }, 1500);
+                } catch (err) {
+                    console.error('[DEBUG] Error in save button handler:', err);
+                    saveBtn.textContent = 'Error';
+                    setTimeout(() => { 
+                        saveBtn.textContent = 'Save';
+                        saveBtn.disabled = false;
+                    }, 2000);
+                }
+            };
+            
+            // Bind directly
+            saveBtn.addEventListener('click', clickHandler, false);
+            saveBtn._resetBound = true;
+            console.log('[DEBUG] Save button click handler bound successfully');
+        }
+        
+        console.log('[DEBUG] Binding complete!');
+    }
+    
+    // Expose bind function globally for re-binding after settings load
+    window._bindResetTimeHandlers = bind;
+    
+    console.log('[DEBUG] Document readyState:', document.readyState);
+    if (document.readyState !== 'loading') {
+        console.log('[DEBUG] Calling bind() immediately');
+        setTimeout(bind, 50); // Small delay to ensure DOM is fully ready
+    } else {
+        console.log('[DEBUG] Waiting for DOMContentLoaded');
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('[DEBUG] DOMContentLoaded fired, calling bind()');
+            setTimeout(bind, 50);
+        }, { once: true });
+    }
+})();
+
+// Global explicit save function used by the Save button as a hard fallback
+window.saveResetTimeNow = async function() {
+    console.log('[DEBUG] saveResetTimeNow called (global fallback)');
+    try {
+        const hourSelect = document.getElementById('reset-hour-select');
+        const minuteSelect = document.getElementById('reset-minute-select');
+        const periodSelect = document.getElementById('reset-period-select');
+        console.log('[DEBUG] Got selects in fallback:', { hourSelect: !!hourSelect, minuteSelect: !!minuteSelect, periodSelect: !!periodSelect });
+        if (!hourSelect || !minuteSelect || !periodSelect) {
+            try { Utils.safeShowNotification('Reset time controls not ready', 'error'); } catch(_) {}
+            return;
+        }
+        var hour12 = parseInt(hourSelect.value, 10);
+        var period = periodSelect.value === 'pm' ? 'pm' : 'am';
+        var h24 = Settings.convert12to24(hour12, period);
+        var resetTime = (String(h24).padStart(2, '0')) + ':' + minuteSelect.value;
+        console.log('[DEBUG] Computed resetTime in fallback:', resetTime);
+
+        // Prefer global apiCall if available; otherwise, fallback to fetch
+        var caller = (typeof window.apiCall === 'function')
+            ? window.apiCall
+            : function(url, options) { return fetch(url, Object.assign({ credentials: 'include' }, options)); };
+        console.log('[DEBUG] Using caller:', typeof window.apiCall === 'function' ? 'apiCall' : 'fetch');
+
+        const resp = await caller('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ daily_reset_time: resetTime })
+        });
+        console.log('[DEBUG] Fallback response:', { ok: resp && resp.ok, status: resp && resp.status });
+
+        if (resp && resp.ok) {
+            try {
+                var settings = AppState.get ? (AppState.get('currentSettings') || {}) : {};
+                settings.daily_reset_time = resetTime;
+                if (AppState.set) AppState.set('currentSettings', settings);
+            } catch (e) {}
+            try { Utils.safeShowNotification('Daily reset time updated to ' + resetTime, 'success'); } catch(_) {}
+            try { if (typeof window.setupDailyReset === 'function') window.setupDailyReset(); } catch(_) {}
+        } else {
+            try { Utils.safeShowNotification('Failed to save reset time', 'error'); } catch(_) {}
+        }
+    } catch (e) {
+        console.error('[DEBUG] Error in saveResetTimeNow:', e);
+        try { Utils.safeShowNotification('Failed to save reset time', 'error'); } catch(_) {}
+    }
+};

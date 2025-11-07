@@ -363,6 +363,34 @@ function renderTasks() {
     setupDragAndDrop();
 }
 
+// Sync strike classes with current task state (used after daily reset to remove stale CSS classes)
+function syncStrikeClassesFromState() {
+    const tasks = AppState.getTasks();
+    tasks.forEach(task => {
+        const taskEl = document.getElementById(`task-${task.id}`);
+        if (taskEl) {
+            // Remove old strike classes
+            taskEl.classList.remove('struck-today', 'struck-forever');
+            
+            // Re-apply based on current task state
+            if (task.struck_today) taskEl.classList.add('struck-today');
+            if (task.completed || task.struck_forever) taskEl.classList.add('struck-forever');
+            
+            // Update title class
+            const titleEl = taskEl.querySelector('.task-title');
+            if (titleEl) {
+                titleEl.classList.remove('struck');
+                if (task.struck_today || task.completed || task.struck_forever) {
+                    titleEl.classList.add('struck');
+                }
+            }
+        }
+    });
+}
+
+// Export to window for external access
+window.syncStrikeClassesFromState = syncStrikeClassesFromState;
+
 function createTaskElement(task) {
     const taskDiv = document.createElement('div');
     taskDiv.className = `task-item ${task.status || 'pending'}`;
@@ -544,7 +572,7 @@ function confirmSchedule() {
 }
 
 // Task statistics
-function updateTaskStats() {
+async function updateTaskStats() {
     const tasks = AppState.getTasks();
     const stats = {
         total: tasks.length,
@@ -578,21 +606,26 @@ function updateTaskStats() {
         }
     });
 
-    // Update mini analytics in tasks header if present
+    // Update mini analytics in tasks header from decoupled analytics endpoint (does not reset with daily strike reset)
     const headerStrikedToday = document.getElementById('header-striked-today');
     if (headerStrikedToday) {
-        headerStrikedToday.textContent = stats.today;
-        console.log('Updated header striked today:', stats.today);
-    } else {
-        console.log('Header striked today element not found');
+        try {
+            const resp = await apiCall('/api/analytics');
+            const a = await resp.json();
+            if (a && a.success) {
+                headerStrikedToday.textContent = a.today_strikes ?? 0;
+            } else {
+                headerStrikedToday.textContent = stats.today; // fallback
+            }
+        } catch (e) {
+            headerStrikedToday.textContent = stats.today; // fallback
+        }
     }
     
     // Also check if mini-analytics container exists
     const miniAnalytics = document.querySelector('.mini-analytics');
     if (miniAnalytics) {
-        console.log('Mini analytics container found:', miniAnalytics);
-    } else {
-        console.log('Mini analytics container not found');
+        // no-op
     }
 }
 

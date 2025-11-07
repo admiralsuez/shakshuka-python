@@ -49,14 +49,22 @@ def create_simple_installer():
             print(f"[OK] {doc}")
     
     # Create simple installer script
+    # Read version for display
+    try:
+        import json
+        version = json.loads((project_dir.parent / 'config' / 'version.json').read_text()).get('version','1.0')
+    except Exception:
+        version = '1.0'
     install_script = installer_dir / "install.bat"
     with open(install_script, "w", encoding="utf-8") as f:
-        f.write("""@echo off
+        f.write(f"""@echo off
 setlocal
+
+set "VERSION={version}"
 
 echo.
 echo ==================================================
-echo  Shakshuka Simple Installer v1.0.0
+echo  Shakshuka Simple Installer v%VERSION%
 echo ==================================================
 echo.
 
@@ -138,7 +146,13 @@ exit /b 0
     print("[OK] Installer script created")
     
     # Create ZIP package
-    zip_path = dist_dir / "Shakshuka-Simple-Installer-v1.0.0.zip"
+    # Read version
+    try:
+        import json
+        version = json.loads((project_dir.parent / 'config' / 'version.json').read_text()).get('version','1.0')
+    except Exception:
+        version = '1.0'
+    zip_path = dist_dir / f"Shakshuka-Simple-Installer-v{version}.zip"
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk(installer_dir):
             for file in files:

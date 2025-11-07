@@ -9,33 +9,53 @@ from datetime import datetime
 def get_version_info():
     """Get version information from config/version.json"""
     try:
-        with open('config/version.json', 'r') as f:
+        with open('config/version.json', 'r', encoding='utf-8') as f:
             version_data = json.load(f)
-        return version_data.get('version', '1.0.0'), version_data.get('build', '1')
+        return version_data.get('version', '1.0'), version_data.get('build', '1')
     except Exception as e:
         print(f"Warning: Could not read version.json: {e}")
-        return '1.0.0', '1'
+        return '1.0', '1'
+
+def bump_version_two_part():
+    """Increment two-part version X.Y -> X.(Y+1); when Y==9, roll to (X+1).0. Updates version.json."""
+    try:
+        with open('config/version.json', 'r', encoding='utf-8') as f:
+            version_data = json.load(f)
+        cur = str(version_data.get('version', '1.0')).strip()
+        parts = cur.split('.')
+        major = int(parts[0]) if parts and parts[0].isdigit() else 1
+        minor = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        if minor < 9:
+            minor += 1
+        else:
+            major += 1
+            minor = 0
+        new_version = f"{major}.{minor}"
+        version_data['version'] = new_version
+        version_data['release_date'] = datetime.now().isoformat()
+        # Increase build as well on version bump
+        version_data['build'] = str(int(version_data.get('build', 0)) + 1)
+        with open('config/version.json', 'w', encoding='utf-8') as f:
+            json.dump(version_data, f, indent=2)
+        print(f"Version bumped: {cur} -> {new_version}")
+        return new_version, version_data['build']
+    except Exception as e:
+        print(f"Warning: Could not bump version: {e}")
+        return get_version_info()
 
 def increment_build_number():
-    """Increment the build number and update version.json"""
+    """Increment only the build number and update version.json"""
     try:
-        with open('config/version.json', 'r') as f:
+        with open('config/version.json', 'r', encoding='utf-8') as f:
             version_data = json.load(f)
-        
-        # Increment build number
         current_build = int(version_data.get('build', 0))
         new_build = current_build + 1
-        
-        # Update version data
         version_data['build'] = str(new_build)
         version_data['release_date'] = datetime.now().isoformat()
-        
-        # Write back to file
-        with open('config/version.json', 'w') as f:
+        with open('config/version.json', 'w', encoding='utf-8') as f:
             json.dump(version_data, f, indent=2)
-        
         print(f"Build number incremented: {current_build} -> {new_build}")
-        return version_data.get('version', '1.0.0'), str(new_build)
+        return version_data.get('version', '1.0'), str(new_build)
     except Exception as e:
         print(f"Warning: Could not increment build number: {e}")
         return get_version_info()
@@ -52,6 +72,7 @@ def build_executable():
         '--console',  # Show console window for debugging
         '--name=Shakshuka',  # Name of the executable
         '--target-arch=x86_64',  # Explicitly target 64-bit
+        '--icon=assets/static/images/icon.ico',  # Embed app icon into the EXE
         '--clean',  # Clean cache before building
         '--add-data=assets/templates;templates',  # Include templates
         '--add-data=assets/static;static',  # Include static files
@@ -188,10 +209,10 @@ def build_installer():
     
     print(f"Found Inno Setup at: {inno_path}")
     
-    # Get version info
+    # Read current version (already bumped in main)
     version, build = get_version_info()
     print(f"Building installer for version {version} (build {build})")
-    
+
     # Update installer script with current version
     update_installer_script(version, build)
     
@@ -232,6 +253,47 @@ def build_installer():
         print(f"Unexpected error building installer: {e}")
         return False
 
+def update_changelog(version: str, notes: str = None):
+    """Prepend a changelog entry for the given version if not already present."""
+    changelog_path = Path('config/changelog.txt')
+    try:
+        existing = ''
+        if changelog_path.exists():
+            existing = changelog_path.read_text(encoding='utf-8')
+            if f"## Version {version} " in existing or f"## Version {version}\n" in existing:
+                print(f"Changelog already has an entry for v{version}; skipping")
+                return
+        now = datetime.now().isoformat()
+        # Determine release title based on major version
+        try:
+            major = int(str(version).split('.')[0])
+        except Exception:
+            major = None
+        if major == 6:
+            title_suffix = "Birthday Update"
+        elif major == 7:
+            title_suffix = "Post Birthday Update"
+        else:
+            title_suffix = "Release"
+        lines = [
+            f"## Version {version} - {title_suffix}",
+            f"Release Date: {now}",
+            "",
+            "Highlights",
+            "- Daily strikes persistence in SQLite (new migration)",
+            "- Reduced duplicate planner schedule GET calls",
+            "- Static cache-bust params unified to ?v=6.2",
+            "- Installer script echoes dynamic version",
+            "",
+            "---",
+            "",
+        ]
+        changelog_path.write_text("\n".join(lines) + existing, encoding='utf-8')
+        print(f"Changelog updated with v{version}")
+    except Exception as e:
+        print(f"Warning: Failed to update changelog: {e}")
+
+
 def update_installer_script(version, build):
     """Update the installer script with current version (no build suffix in filename)"""
     installer_script = Path('scripts/installer.iss')
@@ -241,7 +303,7 @@ def update_installer_script(version, build):
         return
     
     try:
-        # Read the current script
+        # Read the current script - handle both CRLF and LF line endings
         with open(installer_script, 'r', encoding='utf-8') as f:
             content = f.read()
         
@@ -253,25 +315,42 @@ def update_installer_script(version, build):
         
         # Also update VersionInfoVersion and VersionInfoProductVersion with build number
         # Format: major.minor.patch.build
-        # Parse version string (e.g., "6.1" becomes "6.1.0")
+        # Parse version string (e.g., "6.2" becomes "6.2.0")
         version_parts = version.split('.')
         while len(version_parts) < 3:
             version_parts.append('0')
-        full_version = f"{'.'.join(version_parts)}.{build}"
+        # Use two-part version for display/file names; keep 4-part for Windows metadata with zeros
+        full_version = f"{version_parts[0]}.{version_parts[1]}.0.0"
         
-        content = re.sub(r'VersionInfoVersion=.*', f'VersionInfoVersion={full_version}', content)
-        content = re.sub(r'VersionInfoProductVersion=.*', f'VersionInfoProductVersion={full_version}', content)
+        # Update VersionInfoVersion line - use more specific pattern for Inno Setup
+        content = re.sub(
+            r'^VersionInfoVersion\s*=\s*[\d\.]+\s*$',
+            f'VersionInfoVersion={full_version}',
+            content,
+            flags=re.MULTILINE | re.IGNORECASE
+        )
         
-        # Write back the updated script
-        with open(installer_script, 'w', encoding='utf-8') as f:
+        # Update VersionInfoProductVersion line
+        content = re.sub(
+            r'^VersionInfoProductVersion\s*=\s*[\d\.]+\s*$',
+            f'VersionInfoProductVersion={full_version}',
+            content,
+            flags=re.MULTILINE | re.IGNORECASE
+        )
+        
+        # Write back the updated script with consistent line endings
+        with open(installer_script, 'w', encoding='utf-8', newline='\r\n') as f:
             f.write(content)
         
         print(f"Updated installer script with version {version} (build {build})")
         print(f"  - MyAppVersion: {version}")
         print(f"  - VersionInfoVersion: {full_version}")
+        print(f"  - VersionInfoProductVersion: {full_version}")
         
     except Exception as e:
         print(f"Warning: Could not update installer script: {e}")
+        import traceback
+        traceback.print_exc()
 
 def cleanup_build_files():
     """Clean up PyInstaller build files"""
@@ -444,8 +523,9 @@ def main():
     # Create icon
     create_icon()
     
-    # Increment build number
-    version, build = increment_build_number()
+    # Bump two-part version and update changelog
+    version, build = bump_version_two_part()
+    update_changelog(version)
     
     # Build executable
     if not build_executable():

@@ -924,6 +924,123 @@ input[type="checkbox"] {
     margin-bottom: calc(1rem * var(--dpi-scale));
 }
 
+/* Time Picker Spinner */
+.time-picker {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: calc(1rem * var(--dpi-scale));
+    margin-top: calc(0.75rem * var(--dpi-scale));
+    flex-wrap: wrap;
+}
+
+.time-picker-group {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: calc(0.25rem * var(--dpi-scale));
+}
+
+.time-spinner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: calc(0.25rem * var(--dpi-scale));
+}
+
+.spinner-btn {
+    background: var(--border-color);
+    border: calc(1px * var(--dpi-scale)) solid var(--border-color);
+    color: var(--text-secondary);
+    width: calc(40px * var(--dpi-scale));
+    height: calc(32px * var(--dpi-scale));
+    border-radius: calc(6px * var(--dpi-scale));
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(0.9rem * var(--dpi-scale));
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.spinner-btn:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: scale(1.05);
+}
+
+.spinner-btn:active {
+    transform: scale(0.95);
+}
+
+.spinner-input {
+    width: calc(56px * var(--dpi-scale));
+    height: calc(44px * var(--dpi-scale));
+    text-align: center;
+    font-size: calc(1.4rem * var(--dpi-scale));
+    font-weight: 700;
+    border: calc(2px * var(--dpi-scale)) solid var(--border-color);
+    border-radius: calc(8px * var(--dpi-scale));
+    background: var(--surface-color);
+    color: var(--text-color);
+    cursor: default;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    padding: 0;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.time-separator {
+    font-size: calc(1.8rem * var(--dpi-scale));
+    font-weight: 700;
+    color: var(--text-color);
+    margin: 0 calc(0.25rem * var(--dpi-scale));
+    line-height: 1;
+}
+
+/* AM/PM Period Selector */
+.time-period {
+    display: flex;
+    gap: calc(0.5rem * var(--dpi-scale));
+    background: var(--border-color);
+    border-radius: calc(8px * var(--dpi-scale));
+    padding: calc(0.25rem * var(--dpi-scale));
+}
+
+.period-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    width: calc(44px * var(--dpi-scale));
+    height: calc(40px * var(--dpi-scale));
+    border-radius: calc(6px * var(--dpi-scale));
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 600;
+    font-size: calc(0.9rem * var(--dpi-scale));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.period-btn:hover {
+    background: rgba(255, 140, 66, 0.1);
+    color: var(--accent-color);
+}
+
+.period-btn.active {
+    background: var(--accent-color);
+    color: white;
+    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(6px * var(--dpi-scale)) rgba(255, 140, 66, 0.2);
+}
+
 /* Responsive Components */
 @media (max-width: 768px) {
     .modal-content {

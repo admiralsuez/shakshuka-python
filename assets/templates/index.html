@@ -9,10 +9,10 @@
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
     <link rel="shortcut icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
     
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ version }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/pin-auth.css') }}?v={{ version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=6.2">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pin-auth.css') }}?v=6.2">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fontawesome.css') }}?v={{ version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fontawesome.css') }}?v=6.2">
 </head>
 <body>
     <!-- Loading Screen -->
@@ -296,7 +296,15 @@
             <!-- Settings Page -->
             <div id="settings-page" class="page">
                 <div class="page-header">
-                    <h2>Settings</h2>
+                    <div class="settings-header-inner">
+                        <h2>Settings</h2>
+                        <div class="donate-card" role="complementary" aria-label="Donate">
+                            <a href="https://ko-fi.com/vibin06" target="_blank" rel="noopener noreferrer" class="donate-link">
+                                <span class="donate-text">Help me buy a SSD</span>
+                                <span class="donate-cta">Donate!</span>
+                            </a>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="settings-container">
@@ -321,9 +329,20 @@
                             </label>
                         </div>
                         <div class="setting-item">
-                            <label>
-                                Daily reset time:
-                                <input type="time" id="daily-reset-time" value="08:00">
+                            <label class="stacked-setting">
+                                <span>Daily reset time:</span>
+                                <div class="time-select" style="display:flex;align-items:center;gap:8px;">
+                                    <select id="reset-hour-select" aria-label="Hour"></select>
+                                    <span>:</span>
+                                    <select id="reset-minute-select" aria-label="Minute"></select>
+                                    <select id="reset-period-select" aria-label="AM/PM">
+                                        <option value="am">AM</option>
+                                        <option value="pm">PM</option>
+                                    </select>
+                                </div>
+                                <button type="button" id="save-reset-time-btn" class="btn-primary" style="margin-top: 8px; width: auto; min-width: unset; padding: 6px 10px;">
+                                    Save
+                                </button>
                             </label>
                         </div>
                     </div>
@@ -467,12 +486,18 @@
                     </div>
                     
                     <div class="settings-section">
-                        <h3>Logs</h3>
+                        <h3>Logs & Changelog</h3>
                         <div class="setting-item">
-                            <button class="btn-secondary" id="view-logs-btn">
-                                <i class="fas fa-bug"></i>
-                                View Logs
-                            </button>
+                            <div class="action-buttons-row">
+                                <button class="btn-secondary" id="view-logs-btn">
+                                    <i class="fas fa-bug"></i>
+                                    View Logs
+                                </button>
+                                <button class="btn-secondary" id="view-changelog-btn">
+                                    <i class="fas fa-history"></i>
+                                    View Changelog
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -497,15 +522,6 @@
                         </div>
                     </div>
 
-                    <div class="settings-section">
-                        <h3>Changelog</h3>
-                        <div class="setting-item">
-                            <button class="btn-secondary" id="view-changelog-btn">
-                                <i class="fas fa-history"></i>
-                                View Changelog
-                            </button>
-                        </div>
-                    </div>
                 </div>
             </div>
         </main>
@@ -866,30 +882,30 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     
     <!-- PIN Authentication - load first -->
-    <script src="{{ url_for('static', filename='js/pin-auth.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/pin-auth.js') }}?v=6.2"></script>
     
     <!-- Core utilities - load first -->
-    <script src="{{ url_for('static', filename='js/utils-new/error-handler.js') }}?v={{ version }}"></script>
-    <script src="{{ url_for('static', filename='js/state.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/utils-new/error-handler.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/state.js') }}?v=6.2"></script>
     <script>
         window.APP_CONFIG = {
             authEnabled: {{ config.AUTH_ENABLED | tojson }},
             version: "{{ version }}"
         };
     </script>
-    <script src="{{ url_for('static', filename='js/utils.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/utils.js') }}?v=6.2"></script>
     
     <!-- Feature modules -->
-    <script src="{{ url_for('static', filename='js/core/keyboard.js') }}?v={{ version }}"></script>
-    <script src="{{ url_for('static', filename='js/features/settings.js') }}?v={{ version }}"></script>
-    <script src="{{ url_for('static', filename='js/tasks.js') }}?v={{ version }}"></script>
-    <script src="{{ url_for('static', filename='js/auth.js') }}?v={{ version }}"></script>
-    <script src="{{ url_for('static', filename='js/modules/planner-v2.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/core/keyboard.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/features/settings.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/tasks.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/auth.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/modules/planner-v2.js') }}?v=6.2"></script>
     
     <!-- Main application -->
-    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=6.2"></script>
     
     <!-- App initialization - load last -->
-    <script src="{{ url_for('static', filename='js/core/app-init.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/core/app-init.js') }}?v=6.2"></script>
 </body>
 </html>

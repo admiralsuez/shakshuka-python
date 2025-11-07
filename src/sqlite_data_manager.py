@@ -146,6 +146,7 @@ class SQLiteDataManager:
                         struck_date TIMESTAMP,
                         strike_report TEXT,
                         strike_count INTEGER DEFAULT 0,
+                        daily_strikes TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
@@ -243,6 +244,10 @@ class SQLiteDataManager:
                     # Migration 6: Add scheduled_date and scheduled_minute fields
                     if migration_version < 6:
                         migrations_applied.extend(self._migration_006_scheduled_fields(conn))
+                    
+                    # Migration 7: Add daily_strikes column to persist per-day strike counts
+                    if migration_version < 7:
+                        migrations_applied.extend(self._migration_007_daily_strikes(conn))
                     
                     # Update migration version
                     if migrations_applied:
@@ -628,6 +633,25 @@ class SQLiteDataManager:
             self.logger.error(f"Migration 006 failed: {e}")
             raise
     
+    def _migration_007_daily_strikes(self, conn) -> List[Dict]:
+        """Migration 7: Add daily_strikes TEXT column to tasks for per-day strike tracking"""
+        migrations_applied = []
+        try:
+            cursor = conn.execute("PRAGMA table_info(tasks)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'daily_strikes' not in columns:
+                conn.execute('ALTER TABLE tasks ADD COLUMN daily_strikes TEXT')
+                migrations_applied.append({
+                    'version': 7,
+                    'name': 'add_daily_strikes_column',
+                    'description': 'Add daily_strikes TEXT column to tasks table'
+                })
+                self.logger.info("Added daily_strikes column to tasks table")
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 007 failed: {e}")
+            raise
+    
     def _get_connection(self):
         """Get a database connection with proper configuration"""
         conn = sqlite3.connect(self.db_path)
@@ -737,12 +761,22 @@ class SQLiteDataManager:
             task.get('struck_date'),
             task.get('strike_report'),
             task.get('strike_count', 0),
+            json.dumps(task.get('daily_strikes', {})),
             task.get('created_at', datetime.now().isoformat()),
             task.get('updated_at', datetime.now().isoformat())
         )
     
     def _row_to_task_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
         """Convert database row to task dictionary"""
+        # Safely parse daily_strikes JSON if present
+        daily_strikes = {}
+        try:
+            raw = row['daily_strikes'] if 'daily_strikes' in row.keys() else None
+            if raw:
+                daily_strikes = json.loads(raw)
+        except Exception:
+            daily_strikes = {}
+        
         return {
             'id': row['id'],
             'title': row['title'],
@@ -762,6 +796,7 @@ class SQLiteDataManager:
             'struck_date': row['struck_date'] if 'struck_date' in row.keys() else None,
             'strike_report': row['strike_report'] if 'strike_report' in row.keys() else None,
             'strike_count': row['strike_count'] if 'strike_count' in row.keys() else 0,
+            'daily_strikes': daily_strikes,
             'created_at': row['created_at'],
             'updated_at': row['updated_at']
         }
@@ -852,8 +887,8 @@ class SQLiteDataManager:
                                     id, user_id, title, description, project, priority, status,
                                     completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                     scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
-                                    created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    daily_strikes, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_rows)
                             
                             # Verify insertion was successful
@@ -885,8 +920,8 @@ class SQLiteDataManager:
                                             id, user_id, title, description, project, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                             scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
-                                            created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            daily_strikes, created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     ''', backup_rows)
                                     conn.commit()
                                     self.logger.info(f"Backup restored for user {user_id}")
@@ -941,8 +976,8 @@ class SQLiteDataManager:
                                     id, user_id, title, description, project, priority, status,
                                     completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                     scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
-                                    created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    daily_strikes, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_row)
                             
                             # Verify insertion
@@ -1023,8 +1058,8 @@ class SQLiteDataManager:
                         id, user_id, title, description, project, priority, status,
                         completed, completed_at, due_date, estimated_duration, scheduled_hour,
                         scheduled_minute, scheduled_date, scheduled_duration, struck_today,
-                        struck_date, strike_report, strike_count, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        struck_date, strike_report, strike_count, daily_strikes, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', task_rows)
                 
                 conn.commit()
@@ -1077,7 +1112,7 @@ class SQLiteDataManager:
                                     title = ?, description = ?, project = ?, priority = ?,
                                     status = ?, completed = ?, completed_at = ?, due_date = ?, estimated_duration = ?,
                                     scheduled_hour = ?, scheduled_duration = ?, struck_today = ?, struck_date = ?,
-                                    strike_report = ?, strike_count = ?, updated_at = ?
+                                    strike_report = ?, strike_count = ?, daily_strikes = ?, updated_at = ?
                                 WHERE id = ? AND user_id = ?
                             ''', (
                                 task_data.get('title', ''),
@@ -1095,6 +1130,7 @@ class SQLiteDataManager:
                                 task_data.get('struck_date'),
                                 task_data.get('strike_report'),
                                 task_data.get('strike_count', 0),
+                                json.dumps(task_data.get('daily_strikes', {})),
                                 datetime.now().isoformat(),
                                 task_id,
                                 user_id
@@ -1126,8 +1162,8 @@ class SQLiteDataManager:
                                             id, user_id, title, description, project, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                             scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
-                                            created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            daily_strikes, created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     ''', backup_row_tuple)
                                     conn.commit()
                                     self.logger.info(f"Backup restored for task {task_id}")
@@ -1259,7 +1295,7 @@ class SQLiteDataManager:
                                         'dpi_scale': result[1] or 100,
                                         'autosave_interval': result[2] or 30,
                                         'notifications': bool(result[3]) if result[3] is not None else True,
-                                        'daily_reset_time': result[4] or '09:00',
+                                        'daily_reset_time': result[4] or '08:00',
                                         'timezone': result[5] or 'UTC',
                                         'language': result[6] or 'en',
                                         'created_at': result[7],
@@ -1285,7 +1321,7 @@ class SQLiteDataManager:
                                         'dpi_scale': result[1] or 100,
                                         'autosave_interval': result[2] or 30,
                                         'notifications': bool(result[3]) if result[3] is not None else True,
-                                        'daily_reset_time': result[4] or '09:00',
+                                        'daily_reset_time': result[4] or '08:00',
                                         'timezone': 'UTC',  # Default for old data
                                         'language': 'en'    # Default for old data
                                     }
@@ -1326,7 +1362,7 @@ class SQLiteDataManager:
             'dpi_scale': 100,
             'autosave_interval': 30,
             'notifications': True,
-            'daily_reset_time': '09:00',
+            'daily_reset_time': '08:00',
             'timezone': 'UTC',
             'language': 'en'
         }
@@ -1361,9 +1397,9 @@ class SQLiteDataManager:
         validated['notifications'] = notifications
         
         # Daily reset time validation
-        daily_reset_time = settings.get('daily_reset_time', '09:00')
+        daily_reset_time = settings.get('daily_reset_time', '08:00')
         if not isinstance(daily_reset_time, str) or not self._validate_time_format(daily_reset_time):
-            daily_reset_time = '09:00'
+            daily_reset_time = '08:00'
         validated['daily_reset_time'] = daily_reset_time
         
         # Timezone validation

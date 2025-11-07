@@ -1,3 +1,159 @@
+## Version 7.7 - Post Birthday Update
+Release Date: 2025-11-08T03:18:18.347185
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 7.6 - Post Birthday Update
+Release Date: 2025-11-08T03:12:17.380809
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 7.5 - Post Birthday Update
+Release Date: 2025-11-08T03:04:25.450039
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 7.4 - Post Birthday Update
+Release Date: 2025-11-08T02:53:18.667929
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 7.3 - Post Birthday Update
+Release Date: 2025-11-08T02:46:31.716188
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 7.2 - Automated Build
+Release Date: 2025-11-08T02:39:01.703380
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 7.1 - Automated Build
+Release Date: 2025-11-08T02:32:08.197819
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 7.0 - Automated Build
+Release Date: 2025-11-08T02:25:07.578057
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.9 - Automated Build
+Release Date: 2025-11-08T02:01:28.015561
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.8 - Automated Build
+Release Date: 2025-11-08T01:45:49.870971
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.7 - Automated Build
+Release Date: 2025-11-08T01:28:46.777226
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.6 - Automated Build
+Release Date: 2025-11-08T01:15:55.859229
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.5 - Automated Build
+Release Date: 2025-11-08T01:07:18.988193
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+Additional Fixes (post-build)
+- Planner: throttling window doubled (1500ms) and fixed promise return to remove "catch undefined" error
+- Shortcuts: Start Menu and Desktop now launch Start-Shakshuka-Silent.vbs with correct icon path; EXE embeds app icon
+- Tasks: preserve current filter (e.g., Completed) after delete; no auto-switch to Active
+- Settings: donate card aligned to settings container width (800px) via header-inner container
+
+---
+## Version 6.4 - Automated Build
+Release Date: 2025-11-07T23:25:43.381125
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 6.3 - Automated Build
+Release Date: 2025-11-07T22:03:10.189876
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
 ## Version 6.2 - Task View Fixes & Version Build System
 Release Date: 2025-11-06T19:30:00Z
 
