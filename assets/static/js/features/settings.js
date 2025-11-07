@@ -54,7 +54,7 @@ const Settings = {
             this.ensureTimeSelectOptions();
             
             if (hourSelect && minuteSelect) {
-                const timeStr = settings.daily_reset_time || '08:00';
+                const timeStr = settings.daily_reset_time || '06:00';
                 const [hours24, minutes] = timeStr.split(':').map(Number);
                 const { hour12, period } = Settings.convert24to12(hours24);
                 hourSelect.value = String(hour12).padStart(2, '0');

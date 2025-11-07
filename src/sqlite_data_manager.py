@@ -1295,7 +1295,7 @@ class SQLiteDataManager:
                                         'dpi_scale': result[1] or 100,
                                         'autosave_interval': result[2] or 30,
                                         'notifications': bool(result[3]) if result[3] is not None else True,
-                                        'daily_reset_time': result[4] or '08:00',
+                                        'daily_reset_time': result[4] or '06:00',
                                         'timezone': result[5] or 'UTC',
                                         'language': result[6] or 'en',
                                         'created_at': result[7],
@@ -1321,7 +1321,7 @@ class SQLiteDataManager:
                                         'dpi_scale': result[1] or 100,
                                         'autosave_interval': result[2] or 30,
                                         'notifications': bool(result[3]) if result[3] is not None else True,
-                                        'daily_reset_time': result[4] or '08:00',
+                                        'daily_reset_time': result[4] or '06:00',
                                         'timezone': 'UTC',  # Default for old data
                                         'language': 'en'    # Default for old data
                                     }
@@ -1362,7 +1362,7 @@ class SQLiteDataManager:
             'dpi_scale': 100,
             'autosave_interval': 30,
             'notifications': True,
-            'daily_reset_time': '08:00',
+            'daily_reset_time': '06:00',
             'timezone': 'UTC',
             'language': 'en'
         }
@@ -1397,9 +1397,9 @@ class SQLiteDataManager:
         validated['notifications'] = notifications
         
         # Daily reset time validation
-        daily_reset_time = settings.get('daily_reset_time', '08:00')
+        daily_reset_time = settings.get('daily_reset_time', '06:00')
         if not isinstance(daily_reset_time, str) or not self._validate_time_format(daily_reset_time):
-            daily_reset_time = '08:00'
+            daily_reset_time = '06:00'
         validated['daily_reset_time'] = daily_reset_time
         
         # Timezone validation

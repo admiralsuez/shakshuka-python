@@ -3655,7 +3655,8 @@ async function checkForUpdates() {
 
 async function checkGitHubUpdate() {
     try {
-        const branch = document.getElementById('github-branch').value;
+        const branchElement = document.getElementById('github-branch');
+        const branch = branchElement ? branchElement.value : 'main';
         showNotification('Checking GitHub for updates...', 'info');
         
         const response = await fetch('/api/github/check-update', {
@@ -3682,7 +3683,8 @@ async function checkGitHubUpdate() {
 
 async function downloadGitHubUpdate() {
     try {
-        const branch = document.getElementById('github-branch').value;
+        const branchElement = document.getElementById('github-branch');
+        const branch = branchElement ? branchElement.value : 'main';
         showNotification('Downloading update from GitHub...', 'info');
         
         const response = await fetch('/api/github/download-update', {
