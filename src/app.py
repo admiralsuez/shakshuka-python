@@ -2326,7 +2326,7 @@ def get_settings():
                         'dpi_scale': 100,
                         'autosave_interval': 30,
                         'notifications': True,
-                        'daily_reset_time': '08:00',
+                        'daily_reset_time': '06:00',
                         'timezone': 'UTC',
                         'language': 'en'
                     }
@@ -2338,7 +2338,7 @@ def get_settings():
                 'dpi_scale': 100,
                 'autosave_interval': 30,
                 'notifications': True,
-                'daily_reset_time': '08:00',
+                'daily_reset_time': '06:00',
                 'timezone': 'UTC',
                 'language': 'en'
             }
@@ -2356,7 +2356,7 @@ def get_settings():
             'dpi_scale': max(50, min(200, settings.get('dpi_scale', 100))),
             'autosave_interval': max(5, min(300, settings.get('autosave_interval', 30))),
             'notifications': bool(settings.get('notifications', True)),
-            'daily_reset_time': settings.get('daily_reset_time', '08:00'),
+            'daily_reset_time': settings.get('daily_reset_time', '06:00'),
             'timezone': settings.get('timezone', 'UTC'),
             'language': settings.get('language', 'en'),
             'autostart_enabled': bool(settings.get('autostart_enabled', False))
@@ -2373,7 +2373,7 @@ def get_settings():
             'dpi_scale': 100,
             'autosave_interval': 30,
             'notifications': True,
-            'daily_reset_time': '08:00',
+            'daily_reset_time': '06:00',
             'timezone': 'UTC',
             'language': 'en',
             'autostart_enabled': False
@@ -2413,7 +2413,7 @@ def update_settings():
                         'dpi_scale': 100,
                         'autosave_interval': 30,
                         'notifications': True,
-                        'daily_reset_time': '08:00',
+                        'daily_reset_time': '06:00',
                         'timezone': 'UTC',
                         'language': 'en'
                     }
@@ -2425,7 +2425,7 @@ def update_settings():
                 'dpi_scale': 100,
                 'autosave_interval': 30,
                 'notifications': True,
-                'daily_reset_time': '08:00',
+                'daily_reset_time': '06:00',
                 'timezone': 'UTC',
                 'language': 'en'
             }

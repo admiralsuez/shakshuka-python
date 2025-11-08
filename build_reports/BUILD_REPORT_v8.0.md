@@ -1,33 +1,64 @@
-## Version 8.3 - Release
-Release Date: 2025-11-08T05:27:34.274072
+# Build Report - Shakshuka v8.0-b33
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
+## Build Information
+- **Version:** 8.0
+- **Build Number:** 33
+- **Build Date:** 2025-11-08 05:02:32
+- **Build Status:** ✅ SUCCESS
+- **Platform:** Windows (x86_64)
 
----
-## Version 8.2 - Release
-Release Date: 2025-11-08T05:22:08.449971
+## Build Artifacts
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
+### 1. Standalone Executable
+- **Filename:** `Shakshuka.exe`
+- **Size:** 27.13 MB
+- **Type:** PyInstaller Single-File Executable
+- **Status:** ✅ Created
 
----
-## Version 8.1 - Release
-Release Date: 2025-11-08T05:15:20.899592
+### 2. Installer Package
+- **Filename:** `Shakshuka-Setup-v8.0.exe`
+- **Size:** 29.26 MB
+- **Type:** Inno Setup Installer
+- **Status:** ✅ Created
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
+## Build Configuration
+- **Python Version:** 3.13.3
+- **Build Script:** `scripts/build.py`
+- **Installer Script:** `scripts/installer.iss`
+- **PyInstaller:** Single-file, console mode
+- **Architecture:** 64-bit (x86_64)
 
----
+## Features Included
+- Flask web server (port 8989)
+- SQLite database backend
+- System tray integration
+- Auto-save functionality
+- Task management system
+- User authentication (optional)
+- Settings persistence
+- Auto-update capability
+- Monitoring and analytics
+
+## File Locations
+- **Executable:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-release\Shakshuka.exe`
+- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-release\Shakshuka-Setup-v8.0.exe`
+- **Source Distribution:** `scripts/dist/`
+
+## Installation Methods
+
+### Method 1: Standalone Executable
+1. Run `Shakshuka.exe` directly
+2. No installation required
+3. Portable - can run from any location
+
+### Method 2: Professional Installer
+1. Run `Shakshuka-Setup-v8.0-b33.exe`
+2. Follow installation wizard
+3. Installs to `Program Files`
+4. Creates Start Menu shortcuts
+5. Adds uninstaller
+
+## Changelog
 ## Version 8.0 - Release
 Release Date: 2025-11-08T05:01:45.116780
 
@@ -4083,3 +4114,19 @@ When making changes to the application, always:
 ---
 
 *This changelog is automatically maintained and should be updated with every significant change to ensure users and developers are informed about application evolution.*
+
+
+## Next Steps
+1. Test the standalone executable
+2. Test the installer package
+3. Verify all features work correctly
+4. Check for any errors in logs
+5. Update documentation if needed
+
+## Build System
+- **Auto-Increment:** Build number automatically incremented
+- **Version File:** `config/version.json`
+- **Build Reports:** Saved to `build_reports/`
+
+---
+*Report generated automatically by build.py*

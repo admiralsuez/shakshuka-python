@@ -594,7 +594,31 @@ async function savePassword() {
 
 // Load settings page data
 function loadSettingsPage() {
-    // loadSettings(); // Use the complete version at line 2712 instead
+    // Populate reset time controls from current settings
+    const settings = AppState.get('currentSettings') || {};
+    const hourSelect = document.getElementById('reset-hour-select');
+    const minuteSelect = document.getElementById('reset-minute-select');
+    const periodSelect = document.getElementById('reset-period-select');
+    
+    if (hourSelect && minuteSelect && periodSelect && settings.daily_reset_time) {
+        const timeStr = settings.daily_reset_time;
+        console.log('[DEBUG] loadSettingsPage: Loading reset time from AppState:', timeStr);
+        const [hours24, minutes] = timeStr.split(':').map(Number);
+        console.log('[DEBUG] loadSettingsPage: Parsed hours24:', hours24, 'minutes:', minutes);
+        
+        // Convert 24-hour to 12-hour
+        let hour12 = hours24 % 12;
+        if (hour12 === 0) hour12 = 12;
+        const period = hours24 >= 12 ? 'pm' : 'am';
+        console.log('[DEBUG] loadSettingsPage: Converted to 12-hour:', { hour12, period });
+        
+        hourSelect.value = String(hour12).padStart(2, '0');
+        const minuteVal = (parseInt(minutes, 10) - (parseInt(minutes, 10) % 5)).toString().padStart(2, '0');
+        minuteSelect.value = minuteVal;
+        periodSelect.value = period;
+        console.log('[DEBUG] loadSettingsPage: Set UI values - hour:', hourSelect.value, 'minute:', minuteSelect.value, 'period:', periodSelect.value);
+    }
+    
     loadUpdateSettings();
     loadAccountSettings();
 }

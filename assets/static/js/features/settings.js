@@ -55,12 +55,16 @@ const Settings = {
             
             if (hourSelect && minuteSelect) {
                 const timeStr = settings.daily_reset_time || '06:00';
+                console.log('[DEBUG] Loading reset time from settings:', timeStr);
                 const [hours24, minutes] = timeStr.split(':').map(Number);
+                console.log('[DEBUG] Parsed hours24:', hours24, 'minutes:', minutes);
                 const { hour12, period } = Settings.convert24to12(hours24);
+                console.log('[DEBUG] Converted to 12-hour:', { hour12, period });
                 hourSelect.value = String(hour12).padStart(2, '0');
                 const minuteVal = (parseInt(minutes, 10) - (parseInt(minutes, 10) % 5)).toString().padStart(2, '0');
                 minuteSelect.value = minuteVal;
                 if (periodSelect) periodSelect.value = period;
+                console.log('[DEBUG] Set UI values - hour:', hourSelect.value, 'minute:', minuteSelect.value, 'period:', periodSelect.value);
             }
             
             this.applyThemeAndDPI();
