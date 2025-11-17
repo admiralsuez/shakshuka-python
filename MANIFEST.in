@@ -1,0 +1,11 @@
+# Include all necessary files for the package
+include README.md
+include LICENSE.txt
+recursive-include assets *
+recursive-include config *
+recursive-include src *.py
+recursive-include tools *.py
+include main.py
+include setup.py
+
+

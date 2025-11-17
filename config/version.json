@@ -1,0 +1,7 @@
+{
+  "version": "9.4",
+  "build": "47",
+  "release_date": "2025-11-17T15:31:24.435478",
+  "update_channel": "stable",
+  "build_notes": "Task View Fixes: filter preservation on delete, proper view switching on create. Version Build System: fixed Inno Setup version incrementing."
+}
