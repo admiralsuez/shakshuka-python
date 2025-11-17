@@ -195,8 +195,11 @@ const Auth = {
         }
         
         // Call initialization functions with safety checks
-        if (typeof loadSettings === 'function') {
-            loadSettings(); // This will call applyThemeAndDPI() and hideLoadingScreen()
+        if (typeof window.Settings !== 'undefined' && typeof window.Settings.load === 'function') {
+            window.Settings.load(); // Preferred path: uses Settings module and handles theme + loader
+        } else if (typeof loadSettings === 'function') {
+            // Fallback to legacy global implementation if needed
+            loadSettings();
         } else {
             console.warn('loadSettings not available');
         }

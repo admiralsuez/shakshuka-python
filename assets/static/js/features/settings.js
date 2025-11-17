@@ -43,7 +43,12 @@ const Settings = {
             const minuteSelect = document.getElementById('reset-minute-select');
             const periodSelect = document.getElementById('reset-period-select');
             
-            if (autostartToggle) autostartToggle.checked = settings.autostart || false;
+            // Backend returns autostart_enabled; keep legacy "autostart" fallback just in case
+            if (autostartToggle) {
+                autostartToggle.checked = (typeof settings.autostart_enabled === 'boolean')
+                    ? settings.autostart_enabled
+                    : (settings.autostart || false);
+            }
             if (autosaveInterval) autosaveInterval.value = settings.autosave_interval || 30;
             if (themeSelector) themeSelector.value = settings.theme || 'light';
             if (finishSelector) finishSelector.value = settings.finish || 'glossy';

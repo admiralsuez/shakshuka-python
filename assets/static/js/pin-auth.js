@@ -359,19 +359,8 @@ class PINAuth {
                 this.hideAllAuthScreens();
                 this.showSuccess('PIN created successfully!');
                 
-                // Don't reload - just hide modal and let app continue
+                // Let the main app initialization pipeline handle the loader
                 setTimeout(() => {
-                    // Hide loading screen if present
-                    const loadingScreen = document.getElementById('loading-screen');
-                    if (loadingScreen) {
-                        loadingScreen.style.display = 'none';
-                    }
-                    // Show app container
-                    const appContainer = document.getElementById('app-container');
-                    if (appContainer) {
-                        appContainer.style.display = 'block';
-                    }
-                    // Initialize app if Auth is available
                     if (typeof Auth !== 'undefined' && typeof Auth.loadAppData === 'function') {
                         Auth.loadAppData();
                     }
@@ -422,20 +411,8 @@ class PINAuth {
                 this.hideAllAuthScreens();
                 this.showSuccess('Login successful!');
                 
-                // Don't reload - just hide modal and let app continue
-                // window.location.reload() was causing double-load
+                // Let the main app initialization pipeline handle the loader
                 setTimeout(() => {
-                    // Hide loading screen if present
-                    const loadingScreen = document.getElementById('loading-screen');
-                    if (loadingScreen) {
-                        loadingScreen.style.display = 'none';
-                    }
-                    // Show app container
-                    const appContainer = document.getElementById('app-container');
-                    if (appContainer) {
-                        appContainer.style.display = 'block';
-                    }
-                    // Initialize app if Auth is available
                     if (typeof Auth !== 'undefined' && typeof Auth.loadAppData === 'function') {
                         Auth.loadAppData();
                     }
@@ -515,16 +492,8 @@ class PINAuth {
                 this.hideAllAuthScreens();
                 this.showSuccess('PIN reset successfully!');
                 
-                // Don't reload - just continue
+                // Let the main app initialization pipeline handle the loader
                 setTimeout(() => {
-                    const loadingScreen = document.getElementById('loading-screen');
-                    if (loadingScreen) {
-                        loadingScreen.style.display = 'none';
-                    }
-                    const appContainer = document.getElementById('app-container');
-                    if (appContainer) {
-                        appContainer.style.display = 'block';
-                    }
                     if (typeof Auth !== 'undefined' && typeof Auth.loadAppData === 'function') {
                         Auth.loadAppData();
                     }

@@ -1383,7 +1383,11 @@ class SQLiteDataManager:
         
         # Theme validation - include all valid theme values from frontend
         theme = settings.get('theme', 'orange')
-        valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'auto']
+        # Note: this list must stay in sync with frontend theme selector and CSS
+        valid_themes = [
+            'orange', 'blue', 'green', 'purple', 'dark', 'light',
+            'self-esteem', 'anxiety', 'depression', 'focus', 'auto'
+        ]
         if not isinstance(theme, str) or theme not in valid_themes:
             theme = 'orange'
         validated['theme'] = theme

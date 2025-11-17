@@ -8,27 +8,16 @@
     'use strict';
 
     // Loading screen management
+    // Delegate entirely to the implementations in app.js when available
     function hideLoadingScreen() {
-        const loadingScreen = document.getElementById('loading-screen');
-        const appContainer = document.getElementById('app-container');
-        
-        if (loadingScreen && appContainer) {
-            loadingScreen.classList.add('fade-out');
-            appContainer.style.display = 'block';
-            
-            setTimeout(() => {
-                loadingScreen.style.display = 'none';
-            }, 500);
+        if (typeof window.hideLoadingScreen === 'function') {
+            window.hideLoadingScreen();
         }
     }
 
     function showLoadingScreen() {
-        const loadingScreen = document.getElementById('loading-screen');
-        const appContainer = document.getElementById('app-container');
-        
-        if (loadingScreen && appContainer) {
-            loadingScreen.style.display = 'flex';
-            appContainer.style.display = 'none';
+        if (typeof window.showLoadingScreen === 'function') {
+            window.showLoadingScreen();
         }
     }
 

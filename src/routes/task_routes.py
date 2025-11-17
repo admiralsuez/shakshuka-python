@@ -129,7 +129,8 @@ def import_tasks():
             existing_tasks.append(task)
         
         # Save all tasks for the user
-        if data_manager.save_tasks(user_id, existing_tasks):
+        # NOTE: save_tasks signature is save_tasks(tasks, user_id=None)
+        if data_manager.save_tasks(existing_tasks, user_id):
             return jsonify({
                 'success': True,
                 'message': f'Successfully imported {len(imported_tasks)} tasks',

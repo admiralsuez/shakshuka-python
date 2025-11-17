@@ -1,35 +1,72 @@
-## Version 10.3 - Release
-Release Date: 2025-11-18T03:13:10.540127
+# Build Report - Shakshuka v10.1-b54
+
+## Build Information
+- **Version:** 10.1
+- **Build Number:** 54
+- **Build Date:** 2025-11-18 00:57:36
+- **Build Status:** ✅ SUCCESS
+- **Platform:** Windows (x86_64)
+
+## Build Artifacts
+
+### 1. Standalone Executable
+- **Filename:** `Shakshuka.exe`
+- **Size:** 27.30 MB
+- **Type:** PyInstaller Single-File Executable
+- **Status:** ✅ Created
+
+### 2. Installer Package
+- **Filename:** `Shakshuka-Setup-v10.1.exe`
+- **Size:** 29.47 MB
+- **Type:** Inno Setup Installer
+- **Status:** ✅ Created
+
+## Build Configuration
+- **Python Version:** 3.13.3
+- **Build Script:** `scripts/build.py`
+- **Installer Script:** `scripts/installer.iss`
+- **PyInstaller:** Single-file, console mode
+- **Architecture:** 64-bit (x86_64)
+
+## Features Included
+- Flask web server (port 8989)
+- SQLite database backend
+- System tray integration
+- Auto-save functionality
+- Task management system
+- User authentication (optional)
+- Settings persistence
+- Auto-update capability
+- Monitoring and analytics
+
+## File Locations
+- **Executable:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka.exe`
+- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka-Setup-v10.1.exe`
+- **Source Distribution:** `scripts/dist/`
+
+## Installation Methods
+
+### Method 1: Standalone Executable
+1. Run `Shakshuka.exe` directly
+2. No installation required
+3. Portable - can run from any location
+
+### Method 2: Professional Installer
+1. Run `Shakshuka-Setup-v10.1-b54.exe`
+2. Follow installation wizard
+3. Installs to `Program Files`
+4. Creates Start Menu shortcuts
+5. Adds uninstaller
+
+## Changelog
+## Version 10.1 - Release
+Release Date: 2025-11-18T00:56:32.499885
 
 Highlights
 - Daily strikes persistence in SQLite (new migration)
 - Reduced duplicate planner schedule GET calls
 - Static cache-bust params unified to ?v=6.2
 - Installer script echoes dynamic version
-
----
-## Version 10.2 - Stability & QA Fixes
-Release Date: 2025-11-18T03:08:03.858977
-
-Highlights
-- Fixed task import so CSV/TXT imports now save correctly using the new user-scoped data manager.
-- Settings autostart toggle now reflects the real Windows autostart state (`autostart_enabled`) instead of a stale flag.
-- Backend settings validation now accepts all CSS-backed themes, including "Depression" and "Focus", so appearance options persist reliably.
-- Metrics export API now writes under the per-user data directory to avoid Program Files permission errors.
-- Frontend error handler no longer assumes `Utils.Logger` is always available and falls back to console logging when needed.
-- App initialization now delegates loader show/hide exclusively to the canonical implementation in `app.js`, avoiding duplicate loader behaviour.
-- Version-reporting endpoints share a single `_get_app_version()` helper instead of duplicating `version.json` file I/O.
-- Test runner updated to use modern `unittest` loaders so the test suite runs correctly on current Python versions.
-
----
-## Version 10.1 - Loader Theme & Startup Polish
-Release Date: 2025-11-18T00:56:32.499885
-
-Highlights
-- Loader background and initial HTML/body now use theme variables from the first paint, eliminating the brief black flash on startup and refresh.
-- Centralized loader show/hide control in the core app initialization flow so PIN auth and settings no longer manipulate the loader directly.
-- Auth initialization now runs through the Settings module (`Settings.load()`), ensuring themes, DPI, and appearance are fully applied before the app becomes interactive.
-- Folder-style loader keeps its minimum display duration and fades out smoothly into the main app across all themes.
 
 ---
 ## Version 10.0 - Release
@@ -4193,3 +4230,19 @@ When making changes to the application, always:
 ---
 
 *This changelog is automatically maintained and should be updated with every significant change to ensure users and developers are informed about application evolution.*
+
+
+## Next Steps
+1. Test the standalone executable
+2. Test the installer package
+3. Verify all features work correctly
+4. Check for any errors in logs
+5. Update documentation if needed
+
+## Build System
+- **Auto-Increment:** Build number automatically incremented
+- **Version File:** `config/version.json`
+- **Build Reports:** Saved to `build_reports/`
+
+---
+*Report generated automatically by build.py*

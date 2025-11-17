@@ -2,7 +2,7 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Shakshuka"
-#define MyAppVersion "9.4"
+#define MyAppVersion "10.2"
 #define MyAppPublisher "vibinandvanshika.in"
 #define MyAppURL "https://github.com/shakshuka-python"
 #define MyAppExeName "Shakshuka.exe"
@@ -20,12 +20,12 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 AppContact=support@vibinandvanshika.in
 AppCopyright=Copyright (C) 2025 vibinandvanshika.in
-VersionInfoVersion=9.4.0.0
+VersionInfoVersion=10.2.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Shakshuka Task Manager - Professional productivity tool
 VersionInfoCopyright=Copyright (C) 2025 vibinandvanshika.in
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=9.4.0.0
+VersionInfoProductVersion=10.2.0.0
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
@@ -73,9 +73,9 @@ Source: "Start-Shakshuka-Silent.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Start-Shakshuka-Autostart.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Stop-Shakshuka.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "run.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "build.bat"; DestDir: "{app}"; Flags: ignoreversion
+; Source: "build.bat"; DestDir: "{app}"; Flags: ignoreversion   ; developer build script, not needed at runtime
 ; Documentation
-Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\\docs\\*"; DestDir: "{app}\\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 ; Primary shortcut uses the EXE with embedded icon

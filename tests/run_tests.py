@@ -29,13 +29,14 @@ def run_unit_tests():
         TestIntegration
     )
     
-    # Create unit test suite
+    # Create unit test suite (use modern loader; unittest.makeSuite is deprecated/removed)
+    loader = unittest.defaultTestLoader
     unit_suite = unittest.TestSuite()
-    unit_suite.addTest(unittest.makeSuite(TestSQLiteDataManager))
-    unit_suite.addTest(unittest.makeSuite(TestSecurityManager))
-    unit_suite.addTest(unittest.makeSuite(TestPerformanceMonitor))
-    unit_suite.addTest(unittest.makeSuite(TestUserManager))
-    unit_suite.addTest(unittest.makeSuite(TestIntegration))
+    unit_suite.addTests(loader.loadTestsFromTestCase(TestSQLiteDataManager))
+    unit_suite.addTests(loader.loadTestsFromTestCase(TestSecurityManager))
+    unit_suite.addTests(loader.loadTestsFromTestCase(TestPerformanceMonitor))
+    unit_suite.addTests(loader.loadTestsFromTestCase(TestUserManager))
+    unit_suite.addTests(loader.loadTestsFromTestCase(TestIntegration))
     
     # Run unit tests
     runner = unittest.TextTestRunner(verbosity=2, stream=sys.stdout)
@@ -55,10 +56,11 @@ def run_integration_tests():
         TestPerformanceIntegration
     )
     
-    # Create integration test suite
+    # Create integration test suite (use modern loader)
+    loader = unittest.defaultTestLoader
     integration_suite = unittest.TestSuite()
-    integration_suite.addTest(unittest.makeSuite(TestAPIIntegration))
-    integration_suite.addTest(unittest.makeSuite(TestPerformanceIntegration))
+    integration_suite.addTests(loader.loadTestsFromTestCase(TestAPIIntegration))
+    integration_suite.addTests(loader.loadTestsFromTestCase(TestPerformanceIntegration))
     
     # Run integration tests
     runner = unittest.TextTestRunner(verbosity=2, stream=sys.stdout)

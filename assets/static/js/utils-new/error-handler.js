@@ -96,7 +96,11 @@ const ErrorHandler = (function() {
     // Initialize error handling
     function init() {
         setupGlobalErrorHandlers();
-        Utils.Logger.info('Error handlers initialized');
+        if (typeof Utils !== 'undefined' && Utils.Logger) {
+            Utils.Logger.info('Error handlers initialized');
+        } else {
+            console.info('Error handlers initialized');
+        }
     }
 
     // Public API

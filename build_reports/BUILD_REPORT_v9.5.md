@@ -1,90 +1,64 @@
-## Version 10.3 - Release
-Release Date: 2025-11-18T03:13:10.540127
+# Build Report - Shakshuka v9.5-b48
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
+## Build Information
+- **Version:** 9.5
+- **Build Number:** 48
+- **Build Date:** 2025-11-17 22:24:29
+- **Build Status:** ✅ SUCCESS
+- **Platform:** Windows (x86_64)
 
----
-## Version 10.2 - Stability & QA Fixes
-Release Date: 2025-11-18T03:08:03.858977
+## Build Artifacts
 
-Highlights
-- Fixed task import so CSV/TXT imports now save correctly using the new user-scoped data manager.
-- Settings autostart toggle now reflects the real Windows autostart state (`autostart_enabled`) instead of a stale flag.
-- Backend settings validation now accepts all CSS-backed themes, including "Depression" and "Focus", so appearance options persist reliably.
-- Metrics export API now writes under the per-user data directory to avoid Program Files permission errors.
-- Frontend error handler no longer assumes `Utils.Logger` is always available and falls back to console logging when needed.
-- App initialization now delegates loader show/hide exclusively to the canonical implementation in `app.js`, avoiding duplicate loader behaviour.
-- Version-reporting endpoints share a single `_get_app_version()` helper instead of duplicating `version.json` file I/O.
-- Test runner updated to use modern `unittest` loaders so the test suite runs correctly on current Python versions.
+### 1. Standalone Executable
+- **Filename:** `Shakshuka.exe`
+- **Size:** 27.30 MB
+- **Type:** PyInstaller Single-File Executable
+- **Status:** ✅ Created
 
----
-## Version 10.1 - Loader Theme & Startup Polish
-Release Date: 2025-11-18T00:56:32.499885
+### 2. Installer Package
+- **Filename:** `Shakshuka-Setup-v9.5.exe`
+- **Size:** 29.46 MB
+- **Type:** Inno Setup Installer
+- **Status:** ✅ Created
 
-Highlights
-- Loader background and initial HTML/body now use theme variables from the first paint, eliminating the brief black flash on startup and refresh.
-- Centralized loader show/hide control in the core app initialization flow so PIN auth and settings no longer manipulate the loader directly.
-- Auth initialization now runs through the Settings module (`Settings.load()`), ensuring themes, DPI, and appearance are fully applied before the app becomes interactive.
-- Folder-style loader keeps its minimum display duration and fades out smoothly into the main app across all themes.
+## Build Configuration
+- **Python Version:** 3.13.3
+- **Build Script:** `scripts/build.py`
+- **Installer Script:** `scripts/installer.iss`
+- **PyInstaller:** Single-file, console mode
+- **Architecture:** 64-bit (x86_64)
 
----
-## Version 10.0 - Release
-Release Date: 2025-11-17T23:54:02.220247
+## Features Included
+- Flask web server (port 8989)
+- SQLite database backend
+- System tray integration
+- Auto-save functionality
+- Task management system
+- User authentication (optional)
+- Settings persistence
+- Auto-update capability
+- Monitoring and analytics
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
+## File Locations
+- **Executable:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka.exe`
+- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka-Setup-v9.5.exe`
+- **Source Distribution:** `scripts/dist/`
 
----
-## Version 9.9 - UX Loader & Project Filter
-Release Date: 2025-11-17T23:59:59
+## Installation Methods
 
-Highlights
-- New folder-style loading screen with soft animations so startup feels more polished.
-- Loader shows a short, animated list of your active tasks while the app initialises (with safe fallbacks if the API is slow).
-- Enforced a short minimum loader duration so the animation is visible but doesn’t block longer than needed.
-- Added a project filter on the Tasks page header, alongside status filters, to quickly slice tasks by project.
-- Project filter dropdown is populated dynamically from current tasks and combines cleanly with the status filter.
-- Loading screen and loader background now respect the selected theme variables instead of hardcoding colours.
-- Installer no longer ships the internal `build.bat` helper script to keep Program Files cleaner for end users.
+### Method 1: Standalone Executable
+1. Run `Shakshuka.exe` directly
+2. No installation required
+3. Portable - can run from any location
 
----
-## Version 9.8 - Release
-Release Date: 2025-11-17T23:37:22.730178
+### Method 2: Professional Installer
+1. Run `Shakshuka-Setup-v9.5-b48.exe`
+2. Follow installation wizard
+3. Installs to `Program Files`
+4. Creates Start Menu shortcuts
+5. Adds uninstaller
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-
----
-## Version 9.7 - Release
-Release Date: 2025-11-17T23:05:29.613596
-
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-
----
-## Version 9.6 - Release
-Release Date: 2025-11-17T22:52:52.241449
-
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-
----
+## Changelog
 ## Version 9.5 - Release
 Release Date: 2025-11-17T22:21:31.097162
 
@@ -4193,3 +4167,19 @@ When making changes to the application, always:
 ---
 
 *This changelog is automatically maintained and should be updated with every significant change to ensure users and developers are informed about application evolution.*
+
+
+## Next Steps
+1. Test the standalone executable
+2. Test the installer package
+3. Verify all features work correctly
+4. Check for any errors in logs
+5. Update documentation if needed
+
+## Build System
+- **Auto-Increment:** Build number automatically incremented
+- **Version File:** `config/version.json`
+- **Build Reports:** Saved to `build_reports/`
+
+---
+*Report generated automatically by build.py*

@@ -45,9 +45,16 @@
     }
 }
 
+html {
+    /* Solid fallback so there is never a black frame behind the app */
+    background-color: var(--background-color);
+}
+
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    /* Use theme gradient but also ensure a solid background color from first paint */
     background: var(--secondary-gradient);
+    background-color: var(--background-color);
     color: var(--text-color);
     line-height: 1.6;
     overflow-x: hidden;

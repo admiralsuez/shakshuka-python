@@ -1110,18 +1110,9 @@ def index():
 
     # Load version information (works both in dev and when frozen)
     try:
-        import json
-        if getattr(sys, 'frozen', False):
-            base_path = os.path.dirname(sys.executable)
-            root_dir = base_path
-        else:
-            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        version_path = os.path.join(root_dir, 'config', 'version.json')
-        with open(version_path, 'r') as f:
-            version_data = json.load(f)
-        version = str(version_data.get('version', '1.0'))
+        version = _get_app_version()
     except Exception as e:
-        logger.warning(f"Failed to read version.json, falling back to 1.0.0: {e}")
+        logger.warning(f"Failed to read version.json via _get_app_version, falling back to 1.0.0: {e}")
         version = '1.0.0'
 
     return render_template(
@@ -1217,15 +1208,7 @@ def check_updates():
     """Check for available updates"""
     try:
         # Get current version
-        if getattr(sys, 'frozen', False):
-            root_dir = os.path.dirname(sys.executable)
-        else:
-            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
-        version_path = os.path.join(root_dir, 'config', 'version.json')
-        with open(version_path, 'r') as f:
-            version_data = json.load(f)
-        current_version = str(version_data.get('version', '1.0'))
+        current_version = _get_app_version()
         
         # For now, return current version info
         # In a real implementation, this would check a remote server
@@ -1250,15 +1233,7 @@ def check_updates_legacy():
     """Check for available updates (legacy endpoint)"""
     try:
         # Get current version
-        if getattr(sys, 'frozen', False):
-            root_dir = os.path.dirname(sys.executable)
-        else:
-            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
-        version_path = os.path.join(root_dir, 'config', 'version.json')
-        with open(version_path, 'r') as f:
-            version_data = json.load(f)
-        current_version = str(version_data.get('version', '1.0'))
+        current_version = _get_app_version()
         
         # For now, return current version info
         # In a real implementation, this would check a remote server
@@ -1325,15 +1300,7 @@ def check_github_update():
             release_data = releases[0]
         
         # Get current version
-        if getattr(sys, 'frozen', False):
-            root_dir = os.path.dirname(sys.executable)
-        else:
-            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
-        version_path = os.path.join(root_dir, 'config', 'version.json')
-        with open(version_path, 'r') as f:
-            version_data = json.load(f)
-        current_version = str(version_data.get('version', '1.0'))
+        current_version = _get_app_version()
         
         # Compare versions (semver aware)
         latest_version = str(release_data['tag_name']).lstrip('v')
@@ -1948,10 +1915,13 @@ def get_metrics():
 
 @app.route('/api/monitoring/export', methods=['POST'])
 def export_metrics():
-    """Export metrics to file"""
+    """Export metrics to file in the user data directory"""
     try:
         user_id = get_user_id()
-        export_path = f"data/metrics_export_{user_id}_{int(time.time())}.json"
+        # Keep exports alongside other user data to avoid permission issues
+        export_dir = os.path.join(get_user_data_dir(), 'metrics')
+        os.makedirs(export_dir, exist_ok=True)
+        export_path = os.path.join(export_dir, f"metrics_export_{user_id}_{int(time.time())}.json")
         
         if monitor.export_metrics(export_path):
             return jsonify({'success': True, 'file_path': export_path})
