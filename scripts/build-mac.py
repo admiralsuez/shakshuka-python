@@ -178,6 +178,15 @@ def build_app_bundle():
 
 def create_dmg(app_bundle_path, version):
     """Create a .dmg file with the .app bundle"""
+    # Check if running on macOS
+    if not check_mac():
+        print()
+        print("⚠️  Warning: DMG creation requires macOS!")
+        print("   The .app bundle has been created, but .dmg can only be created on macOS.")
+        print(f"   App bundle location: {app_bundle_path}")
+        print()
+        return False
+    
     print()
     print("Creating .dmg file...")
     print("=" * 50)
@@ -199,11 +208,14 @@ def create_dmg(app_bundle_path, version):
         shutil.copytree(app_bundle_path, temp_app)
         print(f"Copied app bundle to temporary directory")
         
-        # Create Applications folder symlink
+        # Create Applications folder symlink (macOS only)
         applications_link = temp_path / "Applications"
-        # Create a symlink to /Applications
-        os.symlink("/Applications", applications_link)
-        print("Created Applications folder link")
+        try:
+            os.symlink("/Applications", applications_link)
+            print("Created Applications folder link")
+        except (OSError, NotImplementedError) as e:
+            print(f"⚠️  Warning: Could not create Applications symlink: {e}")
+            # Continue anyway - DMG will still work without the symlink
         
         # Create DMG using hdiutil
         print()
@@ -248,8 +260,17 @@ def main():
     if success:
         app_bundle = Path("dist/Shakshuka.app")
         if app_bundle.exists():
-            # Automatically create DMG
-            create_dmg(app_bundle, version)
+            # Only create DMG on macOS
+            if check_mac():
+                create_dmg(app_bundle, version)
+            else:
+                print()
+                print("✅ .app bundle created successfully!")
+                print(f"Location: {app_bundle}")
+                print()
+                print("⚠️  Note: DMG creation requires macOS.")
+                print("   Transfer the .app bundle to a Mac to create the .dmg file.")
+                print()
         return 0
     else:
         return 1
