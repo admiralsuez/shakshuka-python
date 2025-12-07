@@ -1291,27 +1291,107 @@ class SQLiteDataManager:
                             # Check if user preferences table exists (newer migration)
                             cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'")
                             if cursor.fetchone():
-                                # Use new user_preferences table
-                                cursor = conn.execute('''
-                                    SELECT theme, dpi_scale, autosave_interval, notifications, 
-                                           daily_reset_time, timezone, language, created_at, updated_at
-                                    FROM user_preferences WHERE user_id = ?
-                                ''', (user_id,))
+                                # Determine available columns so we can include
+                                # quick_project_from_title when it exists.
+                                col_cursor = conn.execute("PRAGMA table_info(user_preferences)")
+                                cols = [row[1] for row in col_cursor.fetchall()]
+                                has_qp_column = 'quick_project_from_title' in cols
+                                has_casual_column = 'casual_dates' in cols
+
+                                if has_qp_column and has_casual_column:
+                                    cursor = conn.execute('''
+                                        SELECT theme, dpi_scale, autosave_interval, notifications, 
+                                               daily_reset_time, timezone, language, quick_project_from_title,
+                                               casual_dates, created_at, updated_at
+                                        FROM user_preferences WHERE user_id = ?
+                                    ''', (user_id,))
+                                elif has_qp_column and not has_casual_column:
+                                    cursor = conn.execute('''
+                                        SELECT theme, dpi_scale, autosave_interval, notifications, 
+                                               daily_reset_time, timezone, language, quick_project_from_title,
+                                               created_at, updated_at
+                                        FROM user_preferences WHERE user_id = ?
+                                    ''', (user_id,))
+                                elif not has_qp_column and has_casual_column:
+                                    cursor = conn.execute('''
+                                        SELECT theme, dpi_scale, autosave_interval, notifications, 
+                                               daily_reset_time, timezone, language, casual_dates,
+                                               created_at, updated_at
+                                        FROM user_preferences WHERE user_id = ?
+                                    ''', (user_id,))
+                                else:
+                                    cursor = conn.execute('''
+                                        SELECT theme, dpi_scale, autosave_interval, notifications, 
+                                               daily_reset_time, timezone, language, created_at, updated_at
+                                        FROM user_preferences WHERE user_id = ?
+                                    ''', (user_id,))
+
                                 result = cursor.fetchone()
-                                
+
                                 if result:
-                                    settings = {
-                                        'theme': result[0] or 'orange',
-                                        'dpi_scale': result[1] or 100,
-                                        'autosave_interval': result[2] or 30,
-                                        'notifications': bool(result[3]) if result[3] is not None else True,
-                                        'daily_reset_time': result[4] or '06:00',
-                                        'timezone': result[5] or 'UTC',
-                                        'language': result[6] or 'en',
-                                        'created_at': result[7],
-                                        'updated_at': result[8]
-                                    }
-                                    
+                                    if has_qp_column and has_casual_column:
+                                        # theme, dpi_scale, autosave_interval, notifications,
+                                        # daily_reset_time, timezone, language, quick_project_from_title,
+                                        # casual_dates, created_at, updated_at
+                                        settings = {
+                                            'theme': result[0] or 'orange',
+                                            'dpi_scale': result[1] or 100,
+                                            'autosave_interval': result[2] or 30,
+                                            'notifications': bool(result[3]) if result[3] is not None else True,
+                                            'daily_reset_time': result[4] or '06:00',
+                                            'timezone': result[5] or 'UTC',
+                                            'language': result[6] or 'en',
+                                            'quick_project_from_title': bool(result[7]) if result[7] is not None else False,
+                                            'casual_dates': bool(result[8]) if result[8] is not None else False,
+                                            'created_at': result[9],
+                                            'updated_at': result[10]
+                                        }
+                                    elif has_qp_column and not has_casual_column:
+                                        # Newer schema with quick_project_from_title but without casual_dates
+                                        settings = {
+                                            'theme': result[0] or 'orange',
+                                            'dpi_scale': result[1] or 100,
+                                            'autosave_interval': result[2] or 30,
+                                            'notifications': bool(result[3]) if result[3] is not None else True,
+                                            'daily_reset_time': result[4] or '06:00',
+                                            'timezone': result[5] or 'UTC',
+                                            'language': result[6] or 'en',
+                                            'quick_project_from_title': bool(result[7]) if result[7] is not None else False,
+                                            'casual_dates': False,
+                                            'created_at': result[8],
+                                            'updated_at': result[9]
+                                        }
+                                    elif not has_qp_column and has_casual_column:
+                                        # Schema with casual_dates but without quick_project_from_title
+                                        settings = {
+                                            'theme': result[0] or 'orange',
+                                            'dpi_scale': result[1] or 100,
+                                            'autosave_interval': result[2] or 30,
+                                            'notifications': bool(result[3]) if result[3] is not None else True,
+                                            'daily_reset_time': result[4] or '06:00',
+                                            'timezone': result[5] or 'UTC',
+                                            'language': result[6] or 'en',
+                                            'quick_project_from_title': False,
+                                            'casual_dates': bool(result[7]) if result[7] is not None else False,
+                                            'created_at': result[8],
+                                            'updated_at': result[9]
+                                        }
+                                    else:
+                                        # Legacy shape without quick_project_from_title or casual_dates
+                                        settings = {
+                                            'theme': result[0] or 'orange',
+                                            'dpi_scale': result[1] or 100,
+                                            'autosave_interval': result[2] or 30,
+                                            'notifications': bool(result[3]) if result[3] is not None else True,
+                                            'daily_reset_time': result[4] or '06:00',
+                                            'timezone': result[5] or 'UTC',
+                                            'language': result[6] or 'en',
+                                            'quick_project_from_title': False,
+                                            'casual_dates': False,
+                                            'created_at': result[7] if len(result) > 7 else None,
+                                            'updated_at': result[8] if len(result) > 8 else None
+                                        }
+
                                     # Validate settings data
                                     validated_settings = self._validate_settings(settings)
                                     conn.commit()
@@ -1374,7 +1454,12 @@ class SQLiteDataManager:
             'notifications': True,
             'daily_reset_time': '06:00',
             'timezone': 'UTC',
-            'language': 'en'
+            'language': 'en',
+            # Feature flag: when true, first word before the first comma in a new task
+            # title becomes the project name. Defaults to False for backwards compatibility.
+            'quick_project_from_title': False,
+            # When true, show human-friendly relative dates ("today", "in 2 days", "this weekend").
+            'casual_dates': False
         }
     
     def _validate_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -1428,6 +1513,18 @@ class SQLiteDataManager:
             language = 'en'
         validated['language'] = language
         
+        # Quick project-from-title flag
+        qp = settings.get('quick_project_from_title', False)
+        if not isinstance(qp, bool):
+            qp = False
+        validated['quick_project_from_title'] = qp
+        
+        # Casual dates flag
+        casual = settings.get('casual_dates', False)
+        if not isinstance(casual, bool):
+            casual = False
+        validated['casual_dates'] = casual
+        
         return validated
     
     def _validate_time_format(self, time_str: str) -> bool:
@@ -1446,7 +1543,9 @@ class SQLiteDataManager:
     def _create_default_settings_for_user(self, conn, user_id: str, settings: Dict[str, Any]):
         """Create default settings for a user"""
         try:
-            # Try to insert into user_preferences table first
+            # Try to insert into user_preferences table first (newer schema).
+            # If quick_project_from_title column exists it will default to 0/False
+            # for freshly created rows unless migrations added an explicit default.
             conn.execute('''
                 INSERT OR IGNORE INTO user_preferences 
                 (user_id, theme, dpi_scale, autosave_interval, notifications, 
@@ -1493,12 +1592,24 @@ class SQLiteDataManager:
                             table_exists = cursor.fetchone() is not None
                             
                             if table_exists:
-                                # Use new user_preferences table
+                                # Ensure quick_project_from_title and casual_dates columns exist (schema may be from older builds)
+                                try:
+                                    col_cursor = conn.execute("PRAGMA table_info(user_preferences)")
+                                    cols = [row[1] for row in col_cursor.fetchall()]
+                                    if 'quick_project_from_title' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN quick_project_from_title INTEGER DEFAULT 0")
+                                    if 'casual_dates' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN casual_dates INTEGER DEFAULT 0")
+                                except Exception as schema_e:
+                                    # Log but do not fail save if ALTER fails; feature will just fall back to default
+                                    self.logger.warning(f"Could not ensure quick_project_from_title/casual_dates columns on user_preferences: {schema_e}")
+
+                                # Use new user_preferences table (including quick_project_from_title & casual_dates when available)
                                 conn.execute('''
                                     INSERT OR REPLACE INTO user_preferences (
                                         user_id, theme, dpi_scale, autosave_interval, notifications,
-                                        daily_reset_time, timezone, language, updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        daily_reset_time, timezone, language, quick_project_from_title, casual_dates, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ''', (
                                     user_id,
                                     validated_settings['theme'],
@@ -1508,6 +1619,8 @@ class SQLiteDataManager:
                                     validated_settings['daily_reset_time'],
                                     validated_settings['timezone'],
                                     validated_settings['language'],
+                                    1 if validated_settings.get('quick_project_from_title', False) else 0,
+                                    1 if validated_settings.get('casual_dates', False) else 0,
                                     datetime.now().isoformat()
                                 ))
                             else:

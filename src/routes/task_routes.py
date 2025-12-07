@@ -449,7 +449,11 @@ def complete_task(task_id):
 
 @task_bp.route('/<task_id>/strike', methods=['POST'])
 def strike_task(task_id):
-    """Unified strike endpoint for both today and forever"""
+    """Unified strike endpoint for both today and forever.
+
+    This endpoint also records aggregated strike analytics using the
+    SQLite-backed analytics manager (no more JSON file writes).
+    """
     user_id = _get_user_id()
     strike_data = request.json or {}
     strike_type = strike_data.get('type')
@@ -493,26 +497,10 @@ def strike_task(task_id):
             if data_manager.save_tasks_for_user(user_id, tasks):
                 # Increment analytics counters (decoupled from daily reset)
                 try:
-                    from src.utils.paths import get_user_data_dir
-                    import json, os
-                    analytics_path = os.path.join(get_user_data_dir(), 'analytics.json')
-                    analytics = {'today_date': today, 'today_strikes': 0, 'total_strikes': 0}
-                    if os.path.exists(analytics_path):
-                        try:
-                            with open(analytics_path, 'r', encoding='utf-8') as f:
-                                analytics = json.load(f) or analytics
-                        except Exception:
-                            pass
-                    # Roll over if stored date != today
-                    if analytics.get('today_date') != today:
-                        analytics['today_date'] = today
-                        analytics['today_strikes'] = 0
-                    analytics['today_strikes'] = int(analytics.get('today_strikes', 0)) + 1
-                    analytics['total_strikes'] = int(analytics.get('total_strikes', 0)) + 1
-                    os.makedirs(os.path.dirname(analytics_path), exist_ok=True)
-                    with open(analytics_path, 'w', encoding='utf-8') as f:
-                        json.dump(analytics, f)
-                except Exception as _e:
+                    from src.analytics_manager import increment_strike_counter
+
+                    increment_strike_counter()
+                except Exception:
                     # Non-fatal; analytics are best-effort
                     pass
                 return jsonify(tasks[i])

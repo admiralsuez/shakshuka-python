@@ -39,6 +39,8 @@ const Settings = {
             const finishSelector = document.getElementById('finish-selector');
             const intensitySelector = document.getElementById('intensity-selector');
             const dpiSelector = document.getElementById('dpi-selector');
+            const quickProjectToggle = document.getElementById('quick-project-from-title');
+            const casualDatesToggle = document.getElementById('casual-dates-toggle');
             const hourSelect = document.getElementById('reset-hour-select');
             const minuteSelect = document.getElementById('reset-minute-select');
             const periodSelect = document.getElementById('reset-period-select');
@@ -54,6 +56,8 @@ const Settings = {
             if (finishSelector) finishSelector.value = settings.finish || 'glossy';
             if (intensitySelector) intensitySelector.value = settings.intensity || '5';
             if (dpiSelector) dpiSelector.value = settings.dpi_scale || 100;
+            if (quickProjectToggle) quickProjectToggle.checked = !!settings.quick_project_from_title;
+            if (casualDatesToggle) casualDatesToggle.checked = !!settings.casual_dates;
 
             // Build selects (once)
             this.ensureTimeSelectOptions();
@@ -140,6 +144,84 @@ const Settings = {
             Utils.Logger.error('Error updating autostart:', error);
             if (typeof showNotification === 'function') {
                 showNotification('Error updating autostart setting', 'error');
+            }
+        }
+    },
+
+    /**
+     * Update quick project-from-title toggle
+     */
+    async updateQuickProjectFromTitle() {
+        const enabled = !!document.getElementById('quick-project-from-title')?.checked;
+        
+        try {
+            const response = await apiCall('/api/settings', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ quick_project_from_title: enabled })
+            });
+
+            if (response.ok) {
+                const settings = AppState.get('currentSettings') || {};
+                settings.quick_project_from_title = enabled;
+                AppState.set('currentSettings', settings);
+                if (typeof showNotification === 'function') {
+                    showNotification(
+                        enabled
+                            ? 'Quick project from title enabled (first word before comma)'
+                            : 'Quick project from title disabled',
+                        'success'
+                    );
+                }
+                window.incrementSettingsChangeCount?.();
+            } else {
+                throw new Error('Failed to update quick project setting');
+            }
+        } catch (error) {
+            Utils.Logger.error('Error updating quick project-from-title setting:', error);
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating quick project setting', 'error');
+            }
+        }
+    },
+
+    /**
+     * Update casual dates toggle
+     */
+    async updateCasualDates() {
+        const enabled = !!document.getElementById('casual-dates-toggle')?.checked;
+
+        try {
+            const response = await apiCall('/api/settings', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ casual_dates: enabled })
+            });
+
+            if (response.ok) {
+                const settings = AppState.get('currentSettings') || {};
+                settings.casual_dates = enabled;
+                AppState.set('currentSettings', settings);
+                if (typeof showNotification === 'function') {
+                    showNotification(
+                        enabled
+                            ? 'Casual dates enabled (today, in 2 days, this weekend)'
+                            : 'Casual dates disabled',
+                        'success'
+                    );
+                }
+                window.incrementSettingsChangeCount?.();
+            } else {
+                throw new Error('Failed to update casual date setting');
+            }
+        } catch (error) {
+            Utils.Logger.error('Error updating casual dates setting:', error);
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating casual date setting', 'error');
             }
         }
     },
@@ -760,6 +842,8 @@ window.Settings = Settings;
 // Backward compatibility - expose methods as global functions
 window.loadSettings = () => Settings.load();
 window.updateAutostart = () => Settings.updateAutostart();
+window.updateQuickProjectFromTitle = () => Settings.updateQuickProjectFromTitle();
+window.updateCasualDates = () => Settings.updateCasualDates();
 window.updateAutosaveInterval = () => Settings.updateAutosaveInterval();
 window.applyThemeAndDPI = () => Settings.applyThemeAndDPI();
 window.updateTheme = () => Settings.updateTheme();

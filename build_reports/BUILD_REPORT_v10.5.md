@@ -1,146 +1,92 @@
-## Version 12.1 - Release
-Release Date: 2025-11-27T17:15:00.776786
+# Build Report - Shakshuka v10.5-b58
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
+## Build Information
+- **Version:** 10.5
+- **Build Number:** 58
+- **Build Date:** 2025-11-19 00:58:12
+- **Build Status:** ✅ SUCCESS
+- **Platform:** Windows (x86_64)
 
----
-## Version 12.0 - Release
-Release Date: 2025-11-26T15:18:55.923215
+## Build Artifacts
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
+### 1. Standalone Executable
+- **Filename:** `Shakshuka.exe`
+- **Size:** 27.29 MB
+- **Type:** PyInstaller Single-File Executable
+- **Status:** ✅ Created
 
----
-## Version 11.9 - Release
-Release Date: 2025-11-25T16:14:27.084572
+### 2. Installer Package
+- **Filename:** `Shakshuka-Setup-v10.5.exe`
+- **Size:** 29.46 MB
+- **Type:** Inno Setup Installer
+- **Status:** ✅ Created
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
+## Build Configuration
+- **Python Version:** 3.13.3
+- **Build Script:** `scripts/build.py`
+- **Installer Script:** `scripts/installer.iss`
+- **PyInstaller:** Single-file, console mode
+- **Architecture:** 64-bit (x86_64)
 
----
-## Version 11.8 - Release
-Release Date: 2025-11-25T15:24:59.003305
+## Features Included
+- Flask web server (port 8989)
+- SQLite database backend
+- System tray integration
+- Auto-save functionality
+- Task management system
+- User authentication (optional)
+- Settings persistence
+- Auto-update capability
+- Monitoring and analytics
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
+## File Locations
+- **Executable:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka.exe`
+- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka-Setup-v10.5.exe`
+- **Source Distribution:** `scripts/dist/`
 
----
-## Version 11.7 - Release
-Release Date: 2025-11-25T14:15:57.287128
+## Installation Methods
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
+### Method 1: Standalone Executable
+1. Run `Shakshuka.exe` directly
+2. No installation required
+3. Portable - can run from any location
 
----
-## Version 11.6 - Release
-Release Date: 2025-11-25T14:04:50.330733
+### Method 2: Professional Installer
+1. Run `Shakshuka-Setup-v10.5-b58.exe`
+2. Follow installation wizard
+3. Installs to `Program Files`
+4. Creates Start Menu shortcuts
+5. Adds uninstaller
 
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-
----
-## Version 11.5 - Release
-Release Date: 2025-11-25T13:08:41.947079
-
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-
----
-## Version 11.4 - Release
-Release Date: 2025-11-25T12:10:34.523610
-
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-
----
-## Version 11.3 - Release
-Release Date: 2025-11-25T02:34:03.120886
-
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-- Logging: each app launch now writes to a dedicated dated log file under the user data logs folder (`AppData\\Roaming\\Shakshuka\\logs`), with automatic pruning that keeps the newest logs and deletes the oldest when more than 10 `.txt` log files exist.
-- Tasks: due date pills respect the "Casual dates" setting (today, tomorrow, in N days, this weekend/next weekend) and visually highlight tasks due today in red while grouping them together at the top of the task list.
-- Performance: task list rendering is scheduled with `requestAnimationFrame` (with a 1-second timeout fallback) so rapid filter changes and strike operations feel smoother on slower machines.
-
----
-## Version 11.2 - Release
-Release Date: 2025-11-25T02:30:06.534720
-
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-
----
-## Version 11.1 - Release
-Release Date: 2025-11-25T01:38:00.331029
-
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-
----
-## Version 11.0 - Release
-Release Date: 2025-11-24T12:33:30.446845
-
-Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-
----
-## Versions 9.0 – 10.9 – SQLite Analytics & Build System Iterations
-Release Period: 2025-11-17 to 2025-11-24
-
-Consolidated Highlights
-- Daily strikes persistence in SQLite (new migration)
-- Reduced duplicate planner schedule GET calls
-- Static cache-bust params unified to ?v=6.2
-- Installer script echoes dynamic version
-
-Notes
-- Individual feature-heavy releases in this range (9.9, 10.1, 10.2, 10.5) are documented in their own sections below.
-
----
+## Changelog
 ## Version 10.5 - Release
 Release Date: 2025-11-19T00:57:11.474413
 
 Highlights
-- Settings: Added "Quick project from title (first word before comma)" toggle so new tasks can auto-populate the Project field from the title across Add Task, Quick Add, and inline quick-add.
-- Updates: Settings "Check for Updates" now delegates to the GitHub-based updater so newer GitHub releases reliably surface via the GitHub update modal.
-- Changelog: Frontend now merges versions that share identical release notes into combined ranges (e.g. 8.1–9.2) to reduce duplicate sections.
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 10.4 - Release
+Release Date: 2025-11-19T00:38:30.515482
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 10.3 - Release
+Release Date: 2025-11-18T03:13:10.540127
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 10.2 - Stability & QA Fixes
@@ -167,6 +113,16 @@ Highlights
 - Folder-style loader keeps its minimum display duration and fades out smoothly into the main app across all themes.
 
 ---
+## Version 10.0 - Release
+Release Date: 2025-11-17T23:54:02.220247
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
 ## Version 9.9 - UX Loader & Project Filter
 Release Date: 2025-11-17T23:59:59
 
@@ -178,6 +134,96 @@ Highlights
 - Project filter dropdown is populated dynamically from current tasks and combines cleanly with the status filter.
 - Loading screen and loader background now respect the selected theme variables instead of hardcoding colours.
 - Installer no longer ships the internal `build.bat` helper script to keep Program Files cleaner for end users.
+
+---
+## Version 9.8 - Release
+Release Date: 2025-11-17T23:37:22.730178
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 9.7 - Release
+Release Date: 2025-11-17T23:05:29.613596
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 9.6 - Release
+Release Date: 2025-11-17T22:52:52.241449
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 9.5 - Release
+Release Date: 2025-11-17T22:21:31.097162
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 9.4 - Release
+Release Date: 2025-11-17T15:31:24.437574
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 9.3 - Release
+Release Date: 2025-11-17T15:16:46.025931
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 9.2 - Release
+Release Date: 2025-11-17T15:07:09.479136
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 9.1 - Release
+Release Date: 2025-11-17T15:06:50.960975
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
+
+---
+## Version 9.0 - Release
+Release Date: 2025-11-17T14:40:50.158359
+
+Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 8.9 - Backend Cleanup & Modularisation
@@ -4228,3 +4274,19 @@ When making changes to the application, always:
 ---
 
 *This changelog is automatically maintained and should be updated with every significant change to ensure users and developers are informed about application evolution.*
+
+
+## Next Steps
+1. Test the standalone executable
+2. Test the installer package
+3. Verify all features work correctly
+4. Check for any errors in logs
+5. Update documentation if needed
+
+## Build System
+- **Auto-Increment:** Build number automatically incremented
+- **Version File:** `config/version.json`
+- **Build Reports:** Saved to `build_reports/`
+
+---
+*Report generated automatically by build.py*

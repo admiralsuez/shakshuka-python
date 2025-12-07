@@ -163,19 +163,58 @@ def _check_system_tray_available():
 try:
     # Always use user data directory for logs to avoid permission issues
     logs_dir = os.path.join(user_data_dir, 'logs')
-    
-    # Try to create logs directory if it doesn't exist
     os.makedirs(logs_dir, exist_ok=True)
-    log_file = os.path.join(logs_dir, 'shakshuka.log')
-    
+
+    # Create a new log file on each launch with format: date-time-log#number.txt
+    # Example: 2025-11-24_21-06-18-log#1.txt
+    from datetime import datetime as _dt
+
+    timestamp = _dt.now().strftime('%Y-%m-%d_%H-%M-%S')
+    existing_txt_logs = [f for f in os.listdir(logs_dir) if f.lower().endswith('.txt')]
+
+    # Determine next sequence number for this launch
+    next_index = 1
+    if existing_txt_logs:
+        import re as _re
+        pattern = _re.compile(rf"^{timestamp}-log#(\d+)\.txt$", _re.IGNORECASE)
+        for name in existing_txt_logs:
+            m = pattern.match(name)
+            if m:
+                try:
+                    idx = int(m.group(1))
+                    if idx >= next_index:
+                        next_index = idx + 1
+                except ValueError:
+                    continue
+
+    log_filename = f"{timestamp}-log#{next_index}.txt"
+    log_file = os.path.join(logs_dir, log_filename)
+
+    # Configure logging to use the per-launch file plus console
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(log_file),
+            logging.FileHandler(log_file, encoding='utf-8'),
             logging.StreamHandler()
         ]
     )
+
+    # Enforce a maximum of 10 txt log files; when we reach/exceed 10, delete the oldest 5
+    try:
+        txt_paths = [os.path.join(logs_dir, f) for f in os.listdir(logs_dir) if f.lower().endswith('.txt')]
+        if len(txt_paths) >= 10:
+            txt_paths.sort(key=lambda p: os.path.getmtime(p))
+            for old_path in txt_paths[:5]:
+                try:
+                    os.remove(old_path)
+                except Exception:
+                    # Best-effort cleanup; ignore failures
+                    pass
+    except Exception:
+        # Never let rotation failures break app startup
+        pass
+
 except Exception as e:
     # Fallback to console-only logging if file logging fails
     logging.basicConfig(
@@ -1173,34 +1212,25 @@ def get_changelog():
 
 @app.route('/api/analytics')
 def get_analytics():
-    """Return decoupled analytics counters that do not reset with daily strike reset."""
+    """Return decoupled analytics counters backed by SQLite, not JSON.
+
+    Values are stored in a small analytics.db under the user data
+    directory so they survive reinstalls and are independent of the
+    main tasks database and daily reset logic.
+    """
     try:
-        from src.utils.paths import get_user_data_dir
-        import os, json
-        analytics_path = os.path.join(get_user_data_dir(), 'analytics.json')
-        today = datetime.utcnow().strftime('%Y-%m-%d')
-        data = {'today_date': today, 'today_strikes': 0, 'total_strikes': 0}
-        if os.path.exists(analytics_path):
-            try:
-                with open(analytics_path, 'r', encoding='utf-8') as f:
-                    stored = json.load(f) or {}
-                data.update({
-                    'today_date': stored.get('today_date', today),
-                    'today_strikes': int(stored.get('today_strikes', 0)),
-                    'total_strikes': int(stored.get('total_strikes', 0)),
-                })
-                # Roll day if file is from a previous date (start fresh for the new day only by date, not by reset)
-                if data['today_date'] != today:
-                    data['today_date'] = today
-                    data['today_strikes'] = 0
-                    with open(analytics_path, 'w', encoding='utf-8') as f:
-                        json.dump(data, f)
-            except Exception:
-                pass
+        from src.analytics_manager import get_analytics_counters
+
+        data = get_analytics_counters()
         return jsonify({'success': True, **data})
     except Exception as e:
         logger.error(f"Analytics read error: {e}")
-        return jsonify({'success': False, 'today_date': datetime.utcnow().strftime('%Y-%m-%d'), 'today_strikes': 0, 'total_strikes': 0}), 200
+        return jsonify({
+            'success': False,
+            'today_date': datetime.utcnow().strftime('%Y-%m-%d'),
+            'today_strikes': 0,
+            'total_strikes': 0,
+        }), 200
 
 
 @app.route('/api/check-updates')
@@ -1699,7 +1729,9 @@ def get_settings():
             'daily_reset_time': settings.get('daily_reset_time', '06:00'),
             'timezone': settings.get('timezone', 'UTC'),
             'language': settings.get('language', 'en'),
-            'autostart_enabled': bool(settings.get('autostart_enabled', False))
+            'autostart_enabled': bool(settings.get('autostart_enabled', False)),
+            'quick_project_from_title': bool(settings.get('quick_project_from_title', False)),
+            'casual_dates': bool(settings.get('casual_dates', False)),
         }
         
         logger.info(f"Successfully loaded settings for user {user_id}")
@@ -1809,6 +1841,18 @@ def update_settings():
                 daily_reset_time_changed = False
         else:
             daily_reset_time_changed = False
+        
+        # Quick project-from-title toggle (simple boolean)
+        if 'quick_project_from_title' in settings_data:
+            qp = settings_data['quick_project_from_title']
+            if isinstance(qp, bool):
+                validated_updates['quick_project_from_title'] = qp
+
+        # Casual dates toggle (simple boolean)
+        if 'casual_dates' in settings_data:
+            cd = settings_data['casual_dates']
+            if isinstance(cd, bool):
+                validated_updates['casual_dates'] = cd
         
         # Timezone validation
         if 'timezone' in settings_data:

@@ -980,22 +980,65 @@ function parseChangelogToSections(markdown) {
         sections.push(currentSection);
     }
     
-    // Sort by version (latest first) - simple version comparison
-    sections.sort((a, b) => {
-        const versionA = a.version.split('.').map(Number);
-        const versionB = b.version.split('.').map(Number);
-        
-        for (let i = 0; i < Math.max(versionA.length, versionB.length); i++) {
-            const numA = versionA[i] || 0;
-            const numB = versionB[i] || 0;
-            if (numA !== numB) {
-                return numB - numA; // Descending order (latest first)
-            }
+    // Helper to compare two version strings (semver-ish)
+    function compareVersions(a, b) {
+        const va = (a || '').split('.').map(Number);
+        const vb = (b || '').split('.').map(Number);
+        const maxLen = Math.max(va.length, vb.length);
+        for (let i = 0; i < maxLen; i++) {
+            const na = va[i] || 0;
+            const nb = vb[i] || 0;
+            if (na !== nb) return na - nb;
         }
         return 0;
+    }
+    
+    // Sort by version (latest first) - simple version comparison
+    sections.sort((a, b) => compareVersions(b.version, a.version));
+    
+    // Merge sections that have identical content (deduplicate repeated release notes).
+    // This groups versions like 8.1–9.2 that share the same body into a single
+    // combined section so the changelog is more concise.
+    const combined = [];
+    const contentIndex = new Map(); // contentKey -> index in combined
+    
+    sections.forEach(section => {
+        const contentKey = (section.content || []).join('\n').trim();
+        if (!contentKey) {
+            combined.push(section);
+            return;
+        }
+        const existingIdx = contentIndex.get(contentKey);
+        if (existingIdx === undefined) {
+            // First time we see this exact content
+            section.versions = [section.version];
+            combined.push(section);
+            contentIndex.set(contentKey, combined.length - 1);
+        } else {
+            // Merge into existing group
+            const group = combined[existingIdx];
+            if (!group.versions) {
+                group.versions = [group.version];
+            }
+            group.versions.push(section.version);
+            // Preserve earliest and latest dates if present
+            if (section.date) {
+                if (!group.dates) {
+                    group.dates = [];
+                }
+                group.dates.push(section.date);
+            }
+        }
     });
     
-    return sections;
+    // Normalize version arrays: sort ascending so we can show "8.1 – 9.2"
+    combined.forEach(group => {
+        if (group.versions && group.versions.length > 1) {
+            group.versions.sort((a, b) => compareVersions(a, b));
+        }
+    });
+    
+    return combined;
 }
 
 function formatChangelogSections(sections) {
@@ -1396,7 +1439,11 @@ function setupEventListeners() {
             }
             try {
                 if (err) err.style.display = 'none';
-                await createTask({ title, description: '', project: '', estimated_duration: 60 });
+                let taskPayload = { title, description: '', project: '', estimated_duration: 60 };
+                // Inline quick-add should also respect quick project-from-title when enabled
+                taskPayload = applyQuickProjectFromTitle(taskPayload);
+
+                await createTask(taskPayload);
                 input.value = '';
                 // Refresh UI depending on current page
                 const page = AppState.get('currentPage');
@@ -1444,6 +1491,8 @@ function setupEventListeners() {
     // Settings
     safeAddEventListener('autostart-toggle', 'change', updateAutostart);
     safeAddEventListener('autosave-interval', 'change', updateAutosaveInterval);
+    safeAddEventListener('quick-project-from-title', 'change', updateQuickProjectFromTitle);
+    safeAddEventListener('casual-dates-toggle', 'change', updateCasualDates);
     safeAddEventListener('daily-reset-time', 'change', updateDailyResetTime);
     safeAddEventListener('theme-selector', 'change', updateTheme);
     safeAddEventListener('finish-selector', 'change', updateFinish);
@@ -1573,9 +1622,54 @@ function setupEventListeners() {
     // Close modals on outside click
     document.querySelectorAll('.modal').forEach(modal => {
         modal.addEventListener('click', function(e) {
-            if (e.target === this) {
-                this.classList.remove('active');
+            if (e.target !== this) return; // only when clicking the backdrop itself
+
+            const id = this.id;
+
+            // Prefer dedicated close functions so each modal can clean up its own state
+            if (id === 'task-modal' && typeof closeTaskModal === 'function') {
+                closeTaskModal();
+                return;
             }
+            if (id === 'quick-add-modal' && typeof closeQuickAddModal === 'function') {
+                closeQuickAddModal();
+                return;
+            }
+            if (id === 'strike-modal' && typeof closeStrikeModal === 'function') {
+                closeStrikeModal();
+                return;
+            }
+            if (id === 'schedule-modal' && typeof closeScheduleModal === 'function') {
+                closeScheduleModal();
+                return;
+            }
+            if (id === 'logs-modal' && typeof closeLogsModal === 'function') {
+                closeLogsModal();
+                return;
+            }
+            if (id === 'backup-modal' && typeof closeBackupModal === 'function') {
+                closeBackupModal();
+                return;
+            }
+            if (id === 'update-modal' && typeof closeUpdateModal === 'function') {
+                closeUpdateModal();
+                return;
+            }
+            if (id === 'import-modal' && typeof closeImportModal === 'function') {
+                closeImportModal();
+                return;
+            }
+            if (id === 'changelog-modal' && typeof closeChangelogModal === 'function') {
+                closeChangelogModal();
+                return;
+            }
+            if (id === 'github-update-modal' && typeof closeGitHubUpdateModal === 'function') {
+                closeGitHubUpdateModal();
+                return;
+            }
+
+            // Fallback: just remove the active class (preserves existing display logic)
+            this.classList.remove('active');
         });
     });
 }
@@ -2054,8 +2148,19 @@ async function completeTask(taskId) {
     }
 }
 
-// Task Rendering
-function renderTasks(filter = AppState.get('currentFilter'), projectFilterArg) {
+// Task Rendering (uses requestAnimationFrame for smoother DOM updates)
+let _renderTasksRafId = null;
+
+// Use rAF when available; fallback to a 1s timeout if browser is throttled or rAF is missing
+const _renderTasksSchedule = (cb) => {
+    const raf = window.requestAnimationFrame;
+    if (typeof raf === 'function') {
+        return raf(cb);
+    }
+    return setTimeout(cb, 1000); // 1 second fallback
+};
+
+function _renderTasksNow(filter, projectFilterArg) {
     const tasksList = document.getElementById('tasks-list');
 
     const projectFilter = (typeof projectFilterArg !== 'undefined' && projectFilterArg !== null)
@@ -2095,15 +2200,22 @@ function renderTasks(filter = AppState.get('currentFilter'), projectFilterArg) {
 
     console.log('Filtered tasks:', filteredTasks.length, filteredTasks);
     
-    // Sort tasks: active tasks first, then struck tasks
+    // Sort tasks: active tasks first, then struck tasks, and group tasks due today
+    const todayStr = new Date().toISOString().split('T')[0];
     const sortedTasks = filteredTasks.sort((a, b) => {
-        // If both are struck today, maintain original order
+        // First, handle struck_today so completed/struck tasks fall to the bottom
         if (a.struck_today && b.struck_today) return 0;
-        // If only a is struck today, b comes first
         if (a.struck_today && !b.struck_today) return 1;
-        // If only b is struck today, a comes first
         if (!a.struck_today && b.struck_today) return -1;
-        // If neither are struck, maintain original order
+
+        // Within the same struck status, move tasks due today to the front of the queue
+        const aDueToday = !a.struck_today && a.due_date && String(a.due_date).split('T')[0] === todayStr;
+        const bDueToday = !b.struck_today && b.due_date && String(b.due_date).split('T')[0] === todayStr;
+
+        if (aDueToday && !bDueToday) return -1;
+        if (!aDueToday && bDueToday) return 1;
+
+        // Otherwise, keep original relative order
         return 0;
     });
     
@@ -2183,8 +2295,9 @@ function renderTasks(filter = AppState.get('currentFilter'), projectFilterArg) {
                                 ${task.description ? `<p class="task-description-main">${sanitizeHTML(task.description)}</p>` : ''}
                             </div>
                             
-                            <div class="task-duration-bottom-right">
-                                <span class="task-duration-badge">${task.duration || 60} min</span>
+                            <div class="task-meta-bottom-right">
+                                ${task.due_date ? `<span class="task-due-pill${isDueToday(task.due_date) ? ' task-due-today' : ''}">${sanitizeHTML(formatDueDateLabel(task.due_date))}</span>` : ''}
+                                <span class="task-duration-badge">${task.estimated_duration || task.duration || 60} min</span>
                             </div>
                         </div>
                     `;
@@ -2194,17 +2307,28 @@ function renderTasks(filter = AppState.get('currentFilter'), projectFilterArg) {
         Utils.Logger.log('Generated grid HTML');
         tasksList.innerHTML = gridHTML;
     } else {
-        tasksList.innerHTML = sortedTasks.map(task => `
+        const listHTML = sortedTasks.map(task => {
+            const hasDueDate = !!task.due_date;
+            const dueLabel = hasDueDate ? formatDueDateLabel(task.due_date) : '';
+            const dueTodayClass = hasDueDate && isDueToday(task.due_date) ? ' task-due-today' : '';
+            const hasDescription = !!(task.description && task.description.trim());
+
+            return `
         <div class="task-item ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${(task.struck_today && task.strike_count > 1) ? 'restrike' : ''}" data-task-id="${task.id}">
             <div class="task-project-tag">
                 ${task.project ? `<span class="project-tag">${sanitizeHTML(task.project)}</span>` : '<span class="project-tag no-project">No Project</span>'}
             </div>
             <div class="task-content">
-                <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">${sanitizeHTML(task.title)}</h3>
-                ${task.description ? `<p class="task-description">${sanitizeHTML(task.description)}</p>` : ''}
+                <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">
+                    ${sanitizeHTML(task.title)}
+                    ${hasDescription ? `<button class=\"task-title-more\" onclick=\"openTaskDetailsModal('${task.id}')\" title=\"View details\"><i class=\"fas fa-chevron-right\"></i></button>` : ''}
+                </h3>
                 ${task.strike_report ? `<p class="strike-report"><em>Last strike: ${sanitizeHTML(task.strike_report)}</em></p>` : ''}
             </div>
             <div class="task-actions">
+                ${hasDueDate ? `
+                    <span class="task-due-pill${dueTodayClass}">${sanitizeHTML(dueLabel)}</span>
+                ` : ''}
                 ${task.struck_today && !task.completed ? `
                     <button class="task-action undo-action" onclick="undoStrike('${task.id}')" title="Undo Strike">
                         <i class="fas fa-undo"></i>
@@ -2227,8 +2351,85 @@ function renderTasks(filter = AppState.get('currentFilter'), projectFilterArg) {
                 </button>
             </div>
         </div>
-    `).join('');
+    `;
+        }).join('');
+        tasksList.innerHTML = listHTML;
     }
+}
+
+// Public entry: schedule render work into the next animation frame
+// Modal showing full task details (title, project, due, full description)
+function openTaskDetailsModal(taskId) {
+    try {
+        const tasks = (typeof AppState !== 'undefined' && AppState.getTasks) ? (AppState.getTasks() || []) : [];
+        const task = tasks.find(t => String(t.id) === String(taskId));
+        if (!task) {
+            if (typeof Utils !== 'undefined' && Utils.safeShowNotification) {
+                Utils.safeShowNotification('Could not load task details', 'error');
+            }
+            return;
+        }
+
+        let modal = document.getElementById('task-details-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'task-details-modal';
+            modal.className = 'modal task-details-modal';
+            document.body.appendChild(modal);
+        }
+
+        const description = (task.description || '').trim();
+        const project = (task.project || '').trim() || 'No Project';
+        const hasDueDate = !!task.due_date;
+        const dueLabel = hasDueDate ? formatDueDateLabel(task.due_date) : 'No due date';
+
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>${sanitizeHTML(task.title || 'Task details')}</h2>
+                    <span class="close" onclick="closeTaskDetailsModal()">&times;</span>
+                </div>
+                <div class="task-details-body">
+                    <div class="task-details-meta">
+                        <span class="task-details-project">${sanitizeHTML(project)}</span>
+                        <span class="task-details-due">${sanitizeHTML(dueLabel)}</span>
+                    </div>
+                    <div class="task-details-description">
+                        ${description ? sanitizeHTML(description) : '<em>No description</em>'}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        modal.classList.add('active');
+        modal.style.display = 'flex';
+    } catch (e) {
+        console.error('Failed to open task details modal', e);
+    }
+}
+
+function closeTaskDetailsModal() {
+    const modal = document.getElementById('task-details-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+}
+
+function renderTasks(filter = AppState.get('currentFilter'), projectFilterArg) {
+    if (_renderTasksRafId !== null) {
+        if (typeof cancelAnimationFrame === 'function') {
+            cancelAnimationFrame(_renderTasksRafId);
+        } else {
+            clearTimeout(_renderTasksRafId);
+        }
+        _renderTasksRafId = null;
+    }
+    const requestedFilter = filter;
+    const requestedProjectFilter = projectFilterArg;
+    _renderTasksRafId = _renderTasksSchedule(() => {
+        _renderTasksRafId = null;
+        _renderTasksNow(requestedFilter, requestedProjectFilter);
+    });
 }
 
 function renderRecentTasks() {
@@ -3742,30 +3943,11 @@ let updatePollInterval = null;
 let isUpdateDownloading = false;
 let lastUpdateStatus = null;
 
+// Unified update check handler for the Settings "Check for Updates" button.
+// This now delegates to the GitHub-based check so that any newer version
+// published on GitHub will surface via the GitHub update modal.
 async function checkForUpdates() {
-    try {
-        showNotification('Checking for updates...', 'info');
-        
-        const response = await fetch('/api/updates/check', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-        
-        const result = await response.json();
-        
-        if (result.update_available) {
-            currentUpdateInfo = result.update_info;
-            showUpdateModal(result.update_info);
-            showNotification('Update available!', 'success');
-        } else {
-            showNotification('You are up to date!', 'success');
-        }
-    } catch (error) {
-        console.error('Error checking for updates:', error);
-        showNotification('Error checking for updates', 'error');
-    }
+    return checkGitHubUpdate();
 }
 
 async function checkGitHubUpdate() {
@@ -4240,15 +4422,36 @@ function filterTasksByType(tasks, filter) {
         console.warn('filterTasksByType received non-array tasks:', tasks);
         return [];
     }
+
+    // Normalize "today" string once for all branches
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const getDateOnly = (raw) => {
+        if (!raw) return null;
+        const s = String(raw);
+        return s.includes('T') ? s.split('T')[0] : s;
+    };
     
     switch (filter) {
         case 'active':
-            return tasks.filter(task => !task.completed);
+            // Active = not completed AND (no due date OR due today/future)
+            return tasks.filter(task => {
+                if (task.completed) return false;
+                const due = getDateOnly(task.due_date);
+                if (!due) return true;          // no due date → still active
+                return due >= todayStr;         // today or later
+            });
         case 'completed':
             return tasks.filter(task => task.completed);
-        case 'expired':
-            const today = new Date().toISOString().split('T')[0];
-            return tasks.filter(task => !task.completed && task.due_date && task.due_date < today);
+        case 'expired': {
+            // Expired = not completed AND due date strictly before today
+            return tasks.filter(task => {
+                if (task.completed) return false;
+                const due = getDateOnly(task.due_date);
+                if (!due) return false;
+                return due < todayStr;
+            });
+        }
         default:
             return tasks;
     }
@@ -4275,6 +4478,89 @@ function setQuickDate(kind) {
     el.value = `${yyyy}-${mm}-${dd}`;
 }
 
+// Helper: determine if a given date string is today (compares by date only)
+function isDueToday(dueRaw) {
+    if (!dueRaw) return false;
+    try {
+        const raw = String(dueRaw);
+        const dateOnly = raw.split('T')[0];
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        return dateOnly === todayStr;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Human-friendly label for due dates used in task cards
+function formatDueDateLabel(dueRaw) {
+    if (!dueRaw) return '';
+    try {
+        const raw = String(dueRaw);
+        const dateOnly = raw.split('T')[0];
+        const dueDate = new Date(dateOnly + 'T00:00:00');
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const diffDays = Math.round((dueDate - today) / (1000 * 60 * 60 * 24));
+
+        // Default (non-casual) formatting
+        let settings = {};
+        try {
+            settings = (typeof AppState !== 'undefined' && AppState.get)
+                ? (AppState.get('currentSettings') || {})
+                : {};
+        } catch (e) {
+            settings = {};
+        }
+
+        const useCasual = !!settings.casual_dates;
+
+        if (!useCasual) {
+            // Non-casual mode: always show the raw YYYY-MM-DD date
+            return dateOnly;
+        }
+
+        // Casual formatting
+        if (diffDays === 0) return 'today';
+        if (diffDays === 1) return 'tomorrow';
+        if (diffDays === -1) return 'yesterday';
+        if (diffDays < -1) return `${Math.abs(diffDays)} days ago`;
+
+        // Weekend helpers (Saturday/Sunday)
+        const todayDow = today.getDay(); // 0-6, Sunday=0
+        const thisSaturday = new Date(today);
+        thisSaturday.setDate(today.getDate() + ((6 - todayDow + 7) % 7));
+        const thisSunday = new Date(thisSaturday);
+        thisSunday.setDate(thisSaturday.getDate() + 1);
+
+        const nextSaturday = new Date(thisSaturday);
+        nextSaturday.setDate(thisSaturday.getDate() + 7);
+        const nextSunday = new Date(nextSaturday);
+        nextSunday.setDate(nextSaturday.getDate() + 1);
+
+        const isSameDay = (d1, d2) => d1.getFullYear() === d2.getFullYear()
+            && d1.getMonth() === d2.getMonth()
+            && d1.getDate() === d2.getDate();
+
+        if (isSameDay(dueDate, thisSaturday) || isSameDay(dueDate, thisSunday)) {
+            return 'this weekend';
+        }
+        if (isSameDay(dueDate, nextSaturday) || isSameDay(dueDate, nextSunday)) {
+            return 'next weekend';
+        }
+
+        if (diffDays > 1) {
+            return `in ${diffDays} days`;
+        }
+
+        // For past dates or unexpected values, fall back to the raw date
+        return dateOnly;
+    } catch (e) {
+        return String(dueRaw);
+    }
+}
+
 // Update form handling
 function populateTaskForm(task) {
     document.getElementById('task-title').value = task.title;
@@ -4288,6 +4574,47 @@ function clearTaskForm() {
     document.getElementById('task-form').reset();
     document.getElementById('task-duration').value = 60;
 }
+
+// Helper to apply "quick project from title" rule for NEW tasks.
+// If enabled in settings and no project is specified, a title like
+// "Work, finish report" becomes project="Work" and title="finish report".
+function applyQuickProjectFromTitle(taskData) {
+    try {
+        const settings = (typeof AppState !== 'undefined' && AppState.get)
+            ? (AppState.get('currentSettings') || {})
+            : {};
+        if (!settings.quick_project_from_title) {
+            return taskData;
+        }
+    } catch (e) {
+        return taskData;
+    }
+
+    // Only when project is empty or whitespace
+    if (taskData.project && taskData.project.trim()) {
+        return taskData;
+    }
+
+    const title = (taskData.title || '').trim();
+    const commaIndex = title.indexOf(',');
+    if (commaIndex <= 0) {
+        return taskData;
+    }
+
+    const prefix = title.slice(0, commaIndex);
+    const firstWord = prefix.trim().split(/\s+/)[0];
+    if (!firstWord) {
+        return taskData;
+    }
+
+    const rest = title.slice(commaIndex + 1).trim();
+    return {
+        ...taskData,
+        title: rest,
+        project: firstWord
+    };
+}
+
 
 // Consolidated save function to avoid duplication
 async function saveTaskCommon(taskData, modalCloseFn) {
@@ -4329,6 +4656,8 @@ async function saveTaskCommon(taskData, modalCloseFn) {
         if (editingTaskId) {
             await updateTask(editingTaskId, taskData);
         } else {
+            // New task: optionally extract project from title if enabled
+            taskData = applyQuickProjectFromTitle(taskData);
             await createTask(taskData);
         }
         
@@ -4358,17 +4687,17 @@ async function saveQuickTask() {
     
     try {
         console.log('saveQuickTask called');
-    const taskData = {
-        title: document.getElementById('quick-task-title').value.trim(),
-        description: '',
-        project: '',
-        estimated_duration: 60
-    };
+        let taskData = {
+            title: document.getElementById('quick-task-title').value.trim(),
+            description: '',
+            project: '',
+            estimated_duration: 60
+        };
         
-        console.log('Quick task data:', taskData);
+        console.log('Quick task data (before quick-project rule):', taskData);
         console.log('User ID from AppState:', AppState.get('userId'));
-    
-    await saveTaskCommon(taskData, closeQuickAddModal);
+
+        await saveTaskCommon(taskData, closeQuickAddModal);
     } finally {
         // Always reset the flag, even if an error occurs
         window.taskCreationInProgress = false;
