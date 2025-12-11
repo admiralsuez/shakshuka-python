@@ -4301,6 +4301,30 @@ async function downloadGitHubUpdate() {
         const branchElement = document.getElementById('github-branch');
         const branch = branchElement ? branchElement.value : 'main';
         showNotification('Downloading update from GitHub...', 'info');
+
+        // Show progress UI in the GitHub update modal
+        const progressDiv = document.getElementById('github-update-progress');
+        const progressFill = document.getElementById('github-progress-fill');
+        const progressText = document.getElementById('github-progress-text');
+        if (progressDiv && progressFill && progressText) {
+            progressDiv.style.display = 'block';
+            progressFill.style.width = '0%';
+            progressText.textContent = 'Starting download...';
+        }
+
+        // Simple front-end progress simulation while the download request runs.
+        // This does not reflect exact bytes, but gives visual feedback.
+        let fakePct = 0;
+        let progressTimer = null;
+        if (progressDiv && progressFill && progressText) {
+            progressTimer = setInterval(() => {
+                if (fakePct < 95) {
+                    fakePct += 3;
+                    progressFill.style.width = Math.min(fakePct, 95) + '%';
+                    progressText.textContent = 'Downloading update...';
+                }
+            }, 500);
+        }
         
         const response = await fetch('/api/github/download-update', {
             method: 'POST',
@@ -4311,18 +4335,29 @@ async function downloadGitHubUpdate() {
         });
         
         const result = await response.json();
+
+        if (progressTimer) {
+            clearInterval(progressTimer);
+            progressTimer = null;
+        }
         
         if (result.success) {
-            showNotification('Update downloaded! Installation starting...', 'success');
-            // Close any open modals
-            closeUpdateModal();
-            closeGitHubUpdateModal();
-            
-            // Show a message that the app will restart
+            const path = result.installer_path || 'the downloaded installer file';
+            if (progressDiv && progressFill && progressText) {
+                progressFill.style.width = '100%';
+                progressText.textContent = 'Download complete.';
+            }
+            showNotification('Update installer downloaded. Please close Shakshuka and run the installer to finish updating.', 'success');
             setTimeout(() => {
-                showNotification('The application will restart after installation completes.', 'info');
-            }, 2000);
+                showNotification(`Installer saved at: ${path}`, 'info');
+            }, 1500);
+            // Close any open modals
+            try { closeUpdateModal(); } catch (_) {}
+            try { closeGitHubUpdateModal(); } catch (_) {}
         } else {
+            if (progressDiv && progressText) {
+                progressText.textContent = 'Download failed.';
+            }
             showNotification(`Update failed: ${result.error}`, 'error');
         }
     } catch (error) {
@@ -4381,6 +4416,12 @@ function createGitHubUpdateModal() {
                 </div>
                 <div id=\"github-update-info\" class=\"modal-body\">
                     <!-- Update info will be populated here -->
+                    <div class=\"update-progress\" id=\"github-update-progress\" style=\"display:none; margin-top: 1rem;\">
+                        <div class=\"progress-bar\">
+                            <div class=\"progress-fill\" id=\"github-progress-fill\"></div>
+                        </div>
+                        <p class=\"progress-text\" id=\"github-progress-text\"></p>
+                    </div>
                 </div>
                 <div class=\"modal-footer\">
                     <button class=\"btn-secondary\" id=\"cancel-github-update\">Cancel</button>

@@ -1433,36 +1433,54 @@ def download_github_update():
         # Find the Windows installer asset
         installer_url = None
         installer_size = 0
+        installer_name = None
         for asset in release_data.get('assets', []):
             name = asset.get('name', '')
             if name.lower().endswith('.exe') and 'setup' in name.lower():
                 installer_url = asset.get('browser_download_url')
                 installer_size = int(asset.get('size', 0) or 0)
+                installer_name = name
                 break
         
         if not installer_url:
             return jsonify({'error': 'No Windows installer found in release'}), 404
         
+        # Choose a Downloads folder as the destination when possible
+        try:
+            home_dir = os.path.expanduser('~')
+            downloads_dir = os.path.join(home_dir, 'Downloads')
+            if not os.path.isdir(downloads_dir):
+                downloads_dir = tempfile.gettempdir()
+        except Exception:
+            downloads_dir = tempfile.gettempdir()
+        os.makedirs(downloads_dir, exist_ok=True)
+        
+        if not installer_name:
+            # Fallback file name if the asset name isn't available
+            tag = str(release_data.get('tag_name') or 'latest').lstrip('v')
+            installer_name = f'Shakshuka-Setup-{tag}.exe'
+        
+        installer_path = os.path.join(downloads_dir, installer_name)
+        
         # Download the installer
-        logger.info(f"Downloading update from: {installer_url}")
+        logger.info(f"Downloading update from: {installer_url} to {installer_path}")
         download_response = requests.get(installer_url, stream=True, timeout=30)
         download_response.raise_for_status()
         
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.exe') as temp_file:
+        # Save to chosen path
+        with open(installer_path, 'wb') as f:
             for chunk in download_response.iter_content(chunk_size=8192):
                 if not chunk:
                     continue
-                temp_file.write(chunk)
-            temp_installer_path = temp_file.name
+                f.write(chunk)
         
-        logger.info(f"Downloaded installer to: {temp_installer_path}")
+        logger.info(f"Downloaded installer to: {installer_path}")
         
         return jsonify({
             'success': True,
             'message': 'Update downloaded successfully',
             'installer_size': installer_size,
-            'installer_path': temp_installer_path,
+            'installer_path': installer_path,
             'release_info': {
                 'tag_name': release_data.get('tag_name'),
                 'name': release_data.get('name'),
