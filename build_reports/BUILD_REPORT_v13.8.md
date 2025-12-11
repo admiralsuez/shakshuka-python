@@ -1,7 +1,72 @@
+# Build Report - Shakshuka v13.8-b85
+
+## Build Information
+- **Version:** 13.8
+- **Build Number:** 85
+- **Build Date:** 2025-12-11 23:51:03
+- **Build Status:** ✅ SUCCESS
+- **Platform:** Windows (x86_64)
+
+## Build Artifacts
+
+### 1. Standalone Executable
+- **Filename:** `Shakshuka.exe`
+- **Size:** 27.60 MB
+- **Type:** PyInstaller Single-File Executable
+- **Status:** ✅ Created
+
+### 2. Installer Package
+- **Filename:** `Shakshuka-Setup-v13.8.exe`
+- **Size:** 30.06 MB
+- **Type:** Inno Setup Installer
+- **Status:** ✅ Created
+
+## Build Configuration
+- **Python Version:** 3.13.3
+- **Build Script:** `scripts/build.py`
+- **Installer Script:** `scripts/installer.iss`
+- **PyInstaller:** Single-file, console mode
+- **Architecture:** 64-bit (x86_64)
+
+## Features Included
+- Flask web server (port 8989)
+- SQLite database backend
+- System tray integration
+- Auto-save functionality
+- Task management system
+- User authentication (optional)
+- Settings persistence
+- Auto-update capability
+- Monitoring and analytics
+
+## File Locations
+- **Executable:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka.exe`
+- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka-Setup-v13.8.exe`
+- **Source Distribution:** `scripts/dist/`
+
+## Installation Methods
+
+### Method 1: Standalone Executable
+1. Run `Shakshuka.exe` directly
+2. No installation required
+3. Portable - can run from any location
+
+### Method 2: Professional Installer
+1. Run `Shakshuka-Setup-v13.8-b85.exe`
+2. Follow installation wizard
+3. Installs to `Program Files`
+4. Creates Start Menu shortcuts
+5. Adds uninstaller
+
+## Changelog
 ## Version 13.8 - Release
 Release Date: 2025-12-11T23:50:21.466966
 
 Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 13.7 - Release
@@ -80,6 +145,10 @@ Highlights
 Release Period: 2025-11-24 to 2025-11-27
 
 Consolidated Highlights
+- Daily strikes persistence in SQLite (new migration) with improved reset reliability and analytics consistency.
+- Reduced duplicate planner schedule GET calls to cut redundant work.
+- Static cache-busting query params unified to `?v=6.2` across assets.
+- Installer and build scripts updated to echo and propagate dynamic version information from `config/version.json`.
 
 Additional Notes
 - Logging: per-launch log files under the user data `logs` folder with automatic pruning (introduced around 11.3).
@@ -159,6 +228,10 @@ Highlights
 Release Period: 2025-11-08 to 2025-11-17
 
 Consolidated Highlights
+- Moved daily strikes persistence fully into SQLite via migrations to keep analytics consistent across installs.
+- Reduced duplicate planner schedule GET calls to cut unnecessary traffic and CPU usage.
+- Standardised static cache-busting query params to `?v=6.2` so assets invalidate cleanly on release.
+- Updated installer and build scripts to echo and propagate dynamic version info from `config/version.json`.
 
 ---
 ## Versions 6.3 - 7.7 - Post Birthday Update Series
@@ -4182,3 +4255,19 @@ When making changes to the application, always:
 ---
 
 *This changelog is automatically maintained and should be updated with every significant change to ensure users and developers are informed about application evolution.*
+
+
+## Next Steps
+1. Test the standalone executable
+2. Test the installer package
+3. Verify all features work correctly
+4. Check for any errors in logs
+5. Update documentation if needed
+
+## Build System
+- **Auto-Increment:** Build number automatically incremented
+- **Version File:** `config/version.json`
+- **Build Reports:** Saved to `build_reports/`
+
+---
+*Report generated automatically by build.py*
