@@ -26,14 +26,10 @@
         }
     }
 
+    // Temporarily disable "ephemeral" empty note behavior so that even brand-
+    // new blank notes are treated as real notes and fully persisted.
     function isEphemeralNote(note) {
-        if (!note) return false;
-        const title = (note.title || '').trim();
-        const content = (note.content || '').trim();
-        // Local-only ID pattern from createNoteObject
-        const isLocalId = typeof note.id === 'string' && note.id.startsWith('note-');
-        const isDefaultTitle = /^Note \d+$/.test(title);
-        return isLocalId && isDefaultTitle && content === '';
+        return false;
     }
 
     function loadNotesFromLocalStorage() {
@@ -81,10 +77,10 @@
 
     function saveAllNotesToLocalStorage() {
         try {
-            // Do not persist ephemeral, completely empty local notes.
-            const persistedNotes = notes.filter(n => !isEphemeralNote(n));
+            // Persist all notes, including empty ones, for now.
+            const persistedNotes = notes.slice();
 
-            // Ensure openNoteIds and activeNoteId only reference persisted notes.
+            // Ensure openNoteIds and activeNoteId only reference existing notes.
             let persistedOpenIds = Array.isArray(openNoteIds)
                 ? openNoteIds.filter(id => persistedNotes.some(n => n.id === id))
                 : [];
@@ -148,19 +144,53 @@
 
     async function saveNoteToServer(note) {
         if (!note || !note.id) return;
+
+        // Avoid spamming the server with multiple concurrent saves for the
+        // same brand-new local note. A simple per-note flag is enough here.
+        if (note.__saving) {
+            return;
+        }
+        note.__saving = true;
+
         try {
             const payload = {
                 title: note.title,
                 content: note.content
             };
             const oldId = note.id;
-            const response = await fetch(`/api/notes/${encodeURIComponent(oldId)}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
 
-            if (response.status === 404) {
+            // If this is a local-only scratch ID (note-...), go straight to a
+            // POST create instead of first attempting PUT (which 404s).
+            let response;
+            if (typeof oldId === 'string' && oldId.startsWith('note-')) {
+                const created = await createNoteOnServer(note.title, note.content);
+                if (created && created.id) {
+                    note.id = created.id;
+                    note.created_at = created.created_at;
+                    note.updated_at = created.updated_at;
+
+                    // Update references in openNoteIds/activeNoteId
+                    openNoteIds = openNoteIds.map(id => id === oldId ? note.id : id);
+                    if (activeNoteId === oldId) {
+                        activeNoteId = note.id;
+                    }
+                    // Replace in notes array if an entry with the old id still exists
+                    const idx = notes.findIndex(n => n.id === oldId);
+                    if (idx !== -1) {
+                        notes[idx] = note;
+                    }
+                }
+                saveAllNotesToLocalStorage();
+                return;
+            } else {
+                response = await fetch(`/api/notes/${encodeURIComponent(oldId)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            }
+
+            if (response && response.status === 404) {
                 // Note does not exist on the server yet (e.g. initial local-only note).
                 // Create it and update local IDs so future saves work.
                 const created = await createNoteOnServer(note.title, note.content);
@@ -184,7 +214,7 @@
                 return;
             }
 
-            if (!response.ok) {
+            if (response && !response.ok) {
                 throw new Error('Failed to save note');
             }
 
@@ -194,6 +224,8 @@
             console.error('Failed to save note to server', err);
             // Still keep local cache so user doesn't lose work
             saveAllNotesToLocalStorage();
+        } finally {
+            note.__saving = false;
         }
     }
 
@@ -341,6 +373,10 @@
 
         // Primary editor always shows the active note.
         primary.value = primaryNote.content || '';
+        // Bind the current note ID to the editor so input events always update
+        // the note that was actually visible when the user typed, even if
+        // activeNoteId changes slightly later (e.g. when clicking the + tab).
+        primary.dataset.noteId = primaryNote.id;
 
         // Secondary editor can show a different note when split view is enabled.
         let secondaryNote = primaryNote;
@@ -351,6 +387,7 @@
             }
         }
         secondary.value = secondaryNote.content || '';
+        secondary.dataset.noteId = secondaryNote.id;
 
         ensureSecondaryEditorVisibility();
     }
@@ -361,14 +398,28 @@
     }
 
     function createNewNote() {
+        // Derive a simple sequential label (Note 1, Note 2, ...)
         const baseIndex = notes.length + 1;
         const title = 'Note ' + baseIndex;
+
         // Create a local-only note first. It will only be persisted to SQLite
         // once the user actually edits it (content/title), via saveNoteToServer.
         const note = createNoteObject(title);
+
+        // Keep the existing notes list, but add the new note to the front so it
+        // is easy to find in the View Notes list if needed.
         notes.unshift(note);
+
+        // Ensure openNoteIds exists and append the new tab at the end so it
+        // appears just before the + button.
+        if (!Array.isArray(openNoteIds)) {
+            openNoteIds = [];
+        }
         openNoteIds.push(note.id);
+
+        // New tab should always gain focus, regardless of existing content.
         activeNoteId = note.id;
+
         saveAllNotesToLocalStorage();
         render();
     }
@@ -414,15 +465,31 @@
     function handleEditorInput(editor) {
         if (!editor) return;
 
-        let targetNote;
-        // If the secondary editor is focused and split view is on, edit the secondary note.
-        if (editor.id === 'notes-editor-secondary' && splitViewEnabled && secondaryNoteId && secondaryNoteId !== activeNoteId) {
-            targetNote = notes.find(n => n.id === secondaryNoteId) || getActiveNote();
-        } else {
-            targetNote = getActiveNote();
+        let targetNote = null;
+
+        // Prefer the note ID that was bound to this editor when it was last
+        // rendered. This avoids races where activeNoteId changes (e.g. when
+        // clicking + to open a new tab) while keystrokes are still being
+        // processed for the previously visible note.
+        if (editor.dataset && editor.dataset.noteId) {
+            const boundId = editor.dataset.noteId;
+            targetNote = notes.find(n => n.id === boundId) || null;
+        }
+
+        // Fallback: derive target note from active/split-view state.
+        if (!targetNote) {
+            if (editor.id === 'notes-editor-secondary' && splitViewEnabled && secondaryNoteId && secondaryNoteId !== activeNoteId) {
+                targetNote = notes.find(n => n.id === secondaryNoteId) || getActiveNote();
+            } else {
+                targetNote = getActiveNote();
+            }
         }
 
         if (!targetNote) return;
+
+        // Mark this note as "touched" so it is no longer treated as an
+        // ephemeral scratch note, even if the user later clears its content.
+        targetNote.__touched = true;
 
         targetNote.content = editor.value;
         targetNote.updated_at = new Date().toISOString();
@@ -1003,8 +1070,9 @@
         }
         if (selectAllCheckbox) {
             selectAllCheckbox.addEventListener('change', function () {
+                const visibleNotes = notes; // all notes are visible now
                 if (this.checked) {
-                    selectedNoteIds = new Set(notes.map(n => n.id));
+                    selectedNoteIds = new Set(visibleNotes.map(n => n.id));
                 } else {
                     selectedNoteIds.clear();
                 }
@@ -1033,8 +1101,7 @@
         if (!listEl) return;
         listEl.innerHTML = '';
         notes.forEach(note => {
-            // Do not show ephemeral blank notes in the View Notes modal.
-            if (isEphemeralNote(note)) return;
+            // Ephemeral filtering disabled: show all notes, including empty ones.
 
             const li = document.createElement('li');
 
@@ -1149,6 +1216,8 @@
         bulkDeleteBtn.disabled = !count;
         bulkDeleteBtn.textContent = count > 0 ? `Delete ${count} selected` : 'Delete selected';
 
+        // Only count real, non-ephemeral notes when driving the Select All
+        // checkbox state, to match what is actually visible in the list.
         const total = notes.length;
         if (!total) {
             selectAllCheckbox.checked = false;

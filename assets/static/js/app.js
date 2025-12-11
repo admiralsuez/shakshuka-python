@@ -3950,6 +3950,12 @@ function showLoading(show) {
 }
 
 function showNotification(message, type = 'info', options = {}) {
+    // Support a few optional behaviors:
+    // - options.persistent: if true, do not auto-dismiss; user must click the X
+    // - options.onClick: optional callback invoked when the notification body is clicked
+    const isPersistent = options && options.persistent === true;
+    const onClick = options && typeof options.onClick === 'function' ? options.onClick : null;
+
     // Check if this is an authentication-related error
     const isAuthError = type === 'error' && (
         message.toLowerCase().includes('login') || 
@@ -3983,9 +3989,11 @@ function showNotification(message, type = 'info', options = {}) {
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
     
-    // Make auth error notifications clickable
-    if (isAuthError) {
+    // Make auth error and custom-click notifications clickable
+    if (isAuthError || onClick) {
         notification.style.cursor = 'pointer';
+    }
+    if (isAuthError) {
         notification.title = 'Click to open login dialog';
     }
     
@@ -3999,6 +4007,21 @@ function showNotification(message, type = 'info', options = {}) {
             </button>
         </div>
     `;
+    
+    // Attach custom click handler if provided (excluding clicks on the close button)
+    if (onClick) {
+        notification.addEventListener('click', (evt) => {
+            const target = evt.target;
+            if (target && target.closest && target.closest('.notification-close')) {
+                return; // close button uses its own handler
+            }
+            try {
+                onClick();
+            } catch (e) {
+                console.error('Notification onClick handler failed', e);
+            }
+        });
+    }
     
     // Add styles (container controls bottom-right positioning)
     notification.style.cssText = `
@@ -4033,17 +4056,19 @@ function showNotification(message, type = 'info', options = {}) {
         }, 1000); // Small delay to let user see the notification first
     }
     
-    // Remove after 2 seconds (short, snack-style notification)
-    setTimeout(() => {
-        if (notification.parentNode) {
-            notification.style.animation = 'slideOutRight 0.3s ease-in-out';
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.parentNode.removeChild(notification);
-                }
-            }, 300);
-        }
-    }, 2000);
+    // Auto-dismiss non-persistent notifications after 2 seconds (short snack-style).
+    if (!isPersistent) {
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.style.animation = 'slideOutRight 0.3s ease-in-out';
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 300);
+            }
+        }, 2000);
+    }
 }
 
 function closeNotification(closeButton) {
@@ -4347,10 +4372,25 @@ async function downloadGitHubUpdate() {
                 progressFill.style.width = '100%';
                 progressText.textContent = 'Download complete.';
             }
+            // Short success snack about the update itself
             showNotification('Update installer downloaded. Please close Shakshuka and run the installer to finish updating.', 'success');
-            setTimeout(() => {
-                showNotification(`Installer saved at: ${path}`, 'info');
-            }, 1500);
+
+            // Persistent, clickable toast that shows where the file went and
+            // lets the user open the folder directly.
+            const friendlyPath = path;
+            const safeMessage = `Download finished to "${friendlyPath}" (click to open folder)`;
+            showNotification(safeMessage, 'info', {
+                persistent: true,
+                onClick: () => {
+                    try {
+                        const payload = encodeURIComponent(friendlyPath);
+                        window.location.href = `shakshuka-open-folder://${payload}`;
+                    } catch (e) {
+                        console.error('Failed to trigger folder open for installer path', e);
+                    }
+                }
+            });
+
             // Close any open modals
             try { closeUpdateModal(); } catch (_) {}
             try { closeGitHubUpdateModal(); } catch (_) {}

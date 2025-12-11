@@ -486,14 +486,8 @@ html, body {
 }
 
 #notes-page .notes-tab--new {
-    /* Let .btn-primary.btn-icon define the core look; only tweak alignment next to tabs. */
-    justify-content: center;
-    align-items: center;
+    /* Let .btn-primary.btn-icon define the core look; only nudge spacing next to tabs. */
     margin-left: calc(0.25rem * var(--dpi-scale));
-}
-    width: calc(34px * var(--dpi-scale));
-    height: calc(34px * var(--dpi-scale));
-    border-radius: 50%;
 }
 
 .notes-tab-title {
