@@ -38,6 +38,7 @@ from src.constants import (
 from src.core.config import config
 from src.utils.validators import validate_task_data
 from src.routes.task_routes import task_bp, init_task_routes
+from src.routes.notes_routes import notes_bp, init_notes_routes
 
 # Flask app configuration
 app = Flask(__name__)
@@ -653,7 +654,7 @@ def sanitize_input(data):
     return data
 
 
-# Initialize and register task routes blueprint after helper functions
+# Initialize and register task + notes routes blueprints after helper functions
 init_task_routes(
     app_context=app_context,
     get_user_id_func=get_user_id,
@@ -663,6 +664,14 @@ init_task_routes(
     rate_limit_decorator=rate_limit,
 )
 app.register_blueprint(task_bp)
+
+init_notes_routes(
+    app_context=app_context,
+    get_user_id_func=get_user_id,
+    ensure_data_manager_func=ensure_data_manager,
+    sanitize_input_func=sanitize_input,
+)
+app.register_blueprint(notes_bp)
 
 
 def initialize_data_manager():
@@ -1987,46 +1996,6 @@ def get_rate_limit_stats():
 
 # Password change endpoint removed - no password authentication
 
-@app.route('/api/planner/schedule', methods=['GET'])
-def get_schedule():
-    """Get daily schedule for the authenticated user"""
-    user_id = get_user_id()
-    date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
-    if not ensure_data_manager():
-        return jsonify({'error': 'Data manager not available'}), 500
-    tasks = app_context.data_manager.load_tasks(user_id)
-    
-    # Filter tasks for the specific date
-    scheduled_tasks = []
-    for task in tasks:
-        if task.get('scheduled_hour') and task.get('scheduled_date') == date:
-            scheduled_tasks.append(task)
-    
-    return jsonify(scheduled_tasks)
-
-@app.route('/api/planner/schedule', methods=['POST'])
-def update_schedule():
-    """Update daily schedule"""
-    schedule_data = request.json
-    tasks = app_context.data_manager.load_tasks()
-    
-    # Update task scheduling
-    for task_update in schedule_data:
-        task_id = task_update.get('task_id')
-        scheduled_hour = task_update.get('scheduled_hour')
-        scheduled_date = task_update.get('scheduled_date')
-        
-        for task in tasks:
-            if task['id'] == task_id:
-                task['scheduled_hour'] = scheduled_hour
-                task['scheduled_date'] = scheduled_date
-                break
-    
-    if app_context.data_manager.save_tasks(tasks):
-        return jsonify({'success': True})
-    else:
-        return jsonify({'error': 'Failed to save schedule'}), 500
-
 # Daily Planner Version 2 Endpoints
 @app.route('/api/planner-v2/schedule', methods=['GET'])
 def get_planner_v2_schedule():
@@ -2769,24 +2738,52 @@ def create_system_tray_icon() -> Optional[Any]:
         return None
 
 def create_icon_image() -> Any:
-    """Create a simple icon image for the system tray"""
-    try:
-        # Import PIL here to avoid import errors at module level
-        from PIL import Image, ImageDraw
-        # Create a 64x64 image
-        image = Image.new('RGB', (64, 64), color='#FF8C42')
+    """Create icon image for the system tray.
 
-        # Draw a simple leaf icon (matching the app logo)
+    Prefers the real app icon file (icon.ico / icon.png) so the tray matches
+    the EXE/installer icon. Falls back to the old drawn leaf if loading fails.
+    """
+    try:
+        from PIL import Image, ImageDraw
+        import sys
+        import os
+
+        # Determine app root both in dev and frozen (PyInstaller) modes
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        icon_candidates = [
+            os.path.join(base_dir, 'assets', 'static', 'images', 'icon.ico'),
+            os.path.join(base_dir, 'assets', 'static', 'images', 'icon.png'),
+        ]
+
+        for path in icon_candidates:
+            if os.path.exists(path):
+                try:
+                    logger.info(f"Loading system tray icon from {path}")
+                    img = Image.open(path)
+                    # Ensure it is in a mode pystray is happy with
+                    return img.convert('RGBA')
+                except Exception as load_err:
+                    logger.warning(f"Failed to load tray icon from {path}: {load_err}")
+
+        # Fallback: draw the original simple leaf icon
+        image = Image.new('RGBA', (64, 64), color='#FF8C42')
         draw = ImageDraw.Draw(image)
-        # Draw a simple leaf shape (circle with stem)
         draw.ellipse([16, 16, 48, 48], fill='white')  # Main leaf body
         draw.rectangle([30, 10, 34, 20], fill='#FF8C42')  # Stem
-
         return image
+
     except Exception as e:
         logger.error(f"Failed to create icon image: {e}")
-        # Return a simple colored square as fallback
-        return Image.new('RGB', (64, 64), color='#FF8C42')
+        # Final fallback: simple colored square
+        try:
+            from PIL import Image as _Image
+            return _Image.new('RGBA', (64, 64), color='#FF8C42')
+        except Exception:
+            return None
 
 def start_system_tray() -> None:
     """Start the system tray icon"""

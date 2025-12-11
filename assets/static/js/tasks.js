@@ -421,7 +421,7 @@ function createTaskElement(task) {
 
     taskDiv.innerHTML = `
         <div class="task-project-tag">
-            <span class="project-tag ${task.project ? '' : 'no-project'}">
+            <span class="project-tag ${task.project ? '' : 'project-tag--no-project no-project'}">
                 ${task.project || 'No Project'}
             </span>
         </div>
@@ -477,24 +477,15 @@ function sortTasksForDisplay(tasks) {
 
 // Task filtering
 function filterTasks(tasks, filter) {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
     switch (filter) {
         case 'active':
-            return tasks.filter(task => !task.struck_forever && !task.struck_today);
+            return tasks.filter(task => window.TaskHelpers && TaskHelpers.isActive(task));
         case 'completed':
-            return tasks.filter(task => task.completed || task.struck_forever);
+            return tasks.filter(task => window.TaskHelpers && TaskHelpers.isDone(task));
         case 'today':
-            return tasks.filter(task => task.struck_today);
+            return tasks.filter(task => window.TaskHelpers && TaskHelpers.isStruckToday(task));
         case 'overdue':
-            return tasks.filter(task => {
-                if (task.due_date) {
-                    const dueDate = new Date(task.due_date);
-                    return dueDate < today && !task.struck_forever;
-                }
-                return false;
-            });
+            return tasks.filter(task => window.TaskHelpers && TaskHelpers.isExpired(task));
         case 'all':
         default:
             return tasks;
@@ -538,7 +529,13 @@ function updateProjectFilterOptions() {
     const select = document.getElementById('project-filter');
     if (!select || !AppState || !AppState.getTasks) return;
 
-    const tasks = AppState.getTasks() || [];
+    // Only build project options from *active* tasks so expired/completed
+    // projects don't clutter the dropdown.
+    const allTasks = AppState.getTasks() || [];
+    const tasks = (window.TaskHelpers)
+        ? allTasks.filter(t => TaskHelpers.isActive(t))
+        : allTasks.filter(t => !t.struck_forever && !t.struck_today);
+
     const seen = new Set();
     const projects = [];
     let hasNoProject = false;

@@ -1,10 +1,72 @@
+# Build Report - Shakshuka v13.7-b84
+
+## Build Information
+- **Version:** 13.7
+- **Build Number:** 84
+- **Build Date:** 2025-12-11 22:58:11
+- **Build Status:** ✅ SUCCESS
+- **Platform:** Windows (x86_64)
+
+## Build Artifacts
+
+### 1. Standalone Executable
+- **Filename:** `Shakshuka.exe`
+- **Size:** 27.60 MB
+- **Type:** PyInstaller Single-File Executable
+- **Status:** ✅ Created
+
+### 2. Installer Package
+- **Filename:** `Shakshuka-Setup-v13.7.exe`
+- **Size:** 30.05 MB
+- **Type:** Inno Setup Installer
+- **Status:** ✅ Created
+
+## Build Configuration
+- **Python Version:** 3.13.3
+- **Build Script:** `scripts/build.py`
+- **Installer Script:** `scripts/installer.iss`
+- **PyInstaller:** Single-file, console mode
+- **Architecture:** 64-bit (x86_64)
+
+## Features Included
+- Flask web server (port 8989)
+- SQLite database backend
+- System tray integration
+- Auto-save functionality
+- Task management system
+- User authentication (optional)
+- Settings persistence
+- Auto-update capability
+- Monitoring and analytics
+
+## File Locations
+- **Executable:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka.exe`
+- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka-Setup-v13.7.exe`
+- **Source Distribution:** `scripts/dist/`
+
+## Installation Methods
+
+### Method 1: Standalone Executable
+1. Run `Shakshuka.exe` directly
+2. No installation required
+3. Portable - can run from any location
+
+### Method 2: Professional Installer
+1. Run `Shakshuka-Setup-v13.7-b84.exe`
+2. Follow installation wizard
+3. Installs to `Program Files`
+4. Creates Start Menu shortcuts
+5. Adds uninstaller
+
+## Changelog
 ## Version 13.7 - Release
 Release Date: 2025-12-11T22:57:26.903697
 
 Highlights
-- Changelog: grouped by major version (13.x, 12.x, 11.x, …) with nested sub-versions and per-version highlights so you can skim changes quickly.
-- Updates: new one-time “What’s New” modal after an update that summarizes the latest features and links directly to the full changelog.
-- Internal: refined daily-strikes SQLite migration and build metadata handling; no breaking changes for existing data.
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 13.6 - Notes Ephemeral Tabs & Header Polish
@@ -36,24 +98,40 @@ Highlights
 Release Date: 2025-12-11T00:45:03.116133
 
 Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 13.3 - Release
 Release Date: 2025-12-10T17:35:03.660239
 
 Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 13.2 - Release
 Release Date: 2025-12-10T17:00:43.910872
 
 Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 13.1 - Release
 Release Date: 2025-12-10T16:59:27.165708
 
 Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 13.0 - Notes Workspace & Task UX
@@ -89,6 +167,10 @@ Additional Notes
 Release Period: 2025-11-17 to 2025-11-24
 
 Consolidated Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 Notes
 - Individual feature-heavy releases in this range (9.9, 10.1, 10.2, 10.5) are documented in their own sections below.
@@ -167,6 +249,10 @@ Consolidated Highlights
 Release Period: 2025-11-07 to 2025-11-08
 
 Consolidated Highlights (versions 6.3 through 7.7)
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 Additional Fixes (v6.5 post-build)
 - Planner: throttling window doubled (1500ms) and fixed promise return to remove "catch undefined" error
@@ -4184,3 +4270,19 @@ When making changes to the application, always:
 ---
 
 *This changelog is automatically maintained and should be updated with every significant change to ensure users and developers are informed about application evolution.*
+
+
+## Next Steps
+1. Test the standalone executable
+2. Test the installer package
+3. Verify all features work correctly
+4. Check for any errors in logs
+5. Update documentation if needed
+
+## Build System
+- **Auto-Increment:** Build number automatically incremented
+- **Version File:** `config/version.json`
+- **Build Reports:** Saved to `build_reports/`
+
+---
+*Report generated automatically by build.py*

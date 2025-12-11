@@ -42,9 +42,9 @@
             <div class="sidebar-header">
                 <div class="logo">
                     <div class="logo-icon" aria-hidden="true">
-                        <i class="fas fa-leaf"></i>
-                    </div>
-                    <h1>Shakshuka</h1>
+                        <img src="{{ url_for('static', filename='images/icon.png') }}" alt="Shakshuka logo" />
+                    </div
+                    ><h1>Shakshuka</h1>
                 </div>
             </div>
             
@@ -61,9 +61,9 @@
                     <i class="fas fa-chart-line" aria-hidden="true"></i>
                     <span>Analytics</span>
                 </div>
-                <div class="nav-item" id="import-tasks-btn" data-page="import" title="Import Tasks from CSV" role="menuitem" tabindex="0">
-                    <i class="fas fa-file-import" aria-hidden="true"></i>
-                    <span>Import Tasks</span>
+                <div class="nav-item" data-page="notes" title="Notes" role="menuitem" tabindex="0">
+                    <i class="fas fa-sticky-note" aria-hidden="true"></i>
+                    <span>Notes</span>
                 </div>
                 <div class="nav-item" data-page="settings" title="Configure app settings and preferences" role="menuitem" tabindex="0">
                     <i class="fas fa-cog" aria-hidden="true"></i>
@@ -300,6 +300,35 @@
             </div>
 
             <!-- Settings Page -->
+            <div id="notes-page" class="page">
+                <div class="page-header">
+                    <div class="notes-header-inner">
+                        <h2>Notes</h2>
+                        <div class="notes-header-actions">
+                            <button class="btn-primary btn-icon" id="notes-view-list-btn" title="View all notes">
+                                <i class="fas fa-book-open"></i>
+                            </button>
+                            <button class="btn-primary btn-icon" id="notes-split-toggle-btn" title="Toggle split view">
+                                <i class="fas fa-columns"></i>
+                            </button>
+                            <button class="btn-primary" id="notes-add-selection-task-btn" title="Make selected text a task">
+                                Make selection a task
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="notes-container">
+                    <div class="notes-tabs-bar filter-tabs">
+                        <div class="notes-tabs-scroll" id="notes-tabs"></div>
+                        <button class="notes-tab notes-tab--new btn-primary btn-icon" id="notes-tab-new" type="button" title="New note tab">+</button>
+                    </div>
+                    <div class="notes-editors" id="notes-editors">
+                        <textarea id="notes-editor-primary" class="notes-editor" spellcheck="false" placeholder="enter your thoughts here, you can use the buttons on top to view notes, split view and add selection to tasklist directly"></textarea>
+                        <textarea id="notes-editor-secondary" class="notes-editor notes-editor--secondary" spellcheck="false"></textarea>
+                    </div>
+                </div>
+            </div>
+
             <div id="settings-page" class="page">
                 <div class="page-header">
                     <div class="settings-header-inner">
@@ -575,6 +604,34 @@
         </div>
     </div>
 
+    <!-- What's New Modal (shown once after updates) -->
+    <div class="modal" id="whats-new-modal">
+        <div class="modal-content whats-new-modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-star"></i> Whats New</h3>
+                <button class="modal-close" id="close-whats-new-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body whats-new-modal-body">
+                <div class="whats-new-header">
+                    <div class="whats-new-title">Welcome to Shakshuka v{{ version }}</div>
+                    <div class="whats-new-subtitle">Here 19s a quick summary of what 19s new and how to use it.</div>
+                </div>
+                <div class="whats-new-summary" id="whats-new-summary">
+                    <!-- Populated from latest changelog highlights -->
+                </div>
+            </div>
+            <div class="modal-footer whats-new-modal-footer">
+                <button class="btn-secondary" id="whats-new-dismiss-btn">Got it</button>
+                <button class="btn-primary" id="whats-new-view-changelog-btn">
+                    <i class="fas fa-history"></i>
+                    View Full Changelog
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Task Modal -->
     <div id="task-modal" class="modal">
         <div class="modal-content">
@@ -761,6 +818,29 @@
     </div>
 
     <!-- Developer Logs Modal -->
+    <div class="modal" id="notes-list-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>All Notes</h3>
+                <button class="modal-close" id="close-notes-list-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="notes-list-toolbar">
+                    <label class="notes-list-select-all">
+                        <input type="checkbox" id="notes-select-all">
+                        <span>Select all</span>
+                    </label>
+                    <button type="button" id="notes-delete-selected-btn" class="notes-list-bulk-delete-btn" disabled>
+                        Delete selected
+                    </button>
+                </div>
+                <ul class="notes-list" id="notes-list"></ul>
+            </div>
+        </div>
+    </div>
+
     <div id="logs-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -925,6 +1005,7 @@
     </script>
 
     <script src="{{ url_for('static', filename='js/utils.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/task-helpers.js') }}?v=6.2"></script>
     
     <!-- Feature modules -->
     <script src="{{ url_for('static', filename='js/core/keyboard.js') }}?v=6.2"></script>
@@ -932,6 +1013,7 @@
     <script src="{{ url_for('static', filename='js/tasks.js') }}?v=6.2"></script>
     <script src="{{ url_for('static', filename='js/auth.js') }}?v=6.2"></script>
     <script src="{{ url_for('static', filename='js/modules/planner-v2.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/notes.js') }}?v=6.2"></script>
     
     <!-- Main application -->
     <script src="{{ url_for('static', filename='js/app.js') }}?v=6.2"></script>

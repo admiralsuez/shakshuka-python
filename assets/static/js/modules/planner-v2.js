@@ -13,8 +13,8 @@ class DailyPlannerV2 {
         this._loadScheduledPromise = null;
         this._lastScheduleFetch = 0;
         
-        console.log('DailyPlannerV2 constructor - selectedDate:', this.selectedDate.toDateString());
-        console.log('DailyPlannerV2 constructor - getDateKey result:', this.getDateKey(this.selectedDate));
+        Utils.debugLog('DailyPlannerV2 constructor - selectedDate:', this.selectedDate.toDateString());
+        Utils.debugLog('DailyPlannerV2 constructor - getDateKey result:', this.getDateKey(this.selectedDate));
         
         this.init();
     }
@@ -31,7 +31,7 @@ class DailyPlannerV2 {
         this.cleanupOverdueIfNeeded();
         
         this.isInitialized = true;
-        console.log('Daily Planner v2 initialized');
+        Utils.debugLog('Daily Planner v2 initialized');
     }
 
     setupEventListeners() {
@@ -168,10 +168,10 @@ class DailyPlannerV2 {
             return;
         }
 
-        console.log('Loading available tasks for planner v2...');
+        Utils.debugLog('Loading available tasks for planner v2...');
         
         // Always try to load from API first to ensure we have the latest data
-        console.log('Loading tasks from API...');
+        Utils.debugLog('Loading tasks from API...');
         this.loadAvailableTasksFromAPI();
     }
 
@@ -229,17 +229,17 @@ class DailyPlannerV2 {
     }
 
     setupDragAndDrop() {
-        console.log('Setting up drag and drop for planner v2...');
+        Utils.debugLog('Setting up drag and drop for planner v2...');
         
         // Make tasks draggable
         const draggableTasks = document.querySelectorAll('#available-tasks .draggable-task');
-        console.log('Found draggable tasks:', draggableTasks.length);
+        Utils.debugLog('Found draggable tasks:', draggableTasks.length);
         
         draggableTasks.forEach((task, index) => {
             // Skip if already set up
             if (task.dataset.dragSetup === 'true') return;
             
-            console.log(`Setting up task ${index}:`, task.dataset.taskId, 'draggable:', task.draggable);
+            Utils.debugLog(`Setting up task ${index}:`, task.dataset.taskId, 'draggable:', task.draggable);
             task.draggable = true;
             task.dataset.dragSetup = 'true';
             
@@ -250,7 +250,7 @@ class DailyPlannerV2 {
 
         // Make time slots droppable
         const timeContents = document.querySelectorAll('#hours-grid .hour-content');
-        console.log('Found time slots:', timeContents.length);
+        Utils.debugLog('Found time slots:', timeContents.length);
         
         timeContents.forEach(slot => {
             // Skip if already set up
@@ -278,10 +278,10 @@ class DailyPlannerV2 {
             return;
         }
         
-        console.log('Drag started for task:', taskElement.dataset.taskId);
-        console.log('Drag target element:', taskElement);
-        console.log('Drag target classes:', taskElement.className);
-        console.log('Dataset:', taskElement.dataset);
+        Utils.debugLog('Drag started for task:', taskElement.dataset.taskId);
+        Utils.debugLog('Drag target element:', taskElement);
+        Utils.debugLog('Drag target classes:', taskElement.className);
+        Utils.debugLog('Dataset:', taskElement.dataset);
         
         e.dataTransfer.setData('text/plain', taskElement.dataset.taskId);
         console.log('Data transfer set to:', taskElement.dataset.taskId);
@@ -290,7 +290,7 @@ class DailyPlannerV2 {
     }
 
     handleDragEnd(e) {
-        console.log('Drag ended');
+        Utils.debugLog('Drag ended');
         e.target.style.opacity = '1';
         e.target.classList.remove('dragging');
     }
@@ -301,18 +301,18 @@ class DailyPlannerV2 {
     }
 
     handleDragEnter(e) {
-        console.log('Drag enter on hour:', e.target.dataset.hour, e.target.dataset.minute);
+        Utils.debugLog('Drag enter on hour:', e.target.dataset.hour, e.target.dataset.minute);
         e.preventDefault();
         e.target.classList.add('drag-over');
     }
 
     handleDragLeave(e) {
-        console.log('Drag leave from hour:', e.target.dataset.hour, e.target.dataset.minute);
+        Utils.debugLog('Drag leave from hour:', e.target.dataset.hour, e.target.dataset.minute);
         e.target.classList.remove('drag-over');
     }
 
     async handleDrop(e) {
-        console.log('Drop event triggered');
+        Utils.debugLog('Drop event triggered');
         e.preventDefault();
         e.target.classList.remove('drag-over');
         
@@ -320,9 +320,9 @@ class DailyPlannerV2 {
         const hour = e.target.dataset.hour;
         const minute = e.target.dataset.minute;
         
-        console.log('Drop target element:', e.target);
-        console.log('Drop target dataset:', e.target.dataset);
-        console.log('Dropping task:', taskId, 'at time:', `${hour}:${minute}`);
+        Utils.debugLog('Drop target element:', e.target);
+        Utils.debugLog('Drop target dataset:', e.target.dataset);
+        Utils.debugLog('Dropping task:', taskId, 'at time:', `${hour}:${minute}`);
         
         if (!taskId) {
             console.error('No task ID found in drop data');
@@ -357,7 +357,7 @@ class DailyPlannerV2 {
 
     // Calculate which time slots a task should occupy based on its duration
     calculateTaskSlots(startHour, startMinute, duration) {
-        console.log('calculateTaskSlots called with:', { startHour, startMinute, duration });
+        Utils.debugLog('calculateTaskSlots called with:', { startHour, startMinute, duration });
         const slots = [];
         let currentHour = startHour;
         let currentMinute = startMinute;
@@ -378,7 +378,7 @@ class DailyPlannerV2 {
             
             const minutesToUse = Math.min(remainingDuration, minutesInCurrentSlot);
 
-            console.log('  Slot:', { hour: currentHour, minute: currentMinute, duration: minutesToUse });
+            Utils.debugLog('  Slot:', { hour: currentHour, minute: currentMinute, duration: minutesToUse });
             slots.push({
                 hour: currentHour,
                 minute: currentMinute,
@@ -403,7 +403,7 @@ class DailyPlannerV2 {
             if (currentHour > 23 && currentMinute > 30) break;
         }
 
-        console.log('calculateTaskSlots returning:', slots.length, 'slots');
+        Utils.debugLog('calculateTaskSlots returning:', slots.length, 'slots');
         return slots;
     }
 
@@ -414,11 +414,11 @@ class DailyPlannerV2 {
         slots.forEach((slot, index) => {
             // Select the .hour-content element specifically
             const slotElement = document.querySelector(`.hour-content[data-hour="${slot.hour}"][data-minute="${slot.minute}"]`);
-            console.log('Looking for slot:', slot.hour, ':', slot.minute, 'Found:', slotElement);
+            Utils.debugLog('Looking for slot:', slot.hour, ':', slot.minute, 'Found:', slotElement);
             if (slotElement) {
                 const taskElement = this.createScheduledTaskElement(task, slot, index === 0);
                 slotElement.appendChild(taskElement);
-                console.log('Task element appended to slot:', slotElement);
+                Utils.debugLog('Task element appended to slot:', slotElement);
             } else {
                 console.warn('Slot element not found for', slot.hour, ':', slot.minute);
             }

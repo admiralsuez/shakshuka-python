@@ -1,59 +1,92 @@
-## Version 13.7 - Release
-Release Date: 2025-12-11T22:57:26.903697
+# Build Report - Shakshuka v13.3-b80
 
-Highlights
-- Changelog: grouped by major version (13.x, 12.x, 11.x, …) with nested sub-versions and per-version highlights so you can skim changes quickly.
-- Updates: new one-time “What’s New” modal after an update that summarizes the latest features and links directly to the full changelog.
-- Internal: refined daily-strikes SQLite migration and build metadata handling; no breaking changes for existing data.
+## Build Information
+- **Version:** 13.3
+- **Build Number:** 80
+- **Build Date:** 2025-12-10 17:35:50
+- **Build Status:** ✅ SUCCESS
+- **Platform:** Windows (x86_64)
 
----
-## Version 13.6 - Notes Ephemeral Tabs & Header Polish
-Release Date: 2025-12-11T19:57:25.936517
+## Build Artifacts
 
-Highlights
-- Notes: brand-new, untouched notes are now treated as ephemeral; they are not saved to SQLite or localStorage and are hidden from the View Notes modal until you actually type content or rename them.
-- Notes: View Notes modal filters out these empty scratch tabs so only real notes show up, keeping the list clean and meaningful.
-- Notes tabs: tightened padding and added subtle spacing and borders between inactive tabs so multiple open notes remain readable without feeling cramped.
-- Notes "+" tab: reuses the same `btn-primary btn-icon` styling and layout as the main Add Task button for visual consistency, while aligning with the notes tab strip.
-- Loader: task list column in the folder-style loading screen is height-limited so long task lists no longer push the folder animation off-center.
+### 1. Standalone Executable
+- **Filename:** `Shakshuka.exe`
+- **Size:** 27.32 MB
+- **Type:** PyInstaller Single-File Executable
+- **Status:** ✅ Created
 
----
-## Version 13.5 - Notes SQL Persistence & Split View UX
-Release Date: 2025-12-11T13:33:48.000000
+### 2. Installer Package
+- **Filename:** `Shakshuka-Setup-v13.3.exe`
+- **Size:** 29.50 MB
+- **Type:** Inno Setup Installer
+- **Status:** ✅ Created
 
-Highlights
-- Notes now persist in the main SQLite database via a dedicated `notes` table and `/api/notes` CRUD API, instead of relying solely on browser localStorage.
-- Seamless migration path: existing local notes remain cached in `shakshuka_notes_v1`, and each note is copied to SQLite on first successful save, with resilient fallback to localStorage on any API failure.
-- Notes editor split view upgraded to support showing two *different* notes at once: primary editor follows the active tab, secondary editor can target a separate note.
-- New "Open in split view" affordances:
-  - From *View Notes* modal: a columns icon on each row opens that note in the secondary editor and enables split view.
-  - From note tabs: right-click on any tab to open a context menu with "Open in split view", "Rename note", and "Close note" actions.
-- View Notes modal enhancements: per-note selection checkboxes with bulk delete, plus a reliable backdrop click handler that fully closes the modal without layout glitches.
-- Notes tabs UX polish: tabs remain readable with horizontal scrolling; the "+" tab is pinned to the right and visually matches other primary icon buttons.
+## Build Configuration
+- **Python Version:** 3.13.3
+- **Build Script:** `scripts/build.py`
+- **Installer Script:** `scripts/installer.iss`
+- **PyInstaller:** Single-file, console mode
+- **Architecture:** 64-bit (x86_64)
 
----
-## Version 13.4 - Release
-Release Date: 2025-12-11T00:45:03.116133
+## Features Included
+- Flask web server (port 8989)
+- SQLite database backend
+- System tray integration
+- Auto-save functionality
+- Task management system
+- User authentication (optional)
+- Settings persistence
+- Auto-update capability
+- Monitoring and analytics
 
-Highlights
+## File Locations
+- **Executable:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka.exe`
+- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka-Setup-v13.3.exe`
+- **Source Distribution:** `scripts/dist/`
 
----
+## Installation Methods
+
+### Method 1: Standalone Executable
+1. Run `Shakshuka.exe` directly
+2. No installation required
+3. Portable - can run from any location
+
+### Method 2: Professional Installer
+1. Run `Shakshuka-Setup-v13.3-b80.exe`
+2. Follow installation wizard
+3. Installs to `Program Files`
+4. Creates Start Menu shortcuts
+5. Adds uninstaller
+
+## Changelog
 ## Version 13.3 - Release
 Release Date: 2025-12-10T17:35:03.660239
 
 Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 13.2 - Release
 Release Date: 2025-12-10T17:00:43.910872
 
 Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 13.1 - Release
 Release Date: 2025-12-10T16:59:27.165708
 
 Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 ---
 ## Version 13.0 - Notes Workspace & Task UX
@@ -89,6 +122,10 @@ Additional Notes
 Release Period: 2025-11-17 to 2025-11-24
 
 Consolidated Highlights
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 Notes
 - Individual feature-heavy releases in this range (9.9, 10.1, 10.2, 10.5) are documented in their own sections below.
@@ -167,6 +204,10 @@ Consolidated Highlights
 Release Period: 2025-11-07 to 2025-11-08
 
 Consolidated Highlights (versions 6.3 through 7.7)
+- Daily strikes persistence in SQLite (new migration)
+- Reduced duplicate planner schedule GET calls
+- Static cache-bust params unified to ?v=6.2
+- Installer script echoes dynamic version
 
 Additional Fixes (v6.5 post-build)
 - Planner: throttling window doubled (1500ms) and fixed promise return to remove "catch undefined" error
@@ -4184,3 +4225,19 @@ When making changes to the application, always:
 ---
 
 *This changelog is automatically maintained and should be updated with every significant change to ensure users and developers are informed about application evolution.*
+
+
+## Next Steps
+1. Test the standalone executable
+2. Test the installer package
+3. Verify all features work correctly
+4. Check for any errors in logs
+5. Update documentation if needed
+
+## Build System
+- **Auto-Increment:** Build number automatically incremented
+- **Version File:** `config/version.json`
+- **Build Reports:** Saved to `build_reports/`
+
+---
+*Report generated automatically by build.py*

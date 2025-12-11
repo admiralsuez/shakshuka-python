@@ -1,7 +1,7 @@
 {
-  "version": "12.1",
-  "build": "74",
-  "release_date": "2025-11-27T17:15:00.774313",
+  "version": "13.7",
+  "build": "84",
+  "release_date": "2025-12-11T22:57:26.901644",
   "update_channel": "stable",
-  "build_notes": "Task View Fixes: filter preservation on delete, proper view switching on create. Version Build System: fixed Inno Setup version incrementing."
+  "build_notes": "Notes Workspace & Task UX: new Notes page with tabs and split view, slash formatting menu, and make-selection-a-task integration."
 }

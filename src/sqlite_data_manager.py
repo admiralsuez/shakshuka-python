@@ -152,6 +152,19 @@ class SQLiteDataManager:
                         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
                     )
                 ''')
+
+                # Create notes table (simple text notes per user)
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS notes (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        content TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                    )
+                ''')
                 
                 # Create settings table
                 conn.execute('''
@@ -1670,7 +1683,118 @@ class SQLiteDataManager:
             self.logger.info(f"load_tasks called with user_id: {user_id}")
         
         return self.load_tasks_for_user(user_id)
-    
+
+    # Notes Management Methods
+    def load_notes_for_user(self, user_id: str) -> List[Dict[str, Any]]:
+        """Load notes for a specific user from database"""
+        conn = None
+        try:
+            self._ensure_user_exists(user_id)
+            conn = self._get_pooled_connection()
+            cursor = conn.execute(
+                '''SELECT id, title, content, created_at, updated_at FROM notes
+                   WHERE user_id = ? ORDER BY updated_at DESC''',
+                (user_id,)
+            )
+            rows = cursor.fetchall()
+            notes = []
+            for row in rows:
+                notes.append({
+                    'id': row['id'],
+                    'title': row['title'],
+                    'content': row['content'] or '',
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                })
+            return notes
+        except Exception as e:
+            self.logger.error("Error loading notes for user %s: %s", user_id, e)
+            return []
+        finally:
+            if conn:
+                self._return_connection(conn)
+
+    def create_note_for_user(self, user_id: str, note_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Create a single note for a user"""
+        try:
+            self._ensure_user_exists(user_id)
+            if 'id' not in note_data:
+                note_data['id'] = str(uuid.uuid4())
+            title = (note_data.get('title') or '').strip() or 'Untitled'
+            content = note_data.get('content', '')
+            now = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                conn.execute(
+                    '''INSERT INTO notes (id, user_id, title, content, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?)''',
+                    (note_data['id'], user_id, title, content, now, now)
+                )
+                conn.commit()
+            return {
+                'id': note_data['id'],
+                'title': title,
+                'content': content,
+                'created_at': now,
+                'updated_at': now,
+            }
+        except Exception as e:
+            self.logger.error("Error creating note for user %s: %s", user_id, e)
+            return None
+
+    def update_note_for_user(self, user_id: str, note_id: str, note_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update title/content of a note"""
+        try:
+            title = (note_data.get('title') or '').strip() or 'Untitled'
+            content = note_data.get('content', '')
+            now = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                cursor = conn.execute(
+                    'SELECT id FROM notes WHERE id = ? AND user_id = ?',
+                    (note_id, user_id)
+                )
+                if not cursor.fetchone():
+                    conn.rollback()
+                    return None
+                conn.execute(
+                    '''UPDATE notes
+                       SET title = ?, content = ?, updated_at = ?
+                       WHERE id = ? AND user_id = ?''',
+                    (title, content, now, note_id, user_id)
+                )
+                conn.commit()
+            return {
+                'id': note_id,
+                'title': title,
+                'content': content,
+                'updated_at': now,
+            }
+        except Exception as e:
+            self.logger.error("Error updating note %s for user %s: %s", note_id, user_id, e)
+            return None
+
+    def delete_note_for_user(self, user_id: str, note_id: str) -> bool:
+        """Delete a note for a user"""
+        try:
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                cursor = conn.execute(
+                    'DELETE FROM notes WHERE id = ? AND user_id = ?',
+                    (note_id, user_id)
+                )
+                conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            self.logger.error("Error deleting note %s for user %s: %s", note_id, user_id, e)
+            return False
+
+    def load_notes(self, user_id: str = None):
+        """Backward-compatible wrapper for loading notes"""
+        if user_id is None:
+            user_id = "default_user"
+        return self.load_notes_for_user(user_id)
+
     def save_tasks(self, tasks, user_id: str = None):
         """Save tasks with optional user_id - backward compatibility"""
         if user_id is None:

@@ -11,13 +11,12 @@ This module handles:
 from flask import Blueprint, request, jsonify
 import logging
 import uuid
-import csv
-import io
 from datetime import datetime
 from typing import Dict, List, Tuple
 
 # Import app context and utilities (will be injected)
 from src.constants import DEFAULT_USER_ID
+from src.services.importer import parse_csv_tasks, parse_txt_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +101,9 @@ def import_tasks():
         errors = []
         
         if file_extension == 'csv':
-            imported_tasks, errors = _parse_csv_tasks(file_content)
+            imported_tasks, errors = parse_csv_tasks(file_content, _sanitize_input_func)
         elif file_extension == 'txt':
-            imported_tasks, errors = _parse_txt_tasks(file_content)
+            imported_tasks, errors = parse_txt_tasks(file_content, _sanitize_input_func)
         else:
             return jsonify({'error': 'Unsupported file format. Please use CSV or TXT.'}), 400
         
@@ -142,155 +141,6 @@ def import_tasks():
             
     except Exception as e:
         return jsonify({'error': f'Import failed: {str(e)}'}), 500
-
-
-def _parse_csv_tasks(content: str) -> Tuple[List[Dict], List[str]]:
-    """Parse CSV content and return tasks and errors"""
-    tasks = []
-    errors = []
-    
-    try:
-        csv_file = io.StringIO(content)
-        reader = csv.DictReader(csv_file)
-        
-        for row_num, row in enumerate(reader, start=2):
-            try:
-                # Sanitize input
-                if _sanitize_input_func:
-                    row = _sanitize_input_func(row)
-                
-                # Extract task data
-                title = row.get('title', '').strip()
-                if not title:
-                    errors.append(f"Row {row_num}: Title is required")
-                    continue
-                
-                description = row.get('description', '').strip()
-                project = row.get('project', '').strip()
-                
-                # Parse duration
-                duration_str = row.get('duration', '60').strip()
-                try:
-                    duration = int(duration_str) if duration_str else 60
-                except ValueError:
-                    duration = 60
-                
-                # Parse due date
-                due_date = row.get('due_date', '').strip()
-                if due_date:
-                    try:
-                        datetime.fromisoformat(due_date)
-                    except ValueError:
-                        try:
-                            datetime.strptime(due_date, '%Y-%m-%d')
-                        except ValueError:
-                            try:
-                                datetime.strptime(due_date, '%m/%d/%Y')
-                            except ValueError:
-                                errors.append(f"Row {row_num}: Invalid date format for '{due_date}'")
-                                due_date = None
-                
-                # Parse priority
-                priority = row.get('priority', 'medium').strip().lower()
-                if priority not in ['low', 'medium', 'high']:
-                    priority = 'medium'
-                
-                task = {
-                    'title': title,
-                    'description': description,
-                    'project': project,
-                    'estimated_duration': duration,
-                    'due_date': due_date,
-                    'priority': priority
-                }
-                
-                tasks.append(task)
-                
-            except Exception as e:
-                errors.append(f"Row {row_num}: {str(e)}")
-                
-    except Exception as e:
-        errors.append(f"CSV parsing error: {str(e)}")
-    
-    return tasks, errors
-
-
-def _parse_txt_tasks(content: str) -> Tuple[List[Dict], List[str]]:
-    """Parse TXT content and return tasks and errors"""
-    tasks = []
-    errors = []
-    
-    try:
-        lines = content.strip().split('\n')
-        
-        for line_num, line in enumerate(lines, start=1):
-            line = line.strip()
-            if not line or line.startswith('#'):  # Skip empty lines and comments
-                continue
-            
-            try:
-                # Sanitize input
-                if _sanitize_input_func:
-                    line = _sanitize_input_func(line)
-                
-                # Simple format: Title | Description | Project | Duration | Due Date
-                parts = [part.strip() for part in line.split('|')]
-                
-                if len(parts) < 1:
-                    errors.append(f"Line {line_num}: At least title is required")
-                    continue
-                
-                title = parts[0]
-                if not title:
-                    errors.append(f"Line {line_num}: Title is required")
-                    continue
-                
-                description = parts[1] if len(parts) > 1 else ''
-                project = parts[2] if len(parts) > 2 else ''
-                
-                # Parse duration
-                duration = 60
-                if len(parts) > 3 and parts[3]:
-                    try:
-                        duration = int(parts[3])
-                    except ValueError:
-                        errors.append(f"Line {line_num}: Invalid duration '{parts[3]}'")
-                
-                # Parse due date
-                due_date = None
-                if len(parts) > 4 and parts[4]:
-                    try:
-                        datetime.fromisoformat(parts[4])
-                        due_date = parts[4]
-                    except ValueError:
-                        try:
-                            datetime.strptime(parts[4], '%Y-%m-%d')
-                            due_date = parts[4]
-                        except ValueError:
-                            try:
-                                datetime.strptime(parts[4], '%m/%d/%Y')
-                                due_date = parts[4]
-                            except ValueError:
-                                errors.append(f"Line {line_num}: Invalid date format '{parts[4]}'")
-                
-                task = {
-                    'title': title,
-                    'description': description,
-                    'project': project,
-                    'estimated_duration': duration,
-                    'due_date': due_date,
-                    'priority': 'medium'
-                }
-                
-                tasks.append(task)
-                
-            except Exception as e:
-                errors.append(f"Line {line_num}: {str(e)}")
-                
-    except Exception as e:
-        errors.append(f"TXT parsing error: {str(e)}")
-    
-    return tasks, errors
 
 
 @task_bp.route('', methods=['POST'])

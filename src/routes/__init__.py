@@ -34,6 +34,12 @@ try:  # pragma: no cover
 except Exception:
     task_bp = None
 
+# Notes blueprint is optional (only in newer builds)
+try:  # pragma: no cover
+    from .notes_routes import notes_bp  # type: ignore
+except Exception:
+    notes_bp = None
+
 try:  # pragma: no cover
     from .settings_routes import settings_bp  # type: ignore
 except Exception:
@@ -68,6 +74,8 @@ def register_routes(app: Flask) -> None:
         app.register_blueprint(auth_bp, url_prefix="/api/auth")
     if task_bp is not None:
         app.register_blueprint(task_bp, url_prefix="/api/tasks")
+    if notes_bp is not None:
+        app.register_blueprint(notes_bp, url_prefix="/api/notes")
     if settings_bp is not None:
         app.register_blueprint(settings_bp, url_prefix="/api/settings")
     if monitoring_bp is not None:
@@ -78,4 +86,4 @@ def register_routes(app: Flask) -> None:
         app.register_blueprint(static_bp)
 
 
-__all__ = ["register_routes", "task_bp", "auth_bp", "settings_bp", "monitoring_bp", "system_bp", "static_bp"]
+__all__ = ["register_routes", "task_bp", "notes_bp", "auth_bp", "settings_bp", "monitoring_bp", "system_bp", "static_bp"]

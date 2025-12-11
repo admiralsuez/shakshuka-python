@@ -34,6 +34,14 @@ async function makeAuthenticatedRequest(url, options = {}) {
     return fetch(url, fetchOptions);
 }
 
+// Debug flag + helper (can be toggled via devtools if needed)
+const DEBUG = false;
+function debugLog(...args) {
+    if (DEBUG) {
+        console.log(...args);
+    }
+}
+
 // Helper function to safely add event listeners
 function safeAddEventListener(elementId, event, handler) {
     const element = document.getElementById(elementId);
@@ -474,6 +482,7 @@ window.Utils = {
     makeAuthenticatedRequest,
     safeAddEventListener,
     safeShowNotification,
+    debugLog,
     Logger,
     sanitizeHTML,
     formatDate,

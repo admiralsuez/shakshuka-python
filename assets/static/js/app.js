@@ -146,6 +146,13 @@ function showAddTaskOptions() {
                         <p>Add a task directly to your daily planner</p>
                     </div>
                 </button>
+                <button class="add-task-option" onclick="openImportModal(); closeAddTaskOptions();">
+                    <i class="fas fa-file-import"></i>
+                    <div>
+                        <h3>Import Tasks</h3>
+                        <p>Import multiple tasks from CSV or TXT</p>
+                    </div>
+                </button>
             </div>
         </div>
     `;
@@ -899,6 +906,16 @@ async function resetDailyStrikes() {
 // Setup keyboard shortcuts
 function setupKeyboardShortcuts() {
     document.addEventListener('keydown', function(e) {
+        const tag = (e.target && e.target.tagName || '').toLowerCase();
+        const isTypingTarget = tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable);
+
+        // Plain "P" opens Notes page when not typing in a field
+        if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'p' || e.key === 'P') && !isTypingTarget) {
+            e.preventDefault();
+            navigateToPage('notes');
+            return;
+        }
+
         // Ctrl/Cmd + N - New task
         if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
             e.preventDefault();
@@ -945,7 +962,8 @@ async function loadChangelog() {
 }
 
 function parseChangelogToSections(markdown) {
-    // Parse the changelog markdown into version sections
+    // Parse the changelog markdown into version sections (including consolidated ranges),
+    // then group by major version.
     const sections = [];
     const lines = markdown.split('\n');
     let currentSection = null;
@@ -953,23 +971,53 @@ function parseChangelogToSections(markdown) {
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         
-        // Check for version headers (## Version X.X.X)
+        // Check for single-version headers (## Version X.X)
         if (line.startsWith('## Version ')) {
             if (currentSection) {
                 sections.push(currentSection);
             }
             currentSection = {
                 version: line.replace('## Version ', '').split(' - ')[0],
-                title: line.replace('## Version ', ''),
+                title: line.replace('## ', ''),
                 content: [],
-                date: null
+                date: null,
+                versionRange: null
+            };
+        }
+        // Check for consolidated range headers (## Versions 11.0 – 12.1 – ...)
+        else if (line.startsWith('## Versions ')) {
+            if (currentSection) {
+                sections.push(currentSection);
+            }
+            const headerRest = line.replace('## Versions ', '');
+            const versionMatches = headerRest.match(/(\d+\.\d+)/g) || [];
+            // Use the last numeric token as the synthetic version for sorting (e.g. 12.1)
+            const syntheticVersion = versionMatches.length
+                ? versionMatches[versionMatches.length - 1]
+                : headerRest.split(' - ')[0].trim();
+
+            let versionRange = null;
+            if (versionMatches.length >= 2) {
+                const startMajor = parseInt(versionMatches[0].split('.')[0], 10);
+                const endMajor = parseInt(versionMatches[versionMatches.length - 1].split('.')[0], 10);
+                if (Number.isFinite(startMajor) && Number.isFinite(endMajor)) {
+                    versionRange = { startMajor, endMajor };
+                }
+            }
+
+            currentSection = {
+                version: syntheticVersion,
+                title: line.replace('## ', ''),
+                content: [],
+                date: null,
+                versionRange
             };
         }
         // Check for release date
         else if (line.startsWith('Release Date:') && currentSection) {
             currentSection.date = line.replace('Release Date:', '').trim();
         }
-        // Add content to current section
+        // Add content to current section (skip blank lines outside sections)
         else if (currentSection && line) {
             currentSection.content.push(line);
         }
@@ -996,64 +1044,156 @@ function parseChangelogToSections(markdown) {
     // Sort by version (latest first) - simple version comparison
     sections.sort((a, b) => compareVersions(b.version, a.version));
     
-    // Merge sections that have identical content (deduplicate repeated release notes).
-    // This groups versions like 8.1–9.2 that share the same body into a single
-    // combined section so the changelog is more concise.
-    const combined = [];
-    const contentIndex = new Map(); // contentKey -> index in combined
-    
+    // Group sections by major version (e.g. 13.7, 13.6 → major "13").
+    // Consolidated range sections (with versionRange) are attached to every
+    // major they cover (e.g. 11 and 12 for "Versions 11.0 – 12.1").
+    const groupsMap = new Map();
+
     sections.forEach(section => {
-        const contentKey = (section.content || []).join('\n').trim();
-        if (!contentKey) {
-            combined.push(section);
-            return;
-        }
-        const existingIdx = contentIndex.get(contentKey);
-        if (existingIdx === undefined) {
-            // First time we see this exact content
-            section.versions = [section.version];
-            combined.push(section);
-            contentIndex.set(contentKey, combined.length - 1);
-        } else {
-            // Merge into existing group
-            const group = combined[existingIdx];
-            if (!group.versions) {
-                group.versions = [group.version];
-            }
-            group.versions.push(section.version);
-            // Preserve earliest and latest dates if present
-            if (section.date) {
-                if (!group.dates) {
-                    group.dates = [];
+        if (section.versionRange) {
+            const { startMajor, endMajor } = section.versionRange;
+            if (Number.isFinite(startMajor) && Number.isFinite(endMajor)) {
+                for (let majorNum = startMajor; majorNum <= endMajor; majorNum++) {
+                    const majorKey = String(majorNum);
+                    if (!groupsMap.has(majorKey)) {
+                        groupsMap.set(majorKey, {
+                            majorVersion: majorKey,
+                            sections: []
+                        });
+                    }
+                    groupsMap.get(majorKey).sections.push(section);
                 }
-                group.dates.push(section.date);
+                return;
             }
         }
-    });
-    
-    // Normalize version arrays: sort ascending so we can show "8.1 – 9.2"
-    combined.forEach(group => {
-        if (group.versions && group.versions.length > 1) {
-            group.versions.sort((a, b) => compareVersions(a, b));
+
+        const rawVersion = section.version || '';
+        const major = (rawVersion.split('.')[0] || rawVersion || '0').trim();
+        if (!groupsMap.has(major)) {
+            groupsMap.set(major, {
+                majorVersion: major,
+                sections: []
+            });
         }
+        groupsMap.get(major).sections.push(section);
     });
-    
-    return combined;
+
+    // Sort sections within each major group (latest minor first)
+    groupsMap.forEach(group => {
+        group.sections.sort((a, b) => compareVersions(b.version, a.version));
+    });
+
+    // Convert to an array of groups sorted by major version (latest first)
+    const groups = Array.from(groupsMap.values()).sort((a, b) => {
+        const ma = parseInt(a.majorVersion, 10) || 0;
+        const mb = parseInt(b.majorVersion, 10) || 0;
+        return mb - ma;
+    });
+
+    return groups;
 }
 
-function formatChangelogSections(sections) {
+function splitHighlightsAndBody(contentLines) {
+    // Derive short "quick highlights" for the version while
+    // keeping the full content intact for detailed rendering.
+    const body = Array.isArray(contentLines) ? contentLines : [];
+    const quick = [];
+
+    if (!body.length) {
+        return { highlights: quick, body };
+    }
+
+    const lines = body;
+
+    function collectBullets(startIndex) {
+        const items = [];
+        for (let i = startIndex; i < lines.length; i++) {
+            const t = lines[i].trim();
+            if (!t || (!t.startsWith('- ') && !t.startsWith('* '))) {
+                break;
+            }
+            const text = t.replace(/^[-*]\s+/, '');
+            items.push(text);
+        }
+        return items;
+    }
+
+    // Helper to shorten a bullet to maxWords words.
+    function shorten(text, maxWords) {
+        const words = text.split(/\s+/).filter(Boolean);
+        if (words.length <= maxWords) {
+            return text;
+        }
+        return words.slice(0, maxWords).join(' ') + '…';
+    }
+
+    // Pass 1: explicit "Quick Highlights" heading
+    for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].trim();
+        if (/^quick highlights$/i.test(trimmed)) {
+            const items = collectBullets(i + 1);
+            if (items.length) {
+                items.forEach(item => quick.push(shorten(item, 7)));
+            }
+            return { highlights: quick, body };
+        }
+    }
+
+    // Pass 2: explicit "Highlights" / "Consolidated Highlights" heading
+    for (let i = 0; i < lines.length && quick.length === 0; i++) {
+        const trimmed = lines[i].trim();
+        if (/^highlights$/i.test(trimmed) || /^consolidated highlights$/i.test(trimmed)) {
+            const items = collectBullets(i + 1);
+            if (items.length) {
+                items.forEach(item => quick.push(shorten(item, 7)));
+            }
+        }
+    }
+
+    // Pass 3: fallback to first bullet list anywhere near the top
+    if (!quick.length) {
+        for (let i = 0; i < lines.length; i++) {
+            const trimmed = lines[i].trim();
+            if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                const items = collectBullets(i);
+                if (items.length) {
+                    items.forEach(item => quick.push(shorten(item, 7)));
+                }
+                break;
+            }
+        }
+    }
+
+    return { highlights: quick, body };
+}
+
+function formatChangelogSections(groups) {
     let html = '<div class="changelog-sections">';
     
-    sections.forEach((section, index) => {
-        const isExpanded = index === 0; // Expand first (latest) section by default
-        const sectionId = `changelog-section-${index}`;
-        
+    groups.forEach((group, index) => {
+        const isExpanded = index === 0; // Expand latest major version by default
+        const sectionId = `changelog-section-${group.majorVersion}`;
+
+        // Derive a simple date range for the group if dates are present
+        const dates = group.sections
+            .map(s => s.date)
+            .filter(Boolean)
+            .sort(); // ascending
+        let dateLabel = '';
+        if (dates.length === 1) {
+            dateLabel = dates[0];
+        } else if (dates.length > 1) {
+            const first = dates[0];
+            const last = dates[dates.length - 1];
+            dateLabel = `${first} – ${last}`;
+        }
+
         html += `
             <div class="changelog-section">
                 <div class="changelog-section-header" onclick="toggleChangelogSection('${sectionId}')">
                     <div class="changelog-section-title">
-                        <h3>${section.title}</h3>
-                        ${section.date ? `<span class="changelog-date">${section.date}</span>` : ''}
+                        <h3>Version ${group.majorVersion}.x</h3>
+                        ${dateLabel ? `<span class="changelog-date">${dateLabel}</span>` : ''}
                     </div>
                     <div class="changelog-section-toggle">
                         <i class="fas fa-chevron-${isExpanded ? 'up' : 'down'}"></i>
@@ -1061,7 +1201,28 @@ function formatChangelogSections(sections) {
                 </div>
                 <div class="changelog-section-content ${isExpanded ? 'expanded' : ''}" id="${sectionId}">
                     <div class="changelog-section-text">
-                        ${formatChangelogContent(section.content)}
+                        ${group.sections.map(section => {
+                            const split = splitHighlightsAndBody(section.content || []);
+const highlightsHtml = split.highlights.length
+                                ? `
+                                    <div class="changelog-highlights">
+                                        <div class="changelog-highlights-title">Quick Highlights</div>
+                                        <ul>
+                                            ${split.highlights.map(item => `<li>${item}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                  `
+                                : '';
+                            const bodyHtml = formatChangelogContent(split.body || []);
+                            return `
+                                <div class="changelog-subsection">
+                                    <h4>${section.title}</h4>
+                                    ${section.date ? `<div class="changelog-date changelog-date-sub">${section.date}</div>` : ''}
+                                    ${highlightsHtml}
+                                    ${bodyHtml}
+                                </div>
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             </div>
@@ -1175,7 +1336,94 @@ function closeChangelogModal() {
     const modal = document.getElementById('changelog-modal');
     if (modal) {
         modal.classList.remove('active');
-    modal.style.display = 'none';
+        modal.style.display = 'none';
+    }
+}
+
+async function maybeShowWhatsNewModal() {
+    try {
+        const currentVersion = (window.APP_CONFIG && window.APP_CONFIG.version) || null;
+        if (!currentVersion) {
+            return;
+        }
+
+        const storageKey = 'shakshuka_last_seen_version';
+        const lastSeen = localStorage.getItem(storageKey);
+
+        // Only show if the stored version is different from the current version
+        if (lastSeen === currentVersion) {
+            return;
+        }
+
+        // Fetch changelog and extract highlights for the latest version
+        const changelogText = await loadChangelog();
+        const groups = parseChangelogToSections(changelogText);
+        if (!Array.isArray(groups) || groups.length === 0) {
+            localStorage.setItem(storageKey, currentVersion);
+            return;
+        }
+
+        const latestGroup = groups[0];
+        const latestSection = latestGroup.sections && latestGroup.sections[0];
+        if (!latestSection) {
+            localStorage.setItem(storageKey, currentVersion);
+            return;
+        }
+
+        const split = splitHighlightsAndBody(latestSection.content || []);
+        const summaryEl = document.getElementById('whats-new-summary');
+        if (!summaryEl) {
+            localStorage.setItem(storageKey, currentVersion);
+            return;
+        }
+
+        if (split.highlights.length) {
+            summaryEl.innerHTML = `
+                <ul>
+                    ${split.highlights.map(item => `<li>${item}</li>`).join('')}
+                </ul>
+            `;
+        } else {
+            // Fallback: show first few lines of body as plain text
+            const preview = (latestSection.content || []).slice(0, 5).join(' ');
+            summaryEl.textContent = preview || 'This update includes stability improvements and minor fixes.';
+        }
+
+        const modal = document.getElementById('whats-new-modal');
+        if (!modal) {
+            localStorage.setItem(storageKey, currentVersion);
+            return;
+        }
+
+        modal.classList.add('active');
+        modal.style.display = 'flex';
+
+        const dismiss = document.getElementById('whats-new-dismiss-btn');
+        const closeBtn = document.getElementById('close-whats-new-modal');
+        const viewChangelog = document.getElementById('whats-new-view-changelog-btn');
+
+        const closeWhatsNew = () => {
+            modal.classList.remove('active');
+            modal.style.display = 'none';
+            localStorage.setItem(storageKey, currentVersion);
+        };
+
+        if (dismiss) dismiss.onclick = closeWhatsNew;
+        if (closeBtn) closeBtn.onclick = closeWhatsNew;
+        if (viewChangelog) {
+            viewChangelog.onclick = async () => {
+                closeWhatsNew();
+                await openChangelogModal();
+            };
+        }
+    } catch (e) {
+        // If anything goes wrong, just mark the current version as seen so we don't spam.
+        try {
+            const currentVersion = (window.APP_CONFIG && window.APP_CONFIG.version) || null;
+            if (currentVersion) {
+                localStorage.setItem('shakshuka_last_seen_version', currentVersion);
+            }
+        } catch (_) {}
     }
 }
 
@@ -1668,8 +1916,10 @@ function setupEventListeners() {
                 return;
             }
 
-            // Fallback: just remove the active class (preserves existing display logic)
+            // Fallback: hide any other modal by removing the active class
+            // and clearing the inline display style so it fully closes.
             this.classList.remove('active');
+            this.style.display = 'none';
         });
     });
 }
@@ -1974,6 +2224,13 @@ async function createTask(taskData) {
             
             console.log('Updating dashboard stats...');
             updateDashboardStats();
+
+            // Keep project filter options in sync with active tasks
+            try {
+                if (window.Tasks && typeof Tasks.updateProjectFilterOptions === 'function') {
+                    Tasks.updateProjectFilterOptions();
+                }
+            } catch (e) { /* no-op */ }
             
             console.log('Current page:', AppState.get('currentPage'));
             if (AppState.get('currentPage') === 'tasks') {
@@ -2028,6 +2285,13 @@ async function updateTask(taskId, taskData) {
             
             updateDashboardStats();
             
+            // Keep project filter options in sync with active tasks
+            try {
+                if (window.Tasks && typeof Tasks.updateProjectFilterOptions === 'function') {
+                    Tasks.updateProjectFilterOptions();
+                }
+            } catch (e) { /* no-op */ }
+            
             if (AppState.get('currentPage') === 'tasks') {
                 renderTasks();
             } else if (AppState.get('currentPage') === 'dashboard') {
@@ -2073,6 +2337,13 @@ async function deleteTask(taskId) {
         if (response.ok) {
             await AppState.removeTask(taskId);
             updateDashboardStats();
+            
+            // Keep project filter options in sync with active tasks
+            try {
+                if (window.Tasks && typeof Tasks.updateProjectFilterOptions === 'function') {
+                    Tasks.updateProjectFilterOptions();
+                }
+            } catch (e) { /* no-op */ }
             
             if (AppState.get('currentPage') === 'tasks') {
                 // Preserve current filter state after deletion
@@ -2120,6 +2391,13 @@ async function completeTask(taskId) {
             await AppState.updateTask(taskId, completedTask);
             
             updateDashboardStats();
+            
+            // Keep project filter options in sync with active tasks
+            try {
+                if (window.Tasks && typeof Tasks.updateProjectFilterOptions === 'function') {
+                    Tasks.updateProjectFilterOptions();
+                }
+            } catch (e) { /* no-op */ }
             
             if (AppState.get('currentPage') === 'tasks') {
                 renderTasks();
@@ -2316,7 +2594,7 @@ function _renderTasksNow(filter, projectFilterArg) {
             return `
         <div class="task-item ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${(task.struck_today && task.strike_count > 1) ? 'restrike' : ''}" data-task-id="${task.id}">
             <div class="task-project-tag">
-                ${task.project ? `<span class="project-tag">${sanitizeHTML(task.project)}</span>` : '<span class="project-tag no-project">No Project</span>'}
+                ${task.project ? `<span class="project-tag">${sanitizeHTML(task.project)}</span>` : '<span class="project-tag project-tag--no-project no-project">No Project</span>'}
             </div>
             <div class="task-content">
                 <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">
@@ -2679,6 +2957,14 @@ function editTask(taskId) {
 
 async function undoCompleteTask(taskId) {
     await updateTask(taskId, { completed: false, completed_at: null });
+    // updateTask already triggers filter refresh via updateDashboardStats path,
+    // but make sure project filter reflects newly active tasks even if caller
+    // doesn't stay on the tasks page.
+    try {
+        if (window.Tasks && typeof Tasks.updateProjectFilterOptions === 'function') {
+            Tasks.updateProjectFilterOptions();
+        }
+    } catch (e) { /* no-op */ }
 }
 
 // Form Submissions
@@ -2799,6 +3085,13 @@ async function loadSettings() {
         
         // Hide loading screen after settings are applied
         hideLoadingScreen();
+
+        // After settings + theme are ready, show one-time "What's New" modal if needed
+        try {
+            maybeShowWhatsNewModal();
+        } catch (e) {
+            console.error('Error showing What\'s New modal:', e);
+        }
     } catch (error) {
         console.error('Error loading settings:', error);
         // Hide loading screen even if there's an error
@@ -3398,6 +3691,13 @@ async function undoStrike(taskId) {
         if (response.ok) {
             await loadTasks();
             updateDashboardStats();
+            // After undoing a strike, a task may move from expired/completed
+            // back to active; refresh project filter options.
+            try {
+                if (window.Tasks && typeof Tasks.updateProjectFilterOptions === 'function') {
+                    Tasks.updateProjectFilterOptions();
+                }
+            } catch (e) { /* no-op */ }
             showNotification('Strike undone successfully! ↩️', 'success');
             addLog('success', `Task ${taskId} strike undone`);
         } else {
@@ -3658,6 +3958,27 @@ function showNotification(message, type = 'info', options = {}) {
         message.toLowerCase().includes('unauthorized')
     );
     
+    // Ensure a single bottom-right notification container exists
+    let container = document.getElementById('notification-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'notification-container';
+        container.style.cssText = `
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            z-index: 4000;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 10px;
+        `;
+        document.body.appendChild(container);
+    }
+
+    // Allow multiple notifications; they will stack bottom-up in this container
+    // (no explicit limit here, but short lifetimes keep the list small)
+
     // Create notification element
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
@@ -3679,11 +4000,8 @@ function showNotification(message, type = 'info', options = {}) {
         </div>
     `;
     
-    // Add styles
+    // Add styles (container controls bottom-right positioning)
     notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
         background: ${type === 'success' ? 'linear-gradient(135deg, #28A745, #20C997)' : 
                     type === 'error' ? 'linear-gradient(135deg, #DC3545, #E74C3C)' : 
                     'linear-gradient(135deg, #17A2B8, #20C997)'};
@@ -3700,7 +4018,7 @@ function showNotification(message, type = 'info', options = {}) {
     // Add click handler for auth errors
     // Authentication disabled - no special handling needed
     
-    document.body.appendChild(notification);
+    container.appendChild(notification);
     
     // Auto-open login dialog for auth errors
     if (isAuthError && options.autoOpenLogin !== false) {
@@ -3715,7 +4033,7 @@ function showNotification(message, type = 'info', options = {}) {
         }, 1000); // Small delay to let user see the notification first
     }
     
-    // Remove after 5 seconds (increased from 3 to give time to close)
+    // Remove after 2 seconds (short, snack-style notification)
     setTimeout(() => {
         if (notification.parentNode) {
             notification.style.animation = 'slideOutRight 0.3s ease-in-out';
@@ -3725,7 +4043,7 @@ function showNotification(message, type = 'info', options = {}) {
                 }
             }, 300);
         }
-    }, 5000);
+    }, 2000);
 }
 
 function closeNotification(closeButton) {
@@ -4423,35 +4741,19 @@ function filterTasksByType(tasks, filter) {
         return [];
     }
 
-    // Normalize "today" string once for all branches
-    const todayStr = new Date().toISOString().split('T')[0];
-
-    const getDateOnly = (raw) => {
-        if (!raw) return null;
-        const s = String(raw);
-        return s.includes('T') ? s.split('T')[0] : s;
-    };
+    const helpers = window.TaskHelpers;
+    if (!helpers) {
+        console.warn('TaskHelpers not available, returning tasks unfiltered');
+        return tasks;
+    }
     
     switch (filter) {
         case 'active':
-            // Active = not completed AND (no due date OR due today/future)
-            return tasks.filter(task => {
-                if (task.completed) return false;
-                const due = getDateOnly(task.due_date);
-                if (!due) return true;          // no due date → still active
-                return due >= todayStr;         // today or later
-            });
+            return tasks.filter(helpers.isActive);
         case 'completed':
-            return tasks.filter(task => task.completed);
-        case 'expired': {
-            // Expired = not completed AND due date strictly before today
-            return tasks.filter(task => {
-                if (task.completed) return false;
-                const due = getDateOnly(task.due_date);
-                if (!due) return false;
-                return due < todayStr;
-            });
-        }
+            return tasks.filter(helpers.isDone);
+        case 'expired':
+            return tasks.filter(helpers.isExpired);
         default:
             return tasks;
     }
