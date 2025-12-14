@@ -354,12 +354,9 @@
                 openTabContextMenu(note.id, e.clientX, e.clientY);
             });
 
-            // Fallback: double-click anywhere on the tab also triggers rename
-            btn.addEventListener('dblclick', function (ev) {
-                ev.preventDefault();
-                ev.stopPropagation();
-                renameActiveNote(note.id);
-            });
+            // Note: double-click to rename is intentionally restricted to the
+            // title span (see titleSpan dblclick handler) so that double-
+            // clicking the close button does NOT trigger rename.
 
             container.appendChild(btn);
         });

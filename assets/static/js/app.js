@@ -548,9 +548,7 @@ async function installUpdate() {
 // Update settings functions
 async function updateUpdateSettings() {
     const autoUpdate = document.getElementById('auto-update-check')?.checked || false;
-    const autoInstall = document.getElementById('auto-update-install')?.checked || false;
     const backupBeforeUpdate = document.getElementById('backup-before-update')?.checked || true;
-    const githubAutoUpdate = document.getElementById('github-auto-update')?.checked || false;
     const checkInterval = 24; // fixed to 24 hours as requested
 
     try {
@@ -559,9 +557,9 @@ async function updateUpdateSettings() {
             body: JSON.stringify({ 
                 channel: 'stable',
                 auto_update: autoUpdate,
-                auto_install: autoInstall,
+                auto_install: false,
                 backup_before_update: backupBeforeUpdate,
-                github_auto_update: githubAutoUpdate,
+                github_auto_update: false,
                 github_branch: 'main',
                 check_interval: checkInterval
             })
@@ -753,9 +751,6 @@ async function loadUpdateSettings() {
         }
         if (settings.backup_before_update !== undefined) {
             document.getElementById('backup-before-update').checked = settings.backup_before_update;
-        }
-        if (settings.github_auto_update !== undefined) {
-            document.getElementById('github-auto-update').checked = settings.github_auto_update;
         }
         if (settings.github_branch !== undefined) {
             document.getElementById('github-branch').value = settings.github_branch;
@@ -1355,67 +1350,10 @@ async function maybeShowWhatsNewModal() {
             return;
         }
 
-        // Fetch changelog and extract highlights for the latest version
-        const changelogText = await loadChangelog();
-        const groups = parseChangelogToSections(changelogText);
-        if (!Array.isArray(groups) || groups.length === 0) {
-            localStorage.setItem(storageKey, currentVersion);
-            return;
-        }
-
-        const latestGroup = groups[0];
-        const latestSection = latestGroup.sections && latestGroup.sections[0];
-        if (!latestSection) {
-            localStorage.setItem(storageKey, currentVersion);
-            return;
-        }
-
-        const split = splitHighlightsAndBody(latestSection.content || []);
-        const summaryEl = document.getElementById('whats-new-summary');
-        if (!summaryEl) {
-            localStorage.setItem(storageKey, currentVersion);
-            return;
-        }
-
-        if (split.highlights.length) {
-            summaryEl.innerHTML = `
-                <ul>
-                    ${split.highlights.map(item => `<li>${item}</li>`).join('')}
-                </ul>
-            `;
-        } else {
-            // Fallback: show first few lines of body as plain text
-            const preview = (latestSection.content || []).slice(0, 5).join(' ');
-            summaryEl.textContent = preview || 'This update includes stability improvements and minor fixes.';
-        }
-
-        const modal = document.getElementById('whats-new-modal');
-        if (!modal) {
-            localStorage.setItem(storageKey, currentVersion);
-            return;
-        }
-
-        modal.classList.add('active');
-        modal.style.display = 'flex';
-
-        const dismiss = document.getElementById('whats-new-dismiss-btn');
-        const closeBtn = document.getElementById('close-whats-new-modal');
-        const viewChangelog = document.getElementById('whats-new-view-changelog-btn');
-
-        const closeWhatsNew = () => {
-            modal.classList.remove('active');
-            modal.style.display = 'none';
-            localStorage.setItem(storageKey, currentVersion);
-        };
-
-        if (dismiss) dismiss.onclick = closeWhatsNew;
-        if (closeBtn) closeBtn.onclick = closeWhatsNew;
-        if (viewChangelog) {
-            viewChangelog.onclick = async () => {
-                closeWhatsNew();
-                await openChangelogModal();
-            };
-        }
+        await showWhatsNewModalForLatestVersion({
+            markAsSeen: true,
+            storageKey
+        });
     } catch (e) {
         // If anything goes wrong, just mark the current version as seen so we don't spam.
         try {
@@ -1424,6 +1362,137 @@ async function maybeShowWhatsNewModal() {
                 localStorage.setItem('shakshuka_last_seen_version', currentVersion);
             }
         } catch (_) {}
+    }
+}
+
+async function showWhatsNewModalForLatestVersion(options) {
+    const cfg = options || {};
+    const markAsSeen = !!cfg.markAsSeen;
+    const storageKey = cfg.storageKey || 'shakshuka_last_seen_version';
+
+    const currentVersion = (window.APP_CONFIG && window.APP_CONFIG.version) || null;
+    const changelogText = await loadChangelog();
+    const groups = parseChangelogToSections(changelogText);
+    if (!Array.isArray(groups) || groups.length === 0) {
+        if (markAsSeen && currentVersion) {
+            localStorage.setItem(storageKey, currentVersion);
+        }
+        return;
+    }
+
+    const latestGroup = groups[0];
+    const latestSection = latestGroup.sections && latestGroup.sections[0];
+    if (!latestSection) {
+        if (markAsSeen && currentVersion) {
+            localStorage.setItem(storageKey, currentVersion);
+        }
+        return;
+    }
+
+    const split = splitHighlightsAndBody(latestSection.content || []);
+    const summaryEl = document.getElementById('whats-new-summary');
+    if (!summaryEl) {
+        if (markAsSeen && currentVersion) {
+            localStorage.setItem(storageKey, currentVersion);
+        }
+        return;
+    }
+
+    if (split.highlights.length) {
+        summaryEl.innerHTML = `
+            <ul>
+                ${split.highlights.map(item => `<li>${item}</li>`).join('')}
+            </ul>
+        `;
+    } else {
+        // Fallback: show first few lines of body as plain text
+        const preview = (latestSection.content || []).slice(0, 5).join(' ');
+        summaryEl.textContent = preview || 'This update includes stability improvements and minor fixes.';
+    }
+
+    const modal = document.getElementById('whats-new-modal');
+    if (!modal) {
+        if (markAsSeen && currentVersion) {
+            localStorage.setItem(storageKey, currentVersion);
+        }
+        return;
+    }
+
+    modal.classList.add('active');
+    modal.style.display = 'flex';
+
+    const dismiss = document.getElementById('whats-new-dismiss-btn');
+    const closeBtn = document.getElementById('close-whats-new-modal');
+    const viewChangelog = document.getElementById('whats-new-view-changelog-btn');
+
+    const closeWhatsNew = () => {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+        if (markAsSeen && currentVersion) {
+            localStorage.setItem(storageKey, currentVersion);
+        }
+    };
+
+    if (dismiss) dismiss.onclick = closeWhatsNew;
+    if (closeBtn) closeBtn.onclick = closeWhatsNew;
+    if (viewChangelog) {
+        viewChangelog.onclick = async () => {
+            closeWhatsNew();
+            await openChangelogModal();
+        };
+    }
+}
+
+async function maybeAutoCheckForUpdatesWeekly() {
+    try {
+        const now = Date.now();
+        const storageKey = 'shakshuka_last_update_check';
+        const lastRaw = localStorage.getItem(storageKey);
+        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+        if (lastRaw) {
+            const last = parseInt(lastRaw, 10);
+            if (!isNaN(last) && (now - last) < SEVEN_DAYS_MS) {
+                return; // already checked within the last week
+            }
+        }
+
+        // Mark attempt time up-front so repeated failures don't spam
+        localStorage.setItem(storageKey, String(now));
+
+        const branchElement = document.getElementById('github-branch');
+        const branch = branchElement ? branchElement.value : 'main';
+
+        const response = await fetch('/api/github/check-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ branch })
+        });
+
+        if (!response.ok) {
+            return;
+        }
+
+        const result = await response.json();
+        if (!result.update_available) {
+            return;
+        }
+
+        // Persistent, clickable toast for weekly auto-check
+        showNotification('new update, click me', 'info', {
+            persistent: true,
+            onClick: () => {
+                try {
+                    // Reuse the already-fetched release info for the modal
+                    showGitHubUpdateModal(result);
+                } catch (e) {
+                    // Fallback to a regular explicit check if something goes wrong
+                    try { checkGitHubUpdate(); } catch (_) {}
+                }
+            }
+        });
+    } catch (e) {
+        console.error('Weekly auto-update check failed:', e);
     }
 }
 
@@ -1629,6 +1698,14 @@ function initializeApp() {
 function setupEventListeners() {
     // Authentication is disabled - no auth elements needed
     
+    // Logo click → ask for confirmation, then hard reload the app
+    safeAddEventListener('app-logo', 'click', () => {
+        const ok = window.confirm ? window.confirm('Reload Shakshuka now? This will refresh the app UI.') : true;
+        if (ok) {
+            window.location.reload();
+        }
+    });
+
     // Task form submission handler
     safeAddEventListener('task-form', 'submit', (e) => {
         e.preventDefault();
@@ -1713,6 +1790,7 @@ function setupEventListeners() {
     // Changelog functionality
     safeAddEventListener('view-changelog-btn', 'click', () => openChangelogModal());
     safeAddEventListener('close-changelog-modal', 'click', () => closeChangelogModal());
+    safeAddEventListener('view-whats-new-btn', 'click', () => showWhatsNewModalForLatestVersion({ markAsSeen: false }));
     
     // User session management
     safeAddEventListener('reset-session-btn', 'click', () => {
@@ -1832,9 +1910,7 @@ function setupEventListeners() {
     
     // Update settings
     safeAddEventListener('auto-update-check', 'change', updateUpdateSettings);
-    safeAddEventListener('auto-update-install', 'change', updateUpdateSettings);
     safeAddEventListener('backup-before-update', 'change', updateUpdateSettings);
-    safeAddEventListener('github-auto-update', 'change', updateUpdateSettings);
     safeAddEventListener('github-branch', 'change', updateUpdateSettings);
     safeAddEventListener('update-channel', 'change', updateUpdateSettings);
     safeAddEventListener('check-interval', 'change', updateUpdateSettings);
@@ -3091,6 +3167,13 @@ async function loadSettings() {
             maybeShowWhatsNewModal();
         } catch (e) {
             console.error('Error showing What\'s New modal:', e);
+        }
+
+        // Also perform a lightweight weekly GitHub update check on launch.
+        try {
+            maybeAutoCheckForUpdatesWeekly();
+        } catch (e) {
+            console.error('Error running weekly auto-update check:', e);
         }
     } catch (error) {
         console.error('Error loading settings:', error);

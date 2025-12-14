@@ -490,6 +490,14 @@ html, body {
     margin-left: calc(0.25rem * var(--dpi-scale));
 }
 
+/* Make the + tab more compact (about 50% the default icon width) while
+   keeping the same height for a comfortable click target. */
+#notes-page .notes-tab--new.btn-icon {
+    width: calc(21px * var(--dpi-scale)); /* half of 42px from .btn-icon */
+    height: calc(42px * var(--dpi-scale));
+    font-size: 1.2rem;
+}
+
 .notes-tab-title {
     flex: 1 1 auto;
     overflow: hidden;
@@ -1762,19 +1770,6 @@ body[data-theme="anxiety"][data-intensity="10"] {
     flex-direction: column;
     gap: calc(1rem * var(--dpi-scale));
 }
-    border-radius: calc(16px * var(--dpi-scale, 1));
-    padding: calc(20px * var(--dpi-scale, 1));
-    margin-bottom: calc(16px * var(--dpi-scale, 1));
-    box-shadow: var(--box-shadow-primary, 0 4px 12px rgba(255, 140, 66, 0.1));
-    border: var(--border-finish, 1px solid rgba(255, 140, 66, 0.3));
-    transition: all 0.3s ease;
-    backdrop-filter: var(--backdrop-filter, blur(10px));
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    gap: calc(16px * var(--dpi-scale, 1));
-}
 
 /* Project tag on the left */
 .task-project-tag {
@@ -1999,8 +1994,7 @@ body[data-theme="anxiety"][data-intensity="10"] {
     font-style: italic;
     margin-left: 8px;
 }
-    margin-bottom: calc(16px * var(--dpi-scale));
-}
+
 #schedule-modal select {
     width: 100%;
     padding: calc(8px * var(--dpi-scale));
@@ -2809,7 +2803,7 @@ select:focus {
 /* Firefox scrollbar support */
 * {
     scrollbar-width: thin;
-    scrollbar-color: var(--accent-color) var(--border-color));
+    scrollbar-color: var(--accent-color) var(--border-color);
 }
 
 /* Scroll performance optimizations */
@@ -2891,10 +2885,26 @@ select:focus {
 #settings-page .setting-item { text-align: left; }
 #settings-page .time-select { justify-content: flex-start; margin-left: 0; }
 #settings-page .time-select select { min-width: 64px; }
-#settings-page .action-buttons-row { display: flex; gap: 12px; flex-wrap: wrap; }
+#settings-page .action-buttons-row {
+    display: flex;
+    gap: calc(0.5rem * var(--dpi-scale));
+    flex-wrap: wrap;
+}
 #settings-page .action-buttons-row .btn-secondary,
 #settings-page .action-buttons-row .btn-primary,
-#settings-page .action-buttons-row .btn-danger { min-width: 200px; justify-content: center; }
+#settings-page .action-buttons-row .btn-danger {
+    min-width: 200px;
+    justify-content: center;
+}
+
+/* Make only the Settings → View Changelog button a bit narrower (~60% of
+   the default row width) without changing its padding/height. */
+#view-changelog-btn {
+    min-width: 120px;
+    /* Reduce only horizontal padding so the button is ~60% the visual width,
+       but keep the same height and overall style. */
+    padding: calc(0.6rem * var(--dpi-scale)) calc(0.7rem * var(--dpi-scale));
+}
 #settings-page .stacked-setting { display:flex; align-items:center; gap:12px; width:100%; }
 #settings-page .stacked-setting .time-select { margin-left:0; }
 .settings-container .btn-primary,

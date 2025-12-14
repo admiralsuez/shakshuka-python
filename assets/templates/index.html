@@ -39,8 +39,8 @@
     <div class="app-container" id="app-container" style="display: none;">
         <!-- Sidebar Navigation -->
         <nav class="sidebar" role="navigation" aria-label="Main navigation">
-            <div class="sidebar-header">
-                <div class="logo">
+                <div class="sidebar-header">
+                <div class="logo" id="app-logo" title="Click to reload Shakshuka">
                     <div class="logo-icon" aria-hidden="true">
                         <img src="{{ url_for('static', filename='images/icon.png') }}" alt="Shakshuka logo" />
                     </div
@@ -509,29 +509,9 @@
                         
                         <div class="setting-item">
                             <label class="setting-label">
-                                <span>Auto-install updates</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="auto-update-install">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </label>
-                        </div>
-                        
-                        <div class="setting-item">
-                            <label class="setting-label">
                                 <span>Backup before updates</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="backup-before-update" checked>
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </label>
-                        </div>
-                        
-                        <div class="setting-item">
-                            <label class="setting-label">
-                                <span>GitHub Auto-Update</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="github-auto-update">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </label>
@@ -549,6 +529,10 @@
                                 <button class="btn-secondary" id="view-changelog-btn">
                                     <i class="fas fa-history"></i>
                                     View Changelog
+                                </button>
+                                <button class="btn-secondary" id="view-whats-new-btn">
+                                    <i class="fas fa-star"></i>
+                                    View current update features
                                 </button>
                             </div>
                         </div>
@@ -616,7 +600,7 @@
             <div class="modal-body whats-new-modal-body">
                 <div class="whats-new-header">
                     <div class="whats-new-title">Welcome to Shakshuka v{{ version }}</div>
-                    <div class="whats-new-subtitle">Here 19s a quick summary of what 19s new and how to use it.</div>
+                    <div class="whats-new-subtitle">Heres a quick summary of whats new and how to use it.</div>
                 </div>
                 <div class="whats-new-summary" id="whats-new-summary">
                     <!-- Populated from latest changelog highlights -->
