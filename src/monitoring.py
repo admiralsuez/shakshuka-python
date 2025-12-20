@@ -18,13 +18,15 @@ logger = logging.getLogger(__name__)
 class PerformanceMonitor:
     """Comprehensive performance monitoring system"""
     
-    def __init__(self):
+    def __init__(self, auto_start: bool = False):
         self.start_time = time.time()
         self.metrics = defaultdict(lambda: deque(maxlen=1000))  # Keep last 1000 entries
         self.counters = defaultdict(int)
         self.timers = {}
         self.alerts = []
         self._lock = threading.RLock()
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
         
         # System metrics
         self.cpu_threshold = 80.0  # CPU usage threshold
@@ -35,13 +37,27 @@ class PerformanceMonitor:
         self.response_time_threshold = 2.0  # 2 seconds
         self.error_rate_threshold = 5.0  # 5% error rate
         
-        # Initialize system monitoring
-        self._start_system_monitoring()
+        if auto_start:
+            self.start()
     
-    def _start_system_monitoring(self):
+    def start(self) -> None:
+        with self._lock:
+            if self._monitor_thread and self._monitor_thread.is_alive():
+                return
+            self._stop_event.clear()
+            self._monitor_thread = self._start_system_monitoring()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        with self._lock:
+            t = self._monitor_thread
+        if t and t.is_alive():
+            t.join(timeout=2)
+
+    def _start_system_monitoring(self) -> threading.Thread:
         """Start background system monitoring"""
         def monitor_system():
-            while True:
+            while not self._stop_event.is_set():
                 try:
                     self._collect_system_metrics()
                     time.sleep(30)  # Collect metrics every 30 seconds
@@ -52,6 +68,7 @@ class PerformanceMonitor:
         monitor_thread = threading.Thread(target=monitor_system, daemon=True)
         monitor_thread.start()
         logger.info("System monitoring started")
+        return monitor_thread
     
     def _collect_system_metrics(self):
         """Collect system performance metrics"""
@@ -338,4 +355,4 @@ class PerformanceMonitor:
             logger.error(f"Error clearing old data: {e}")
 
 # Global monitoring instance
-monitor = PerformanceMonitor()
+monitor = PerformanceMonitor(auto_start=False)

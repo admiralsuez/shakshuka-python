@@ -53,15 +53,15 @@ def get_notes():
     try:
         if _ensure_data_manager_func and not _ensure_data_manager_func():
             logger.error("Data manager not initialized for notes")
-            return jsonify([])
+            return jsonify({"error": "Data manager not initialized"}), 503
         dm = _get_data_manager()
         if not dm:
-            return jsonify([])
+            return jsonify({"error": "Data manager not available"}), 503
         notes = dm.load_notes(user_id)
         return jsonify(notes)
     except Exception as e:
         logger.error("Error loading notes for user %s: %s", user_id, e)
-        return jsonify([])
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @notes_bp.route("", methods=["POST"])

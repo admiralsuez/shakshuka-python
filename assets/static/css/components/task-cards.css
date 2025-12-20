@@ -1,0 +1,208 @@
+/* Task Card - Theme-Based Compact Design */
+.task-card {
+    background: var(--primary-gradient) !important;
+    border-radius: calc(12px * var(--dpi-scale)) !important;
+    padding: calc(16px * var(--dpi-scale)) !important;
+    border: none !important;
+    transition: all 0.3s ease !important;
+    cursor: pointer !important;
+    box-shadow: 0 calc(4px * var(--dpi-scale)) calc(12px * var(--dpi-scale)) var(--shadow-color) !important;
+    overflow: hidden !important;
+    position: relative !important;
+    min-height: calc(140px * var(--dpi-scale)) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+}
+
+.task-card:hover {
+    transform: translateY(calc(-2px * var(--dpi-scale)));
+    box-shadow: 0 calc(6px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) var(--shadow-color);
+}
+
+.task-card.completed {
+    background: var(--primary-gradient) !important;
+    opacity: 0.8;
+    filter: saturate(0.7) brightness(1.1);
+}
+
+.task-card.struck-today {
+    background: var(--secondary-gradient) !important;
+    opacity: 0.9; /* Increased from 0.6 for better readability */
+    border: 2px solid var(--accent-color);
+    filter: grayscale(0.1) brightness(1.0); /* Reduced grayscale and increased brightness */
+}
+
+.task-card.struck-today .task-title-main.struck-today {
+    text-decoration: line-through;
+    color: var(--text-color) !important; /* Ensure text color is visible */
+    font-weight: 600; /* Make struck text slightly bolder */
+}
+
+.task-card.struck-today .task-description {
+    color: var(--text-secondary) !important; /* Ensure description is readable */
+    opacity: 0.9; /* Slightly reduce opacity but keep readable */
+}
+
+.task-card.struck-today .task-meta {
+    color: var(--text-secondary) !important; /* Ensure meta info is readable */
+    opacity: 0.8; /* Keep meta info visible */
+}
+
+/* Action buttons in top left corner */
+.task-actions-top-left {
+    position: absolute;
+    top: calc(8px * var(--dpi-scale));
+    left: calc(8px * var(--dpi-scale));
+    display: flex;
+    gap: calc(4px * var(--dpi-scale));
+    z-index: 10;
+}
+
+.task-card .task-action {
+    width: calc(28px * var(--dpi-scale));
+    height: calc(28px * var(--dpi-scale));
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--accent-color);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(4px * var(--dpi-scale)) rgba(0, 0, 0, 0.1);
+}
+
+.task-card .task-action:hover {
+    background: var(--accent-color);
+    color: white;
+    transform: scale(1.1);
+}
+
+.task-card .task-action i {
+    font-size: calc(0.8rem * var(--dpi-scale));
+}
+
+.task-card .task-action.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(200, 200, 200, 0.7) !important;
+    color: #999 !important;
+}
+
+.task-card .task-action.disabled:hover {
+    transform: none !important;
+    background: rgba(200, 200, 200, 0.7) !important;
+    color: #999 !important;
+}
+
+/* Project badge in top right */
+.task-project-top-right {
+    position: absolute;
+    top: calc(8px * var(--dpi-scale));
+    right: calc(8px * var(--dpi-scale));
+    z-index: 10;
+}
+
+.task-project-badge {
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--accent-color);
+    padding: calc(4px * var(--dpi-scale)) calc(8px * var(--dpi-scale));
+    border-radius: calc(12px * var(--dpi-scale));
+    font-size: calc(0.7rem * var(--dpi-scale));
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 calc(1px * var(--dpi-scale)) calc(3px * var(--dpi-scale)) rgba(0, 0, 0, 0.1);
+}
+
+/* Main content area */
+.task-content-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: calc(16px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) calc(8px * var(--dpi-scale)) calc(16px * var(--dpi-scale));
+    margin-top: calc(32px * var(--dpi-scale)); /* Space for action buttons */
+    margin-bottom: calc(24px * var(--dpi-scale)); /* Space for duration */
+}
+
+.task-title-main {
+    font-size: calc(1.2rem * var(--dpi-scale));
+    font-weight: 700;
+    color: white;
+    margin: 0 0 calc(6px * var(--dpi-scale)) 0;
+    line-height: 1.3;
+    text-align: left;
+    text-shadow: 0 calc(1px * var(--dpi-scale)) calc(2px * var(--dpi-scale)) rgba(0, 0, 0, 0.2);
+}
+
+.task-description-main {
+    font-size: calc(0.9rem * var(--dpi-scale));
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0;
+    line-height: 1.4;
+    text-align: left;
+    text-shadow: 0 calc(1px * var(--dpi-scale)) calc(2px * var(--dpi-scale)) rgba(0, 0, 0, 0.2);
+}
+
+/* Duration badge in bottom right */
+.task-meta-bottom-right {
+    position: absolute;
+    bottom: calc(8px * var(--dpi-scale));
+    right: calc(8px * var(--dpi-scale));
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: calc(4px * var(--dpi-scale));
+}
+
+.task-duration-badge {
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--accent-color);
+    padding: calc(4px * var(--dpi-scale)) calc(8px * var(--dpi-scale));
+    border-radius: calc(12px * var(--dpi-scale));
+    font-size: calc(0.7rem * var(--dpi-scale));
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 calc(1px * var(--dpi-scale)) calc(3px * var(--dpi-scale)) rgba(0, 0, 0, 0.1);
+}
+/* Strike Options */
+.strike-options {
+    display: flex;
+    gap: calc(0.5rem * var(--dpi-scale));
+    margin-top: calc(0.5rem * var(--dpi-scale));
+}
+.strike-btn {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    padding: calc(0.4rem * var(--dpi-scale)) calc(0.8rem * var(--dpi-scale));
+    border-radius: calc(8px * var(--dpi-scale));
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: calc(0.8rem * var(--dpi-scale));
+    font-weight: 500;
+}
+.strike-btn:hover {
+    background: var(--border-color);
+}
+.strike-btn.strike-today {
+    color: #FF8C42;
+}
+.strike-btn.strike-forever {
+    color: #28A745;
+}
+/* Project Tags */
+.task-project {
+    background: var(--border-color);
+    padding: calc(0.2rem * var(--dpi-scale)) calc(0.6rem * var(--dpi-scale));
+    border-radius: calc(12px * var(--dpi-scale));
+    font-size: calc(0.8rem * var(--dpi-scale));
+    font-weight: 500;
+    color: var(--accent-color);
+    display: inline-block;
+    margin-top: calc(0.5rem * var(--dpi-scale));
+}

@@ -69,21 +69,25 @@ def register_routes(app: Flask) -> None:
     compatibility with older entrypoints that call
     ``src.routes.register_routes(app)``.
     """
-    # Only register blueprints that were imported successfully.
-    if auth_bp is not None:
-        app.register_blueprint(auth_bp, url_prefix="/api/auth")
-    if task_bp is not None:
-        app.register_blueprint(task_bp, url_prefix="/api/tasks")
-    if notes_bp is not None:
-        app.register_blueprint(notes_bp, url_prefix="/api/notes")
-    if settings_bp is not None:
-        app.register_blueprint(settings_bp, url_prefix="/api/settings")
-    if monitoring_bp is not None:
-        app.register_blueprint(monitoring_bp, url_prefix="/api/monitoring")
-    if system_bp is not None:
-        app.register_blueprint(system_bp, url_prefix="/api/system")
-    if static_bp is not None:
-        app.register_blueprint(static_bp)
+    def _register(bp, fallback_prefix: str | None = None) -> None:
+        if bp is None:
+            return
+        bp_prefix = getattr(bp, "url_prefix", None)
+        if bp_prefix:
+            app.register_blueprint(bp)
+            return
+        if fallback_prefix:
+            app.register_blueprint(bp, url_prefix=fallback_prefix)
+            return
+        app.register_blueprint(bp)
+
+    _register(auth_bp, "/api/auth")
+    _register(task_bp, "/api/tasks")
+    _register(notes_bp, "/api/notes")
+    _register(settings_bp, "/api/settings")
+    _register(monitoring_bp, "/api/monitoring")
+    _register(system_bp, "/api/system")
+    _register(static_bp)
 
 
 __all__ = ["register_routes", "task_bp", "notes_bp", "auth_bp", "settings_bp", "monitoring_bp", "system_bp", "static_bp"]

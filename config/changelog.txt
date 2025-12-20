@@ -1,40 +1,119 @@
-## Version 14.3 - Release
-Release Date: 2025-12-12T01:30:59.973729
+## Version 15.9 - Daily Recap & Task Retry Features
+Release Date: 2025-12-21T00:00:00.000000
+
+Highlights
+
+- **Daily Recap Modal**: Fixed daily recap modal not appearing - modal was in wrong template file (index.html vs index_modular.html). Created dedicated modal partial and added to modular template structure.
+- **Daily Recap Modal**: Redesigned UI to remove large points display, showing only streak banner and stats grid for cleaner presentation.
+- **Daily Recap Modal**: Reduced top padding to eliminate empty space above streak banner.
+- **Daily Recap Modal**: Added "Tasks Retried" metric to recap stats.
+- **Task Retry**: Added retry functionality for expired tasks - clicking retry button opens simple date picker modal to reschedule task to future date.
+- **Task Retry**: Expired tasks now show both retry (🔄) and strike (✓) buttons, allowing users to either reschedule or complete expired tasks.
+- **Task Retry**: Date picker prevents selecting past dates (min set to today) and defaults to tomorrow.
+- **Task Retry**: Fixed "Missing required field: title" error by sending complete task data in PUT request.
+- **Analytics**: Added "Tasks Retried" card to analytics page (currently shows 0, backend tracking to be implemented).
+- **Analytics**: Removed "Recent Tasks" and "Quick Actions" sections from analytics page for cleaner layout.
+- **Analytics**: Fixed streak calculation - now fetches from backend API instead of local calculation to match recap modal's value.
+- **Navigation**: Reordered sidebar navigation - Notes now appears above Analytics.
+- **Strike Calendar**: Reverted visual scale changes to original size.
+
+Technical Notes
+- Created `retry_modal.html` partial with simple date-only picker (no task details, project, time fields).
+- Created `retry-task.js` to handle retry functionality with date validation and complete task data preservation.
+- Created `daily_recap_modal.html` partial in modals directory.
+- Updated `dashboard.js` to fetch streak from `/api/analytics/daily-recap` endpoint for consistency.
+- Modal element querying now uses `_ensureModal()` helper to handle SPA timing issues.
+- Added console logging to daily recap functions for debugging modal visibility issues.
+
+---
+## Version 15.8 - Release
+Release Date: 2025-12-20T16:52:55.852366
+
+Highlights
+
+---
+## Version 15.7 - Release
+Release Date: 2025-12-20T00:49:37.670826
+
+Highlights
+
+---
+## Version 15.6 - Release
+Release Date: 2025-12-19T13:23:10.064366
+
+Highlights
+
+---
+## Version 15.5 - Release
+Release Date: 2025-12-18T23:37:42.265381
+
+Highlights
+
+---
+## Version 15.4 - Release
+Release Date: 2025-12-18T23:30:38.600144
+
+Highlights
+
+---
+## Version 15.3 - Release
+Release Date: 2025-12-18T12:43:42.300415
+
+Highlights
+
+---
+## Version 15.2 - Release
+Release Date: 2025-12-18T12:14:32.563825
+
+Highlights
+
+- Analytics: fixed Analytics page cards (Completed Today / Day Streak / Striked Today) so they refresh reliably using current task state and `/api/analytics`.
+- Analytics: "Completed Forever" now counts tasks completed normally as well as tasks completed forever.
+- Changelog: consolidated consecutive versions with empty Highlights into version ranges (e.g., 14.4–14.9) for a cleaner changelog.
+- UI: Matte finish now applies a visible matte look across buttons.
+- Updates/Installer: bumped installer version to 15.2 and improved upgrade shutdown via `Shakshuka.exe --shutdown` with fallback force-close.
+
+---
+## Versions 15.0 – 15.1 - Release
+Release Period: 2025-12-18T00:09:03.984815 – 2025-12-18T01:15:08.964109
+
+Highlights
+
+- Settings: autosave interval now saves via `PUT /api/settings` (`autosave_interval`) instead of a missing `/api/settings/autosave` endpoint.
+- Data Management: added `GET /api/export` (downloads tasks, notes, settings, planner schedule/history) and `POST /api/clear` (clears all user data) so Settings buttons work reliably.
+- Notes: split view now reliably supports opening a different note in the secondary pane without overwriting the primary note's secondary content.
+- Notes: split-pane chooser now prompts Primary (Left) vs Secondary (Right) with note titles so it's clear what will be shown/replaced.
+- Analytics: "Completed Forever" counter now reflects forever-completed tasks correctly.
+- UI: Matte finish now visibly applies a matte look across buttons.
+- Updates/Installer: added `Shakshuka.exe --shutdown` to help installers close the running app; it attempts graceful shutdown then falls back to force-closing if needed.
+
+---
+## Versions 14.4 – 14.9 - Frontend Asset Reorganization
+Release Period: 2025-12-16T02:16:00.000000 – 2025-12-17T15:44:14.830372
+
+Highlights
+- Frontend: reorganized static JS and CSS into dedicated subfolders under `assets/static/js/` and `assets/static/css/` for clearer modular structure.
+- Frontend: updated all template `<script>` / `<link>` references and `style.css` `@import` paths to match the new folder layout.
+- Fix: legacy `index.html` now includes `partials/scripts.html` to ensure consistent script load order and prevent missing-global runtime errors (e.g. `openLogsModal`, `canStrikeTask`, `loadUpdateSettings`).
+
+Technical Notes
+- CSS: `assets/static/css/style.css` is now imports-only, preserving cascade order while splitting modules into `core/`, `layout/`, `components/`, `pages/`, `features/`, and `auth/`.
+- JS: scripts now load from `auth/`, `core/`, `utils/`, `pages/`, and `app/` subfolders while preserving the original boot sequence.
+
+---
+## Versions 14.0 – 14.3 - Release
+Release Period: 2025-12-12T00:31:47.548283 – 2025-12-12T01:30:59.973729
 
 Highlights
 - Notes: new tabs always open as separate notes; existing note contents are never overwritten when you press "+".
 - Notes: rename is triggered only by double-clicking the note title, not the close button, with a slimmer "+" tab button.
-- Updates: "Whats New" modal now auto-appears once after each new version and can be opened anytime from Settings → Logs & Changelog.
+- Updates: "What's New" modal now auto-appears once after each new version and can be opened anytime from Settings → Logs & Changelog.
 - Updates: weekly GitHub auto-check on launch shows a persistent "new update, click me" toast when a newer version is available.
 - Updates: GitHub download toast is persistent and clickable, opening the folder where the installer was saved; removed confusing Auto-install and GitHub Auto-Update toggles.
 
 ---
-## Version 14.2 - Release
-Release Date: 2025-12-12T00:48:01.898883
-
-Highlights
-
----
-## Version 14.1 - Release
-Release Date: 2025-12-12T00:38:20.940205
-
-Highlights
-
----
-## Version 14.0 - Release
-Release Date: 2025-12-12T00:31:47.548283
-
-Highlights
-
----
-## Version 13.9 - Release
-Release Date: 2025-12-11T23:57:14.570864
-
-Highlights
-
----
-## Version 13.8 - Release
-Release Date: 2025-12-11T23:50:21.466966
+## Versions 13.8 – 13.9 - Release
+Release Period: 2025-12-11T23:50:21.466966 – 2025-12-11T23:57:14.570864
 
 Highlights
 - Updates: GitHub update modal now shows a progress bar while the installer is downloading so you always see activity.
@@ -76,32 +155,8 @@ Highlights
 - Notes tabs UX polish: tabs remain readable with horizontal scrolling; the "+" tab is pinned to the right and visually matches other primary icon buttons.
 
 ---
-## Version 13.4 - Release
-Release Date: 2025-12-11T00:45:03.116133
-
-Highlights
-
----
-## Version 13.3 - Release
-Release Date: 2025-12-10T17:35:03.660239
-
-Highlights
-
----
-## Version 13.2 - Release
-Release Date: 2025-12-10T17:00:43.910872
-
-Highlights
-
----
-## Version 13.1 - Release
-Release Date: 2025-12-10T16:59:27.165708
-
-Highlights
-
----
-## Version 13.0 - Notes Workspace & Task UX
-Release Date: 2025-12-10T10:52:27.000000
+## Versions 13.0 – 13.4 - Notes Workspace & Task UX
+Release Period: 2025-12-10T10:52:27.000000 – 2025-12-11T00:45:03.116133
 
 Highlights
 - New Notes workspace with multiple tabs, split view, and local auto-save so you can keep quick scratch notes inside Shakshuka.

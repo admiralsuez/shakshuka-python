@@ -4,9 +4,17 @@
 (function () {
     'use strict';
 
+    function _formatLocalDate(d) {
+        const yy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yy}-${mm}-${dd}`;
+    }
+
     function isDone(task) {
         if (!task) return false;
-        return Boolean(task.completed || task.struck_forever);
+        // Treat "strike for today" as completed for UI purposes until daily reset.
+        return Boolean(task.completed || task.struck_forever || task.struck_today);
     }
 
     function isStruckToday(task) {
@@ -17,7 +25,7 @@
     function _getTodayDateString() {
         try {
             const today = new Date();
-            return today.toISOString().split('T')[0];
+            return _formatLocalDate(today);
         } catch (e) {
             return null;
         }
@@ -31,6 +39,8 @@
 
     function isExpired(task) {
         if (!task || !task.due_date) return false;
+        // Completed or struck forever tasks are not expired
+        if (task.completed || task.struck_forever) return false;
         const todayStr = _getTodayDateString();
         const due = _getDateOnly(task.due_date);
         if (!todayStr || !due) return false;

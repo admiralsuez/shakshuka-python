@@ -195,11 +195,21 @@ const Auth = {
         }
         
         // Call initialization functions with safety checks
+        let settingsLoadPromise = null;
         if (typeof window.Settings !== 'undefined' && typeof window.Settings.load === 'function') {
-            window.Settings.load(); // Preferred path: uses Settings module and handles theme + loader
+            // Preferred path: uses Settings module and handles theme + loader
+            try {
+                settingsLoadPromise = window.Settings.load();
+            } catch (e) {
+                settingsLoadPromise = null;
+            }
         } else if (typeof loadSettings === 'function') {
             // Fallback to legacy global implementation if needed
-            loadSettings();
+            try {
+                settingsLoadPromise = loadSettings();
+            } catch (e) {
+                settingsLoadPromise = null;
+            }
         } else {
             console.warn('loadSettings not available');
         }
@@ -228,6 +238,22 @@ const Auth = {
             setupDailyReset();
         } else {
             console.warn('setupDailyReset not available');
+        }
+
+        // Daily recap modal (shown once per day after reset time)
+        const maybeShowDailyRecap = () => {
+            try {
+                if (window.AnalyticsExtras && window.AnalyticsExtras.DailyRecap && typeof window.AnalyticsExtras.DailyRecap.maybeShowOnLogin === 'function') {
+                    window.AnalyticsExtras.DailyRecap.maybeShowOnLogin();
+                }
+            } catch (e) { /* no-op */ }
+        };
+
+        // Prefer running AFTER settings load, so daily_reset_time is available.
+        if (settingsLoadPromise && typeof settingsLoadPromise.then === 'function') {
+            settingsLoadPromise.then(() => setTimeout(maybeShowDailyRecap, 0)).catch(() => setTimeout(maybeShowDailyRecap, 0));
+        } else {
+            setTimeout(maybeShowDailyRecap, 0);
         }
         
         // setupKeyboardShortcuts(); // REMOVED - now handled by Keyboard module in app-init.js

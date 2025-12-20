@@ -1,0 +1,489 @@
+/* Daily Planner Version 2 Styles */
+#planner-page .page-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--background-color);
+    margin-bottom: calc(1rem * var(--dpi-scale));
+    padding-top: calc(0.5rem * var(--dpi-scale));
+}
+
+#planner-page .header-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: calc(0.6rem * var(--dpi-scale));
+}
+
+#planner-page .header-actions .btn-secondary {
+    white-space: nowrap;
+}
+
+.planner-v2-container {
+    padding: calc(1rem * var(--dpi-scale));
+    max-width: 1600px;
+    margin: 0 auto;
+    background: var(--background-color);
+    height: calc(100vh - 120px);
+    overflow: hidden;
+}
+
+#planner-history-modal .modal-content.planner-history-modal-content {
+    max-width: 1200px;
+    width: min(95vw, 1200px);
+    max-height: 90vh;
+    overflow: hidden;
+}
+
+#planner-history-modal .modal-body.planner-history-modal-body {
+    max-height: calc(90vh - 150px);
+    overflow-y: auto;
+}
+
+.planner-v2-main {
+    display: grid;
+    grid-template-columns: 2.5fr 1fr;
+    gap: calc(1rem * var(--dpi-scale));
+    height: 100%;
+    overflow: hidden;
+}
+
+.hours-section {
+    background: white;
+    border-radius: calc(16px * var(--dpi-scale));
+    padding: calc(1rem * var(--dpi-scale));
+    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) rgba(0, 0, 0, 0.08);
+    overflow-y: auto;
+    overflow-x: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.hours-section h3 {
+    margin: 0 0 calc(1rem * var(--dpi-scale)) 0;
+    color: #1f2937;
+    font-size: calc(1.5rem * var(--dpi-scale));
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    flex-shrink: 0;
+}
+
+.hours-grid {
+    display: flex;
+    flex-direction: column;
+    gap: calc(0.2rem * var(--dpi-scale));
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1;
+    padding-right: calc(0.5rem * var(--dpi-scale));
+}
+
+.hour-slot {
+    display: flex;
+    align-items: stretch;
+    padding: 0;
+    background: #fafafa;
+    border: 1px solid #e5e7eb;
+    border-radius: calc(10px * var(--dpi-scale));
+    transition: all 0.2s ease;
+    min-height: calc(60px * var(--dpi-scale));
+    position: relative;
+    margin-bottom: 0;
+    overflow: hidden;
+}
+
+.hour-slot:hover {
+    background: #ffffff;
+    border-color: #ff8c42;
+    box-shadow: 0 0 0 2px rgba(255, 140, 66, 0.1);
+}
+
+.hour-slot.current-hour {
+    background: linear-gradient(135deg, #ff8c42 0%, #ff6b6b 100%);
+    color: white;
+    border-color: #ff8c42;
+    box-shadow: 0 calc(4px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) rgba(255, 140, 66, 0.4);
+}
+
+.hour-slot.current-hour .hour-time {
+    color: white;
+}
+
+.hour-slot.past-hour {
+    opacity: 0.5;
+    background: #f5f5f5;
+}
+
+.hour-time {
+    font-weight: 700;
+    font-size: calc(0.95rem * var(--dpi-scale));
+    min-width: calc(90px * var(--dpi-scale));
+    padding: calc(0.5rem * var(--dpi-scale)) calc(0.75rem * var(--dpi-scale));
+    color: #374151;
+    background: #f9fafb;
+    border-right: 2px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.hour-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: calc(0.4rem * var(--dpi-scale));
+    min-height: calc(60px * var(--dpi-scale));
+    border: 2px dashed transparent;
+    border-radius: 0;
+    padding: calc(0.5rem * var(--dpi-scale));
+    transition: all 0.25s ease;
+    cursor: pointer;
+    align-items: stretch;
+    background: white;
+}
+
+.hour-content:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+}
+
+.hour-content.drag-over {
+    border-color: #ff8c42 !important;
+    background: #fff7ed !important;
+    box-shadow: inset 0 0 0 2px #ff8c42;
+}
+
+.scheduled-task-v2 {
+    background: var(--primary-gradient);
+    color: white;
+    padding: calc(0.5rem * var(--dpi-scale)) calc(0.8rem * var(--dpi-scale));
+    border-radius: calc(6px * var(--dpi-scale));
+    font-size: calc(0.8rem * var(--dpi-scale));
+    font-weight: 500;
+    cursor: move;
+    transition: all 0.2s ease;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: calc(35px * var(--dpi-scale));
+}
+
+.scheduled-task-v2:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(6px * var(--dpi-scale)) rgba(0, 0, 0, 0.2);
+}
+
+.scheduled-task-v2.dragging {
+    opacity: 0.7;
+    transform: rotate(5deg);
+}
+
+.available-tasks-section {
+    background: white;
+    border-radius: calc(16px * var(--dpi-scale));
+    padding: calc(1rem * var(--dpi-scale));
+    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) rgba(0, 0, 0, 0.08);
+    overflow-y: auto;
+    overflow-x: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.available-tasks-section h3 {
+    margin: 0 0 calc(1rem * var(--dpi-scale)) 0;
+    color: #1f2937;
+    font-size: calc(1.3rem * var(--dpi-scale));
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    flex-shrink: 0;
+}
+
+.available-tasks-list {
+    display: flex;
+    flex-direction: column;
+    gap: calc(0.5rem * var(--dpi-scale));
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1;
+    padding-right: calc(0.5rem * var(--dpi-scale));
+}
+
+.available-task-v2 {
+    background: var(--background-color);
+    border: 1px solid var(--border-color);
+    border-radius: calc(8px * var(--dpi-scale));
+    padding: calc(1rem * var(--dpi-scale));
+    cursor: grab;
+    transition: all 0.2s ease;
+}
+
+.available-task-v2:hover {
+    background: var(--hover-color);
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.available-task-v2.dragging {
+    cursor: grabbing;
+    opacity: 0.7;
+    transform: rotate(2deg);
+}
+
+.available-task-v2 .task-title {
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: calc(0.25rem * var(--dpi-scale));
+    font-size: calc(0.9rem * var(--dpi-scale));
+}
+
+.available-task-v2 .task-description {
+    color: var(--text-secondary);
+    font-size: calc(0.8rem * var(--dpi-scale));
+    line-height: 1.4;
+}
+
+.planner-history-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.planner-history-label {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.planner-history-select {
+    flex: 1;
+    max-width: 260px;
+}
+
+.planner-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.planner-history-row {
+    display: grid;
+    grid-template-columns: 140px 1fr 80px 120px;
+    gap: 0.75rem;
+    padding: 0.75rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--surface-color);
+    align-items: center;
+}
+
+.planner-history-row--header {
+    font-weight: 700;
+    background: var(--surface-hover, #F8F9FA);
+}
+
+.planner-history-time,
+.planner-history-duration,
+.planner-history-status {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.planner-history-title {
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+.available-task-v2 .task-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: calc(0.5rem * var(--dpi-scale));
+    font-size: calc(0.75rem * var(--dpi-scale));
+    color: var(--text-secondary);
+}
+
+.task-priority {
+    padding: calc(0.2rem * var(--dpi-scale)) calc(0.5rem * var(--dpi-scale));
+    border-radius: calc(4px * var(--dpi-scale));
+    font-weight: 500;
+}
+
+.task-priority.high {
+    background: rgba(220, 38, 38, 0.1);
+    color: #dc2626;
+}
+
+.task-priority.medium {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+}
+
+.task-priority.low {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+}
+
+/* Styles for draggable-task class used in planner v2 */
+.draggable-task {
+    background: #ffffff;
+    border: 2px solid #e5e7eb;
+    border-radius: calc(12px * var(--dpi-scale));
+    padding: calc(1rem * var(--dpi-scale));
+    margin-bottom: calc(0.75rem * var(--dpi-scale));
+    cursor: move;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.draggable-task:hover {
+    border-color: #ff8c42;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(255, 140, 66, 0.15);
+    background: #fff7ed;
+}
+
+.draggable-task.dragging {
+    opacity: 0.6;
+    transform: rotate(3deg) scale(1.02);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+    border-color: #ff8c42;
+}
+
+.draggable-task h4 {
+    font-weight: 700;
+    color: #1f2937;
+    margin: 0 0 calc(0.35rem * var(--dpi-scale)) 0;
+    font-size: calc(1rem * var(--dpi-scale));
+    letter-spacing: -0.01em;
+}
+
+.draggable-task p {
+    color: #6b7280;
+    font-size: calc(0.875rem * var(--dpi-scale));
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* Responsive Design for Planner v2 */
+@media (max-width: 768px) {
+    .planner-v2-main {
+        grid-template-columns: 1fr;
+        gap: calc(1rem * var(--dpi-scale));
+        height: auto;
+    }
+    
+    .hours-section,
+    .available-tasks-section {
+        height: calc(50vh - 100px);
+    }
+    
+    .hour-slot {
+        min-height: calc(50px * var(--dpi-scale));
+    }
+    
+    .hour-time {
+        min-width: calc(50px * var(--dpi-scale));
+        font-size: calc(0.8rem * var(--dpi-scale));
+    }
+}
+
+/* Task overflow styling for Daily Planner v2 */
+.scheduled-task-v2 {
+    background: var(--primary-gradient);
+    color: white;
+    border-radius: calc(8px * var(--dpi-scale));
+    padding: calc(0.65rem * var(--dpi-scale)) calc(0.85rem * var(--dpi-scale));
+    margin-bottom: 0;
+    font-size: calc(0.85rem * var(--dpi-scale));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: move;
+    transition: all 0.2s ease;
+    min-height: calc(40px * var(--dpi-scale));
+    box-shadow: 0 2px 8px var(--shadow-color);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.scheduled-task-v2:hover {
+    filter: brightness(1.1);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--shadow-color);
+}
+
+.scheduled-task-v2.task-start {
+    border-left: 4px solid var(--accent-color);
+    background: var(--primary-gradient);
+}
+
+.scheduled-task-v2.task-continuation {
+    background: var(--primary-gradient);
+    border-left: 3px solid var(--accent-color);
+    opacity: 0.85;
+}
+
+.scheduled-task-v2.task-continuation-only {
+    background: var(--primary-gradient);
+    opacity: 0.75;
+    cursor: default;
+    min-height: calc(35px * var(--dpi-scale));
+    color: white;
+    font-weight: 600;
+}
+
+.scheduled-task-v2.task-continuation-only:hover {
+    transform: none;
+    box-shadow: 0 2px 8px var(--shadow-color);
+    opacity: 0.85;
+}
+
+.task-title {
+    font-weight: 600;
+    flex: 1;
+    margin-right: calc(0.5rem * var(--dpi-scale));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.task-duration {
+    font-size: calc(0.7rem * var(--dpi-scale));
+    opacity: 0.9;
+    margin-right: calc(0.5rem * var(--dpi-scale));
+    font-weight: 500;
+}
+
+.task-continuation-indicator {
+    font-size: calc(0.8rem * var(--dpi-scale));
+    opacity: 1;
+    font-style: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: white;
+    font-weight: 600;
+}
+
+.remove-scheduled-task {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    padding: calc(0.2rem * var(--dpi-scale));
+    border-radius: calc(3px * var(--dpi-scale));
+    transition: all 0.2s ease;
+    opacity: 0.8;
+}
+
+.remove-scheduled-task:hover {
+    background: rgba(255, 255, 255, 0.2);
+    opacity: 1;
+}
+
+.remove-scheduled-task i {
+    font-size: calc(0.7rem * var(--dpi-scale));
+}

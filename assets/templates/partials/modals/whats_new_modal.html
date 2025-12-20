@@ -1,0 +1,27 @@
+    <!-- What's New Modal (shown once after updates) -->
+    <div class="modal" id="whats-new-modal">
+        <div class="modal-content whats-new-modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-star"></i> Whats New</h3>
+                <button class="modal-close" id="close-whats-new-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body whats-new-modal-body">
+                <div class="whats-new-header">
+                    <div class="whats-new-title">Welcome to Shakshuka v{{ version }}</div>
+                    <div class="whats-new-subtitle">Heres a quick summary of whats new and how to use it.</div>
+                </div>
+                <div class="whats-new-summary" id="whats-new-summary">
+                    <!-- Populated from latest changelog highlights -->
+                </div>
+            </div>
+            <div class="modal-footer whats-new-modal-footer">
+                <button class="btn-secondary" id="whats-new-dismiss-btn">Got it</button>
+                <button class="btn-primary" id="whats-new-view-changelog-btn">
+                    <i class="fas fa-history"></i>
+                    View Full Changelog
+                </button>
+            </div>
+        </div>
+    </div>

@@ -1,0 +1,50 @@
+            <!-- Tasks Page -->
+            <div id="tasks-page" class="page active">
+                <div class="page-header">
+                    <div class="quick-add-inline">
+<input type="text" id="inline-quick-add" class="quick-add-input" placeholder="quick add and press enter" aria-label="Quick add task" />
+                        <div class="quick-add-error" id="inline-quick-error" style="display: none;">
+                            <span class="oops-bubble">Oops</span>
+                            <span class="msg">Error message</span>
+                        </div>
+                    </div>
+                    <div class="header-actions">
+                        <div class="mini-analytics" title="Tasks you have striked today" aria-live="polite">
+                            <i class="fas fa-bolt" aria-hidden="true"></i>
+                            <span class="mini-label">Tasks striked today:</span>
+                            <span id="header-striked-today" class="mini-number">0</span>
+                        </div>
+                        <div class="layout-toggle">
+                            <button class="layout-btn active" data-layout="list" title="List View">
+                                <i class="fas fa-list"></i>
+                            </button>
+                            <button class="layout-btn" data-layout="grid" title="Grid View">
+                                <i class="fas fa-th"></i>
+                            </button>
+                        </div>
+                        <div class="action-buttons-group">
+<button class="btn-primary btn-icon" id="add-task-main" title="Add Task" onclick="showAddTaskOptions()">+</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Moved filter tabs just above the tasks container -->
+                <div class="tasks-subheader">
+                    <div class="filter-tabs">
+                        <button class="filter-tab active" data-filter="active">Active</button>
+                        <button class="filter-tab" data-filter="expired">Expired</button>
+                        <button class="filter-tab" data-filter="completed">Completed</button>
+                    </div>
+                    <div class="project-filter-wrapper">
+                        <select id="project-filter" class="project-filter-select">
+                            <option value="all">All Projects</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="tasks-container">
+                    <div id="tasks-list" class="tasks-list">
+                        <!-- Tasks will be loaded here -->
+                    </div>
+                </div>
+            </div>

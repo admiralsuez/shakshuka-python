@@ -2,10 +2,11 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Shakshuka"
-#define MyAppVersion "14.3"
+#define MyAppVersion "15.8"
 #define MyAppPublisher "vibinandvanshika.in"
 #define MyAppURL "https://github.com/shakshuka-python"
 #define MyAppExeName "Shakshuka.exe"
+#define MyAppId "A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.
@@ -20,12 +21,12 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 AppContact=support@vibinandvanshika.in
 AppCopyright=Copyright (C) 2025 vibinandvanshika.in
-VersionInfoVersion=14.3.0.0
+VersionInfoVersion=15.8.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Shakshuka Task Manager - Professional productivity tool
 VersionInfoCopyright=Copyright (C) 2025 vibinandvanshika.in
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=14.3.0.0
+VersionInfoProductVersion=15.8.0.0
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
@@ -39,6 +40,7 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
+AppMutex=ShakshukaSingleInstanceMutex
 ; Force reinstall to ensure updates work properly
 DisableDirPage=no
 DisableProgramGroupPage=no
@@ -129,49 +131,37 @@ function InitializeSetup(): Boolean;
 var
   ResultCode: Integer;
   UninstallString: String;
+  InstalledDir: String;
+  UninstallKey: String;
 begin
   Result := True;
-  
-  // Check if Shakshuka is already running
-  if CheckForMutexes('ShakshukaMutex') then
+
+  // Proactively stop a running Shakshuka instance before copying files.
+  // Do NOT rely on a mutex name here because older builds / different entrypoints
+  // may not create it. Instead, try graceful shutdown via the installed EXE,
+  // then fall back to taskkill.
+  UninstallKey := 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{' + '{#MyAppId}' + '}_is1';
+  InstalledDir := '';
+  if not RegQueryStringValue(HKEY_LOCAL_MACHINE, UninstallKey, 'Inno Setup: App Path', InstalledDir) then
   begin
-    if MsgBox('Shakshuka is currently running. The installer will stop it before continuing.', mbConfirmation, MB_OKCANCEL) = IDOK then
+    if not RegQueryStringValue(HKEY_LOCAL_MACHINE, UninstallKey, 'InstallLocation', InstalledDir) then
     begin
-      // Try to stop Shakshuka processes with multiple methods
-      Exec('taskkill', '/F /IM Shakshuka.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      Exec('taskkill', '/F /IM python.exe /FI "WINDOWTITLE eq Shakshuka*"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      Exec('taskkill', '/F /IM python.exe /FI "COMMANDLINE eq *main.py*"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      Exec('taskkill', '/F /IM python.exe /FI "COMMANDLINE eq *app.py*"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      
-      // Also try to kill any processes with "shakshuka" in the command line
-      Exec('taskkill', '/F /IM python.exe /FI "COMMANDLINE eq *shakshuka*"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      
-      Sleep(3000); // Wait longer for processes to terminate
-      
-      // Check if processes are still running and try again
-      if CheckForMutexes('ShakshukaMutex') then
-      begin
-        if MsgBox('Shakshuka is still running. Do you want to force close it?', mbConfirmation, MB_YESNO) = IDYES then
-        begin
-          // Force kill with more aggressive methods
-          Exec('taskkill', '/F /T /IM Shakshuka.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-          Exec('taskkill', '/F /T /IM python.exe /FI "WINDOWTITLE eq Shakshuka*"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-          Sleep(2000);
-        end
-        else
-        begin
-          Result := False;
-        end;
-      end;
-    end
-    else
-    begin
-      Result := False;
+      InstalledDir := '';
     end;
   end;
+
+  if (InstalledDir <> '') and FileExists(InstalledDir + '\{#MyAppExeName}') then
+  begin
+    Exec(InstalledDir + '\{#MyAppExeName}', '--shutdown', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(1500);
+  end;
+
+  // Last-resort: force kill any remaining Shakshuka.exe.
+  Exec('taskkill', '/F /T /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(1000);
   
   // Check for existing installation
-  if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppName}_is1', 'UninstallString', UninstallString) then
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, UninstallKey, 'UninstallString', UninstallString) then
   begin
     if MsgBox('Shakshuka is already installed. Do you want to update to the latest version?', mbConfirmation, MB_YESNO) = IDYES then
     begin

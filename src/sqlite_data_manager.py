@@ -12,6 +12,7 @@ import shutil
 from queue import Queue, Empty
 
 from src.exceptions import DatabaseException, DataManagerException, TaskNotFoundException
+from src.constants import DEFAULT_USER_ID
 from src.constants import (
     MAX_RETRIES, RETRY_DELAY_SECONDS, DB_CONNECTION_TIMEOUT,
     BACKUP_RETENTION_DAYS, MAX_BACKUP_SIZE_BYTES
@@ -142,6 +143,7 @@ class SQLiteDataManager:
                         scheduled_minute INTEGER,
                         scheduled_date TEXT,
                         scheduled_duration INTEGER,
+                        struck_forever BOOLEAN DEFAULT 0,
                         struck_today BOOLEAN DEFAULT 0,
                         struck_date TIMESTAMP,
                         strike_report TEXT,
@@ -271,6 +273,22 @@ class SQLiteDataManager:
                     # Migration 7: Add daily_strikes column to persist per-day strike counts
                     if migration_version < 7:
                         migrations_applied.extend(self._migration_007_daily_strikes(conn))
+
+                    # Migration 8: Add planner daily history snapshots
+                    if migration_version < 8:
+                        migrations_applied.extend(self._migration_008_planner_history(conn))
+
+                    # Migration 9: Add strike-today report history events
+                    if migration_version < 9:
+                        migrations_applied.extend(self._migration_009_strike_report_history(conn))
+
+                    # Migration 10: Add struck_forever column to tasks table
+                    if migration_version < 10:
+                        migrations_applied.extend(self._migration_010_struck_forever(conn))
+
+                    # Migration 11: Add analytics history tables for strike calendar and daily recap
+                    if migration_version < 11:
+                        migrations_applied.extend(self._migration_011_analytics_history(conn))
                     
                     # Update migration version
                     if migrations_applied:
@@ -410,14 +428,23 @@ class SQLiteDataManager:
                 return
             
             # Clean up backups older than BACKUP_RETENTION_DAYS
-            cutoff_date = datetime.now(timezone.utc) - timedelta(days=BACKUP_RETENTION_DAYS)
+            cutoff_date = datetime.now() - timedelta(days=BACKUP_RETENTION_DAYS)
             
             for backup in backup_info:
                 try:
                     # Parse created_at timestamp
                     created_dt = datetime.fromisoformat(backup['created_at'].replace('Z', '+00:00'))
-                    
-                    if created_dt < cutoff_date:
+
+                    # Compare in local time to match app behavior and avoid mixing aware/naive datetimes.
+                    try:
+                        if created_dt.tzinfo is not None:
+                            created_dt_local = created_dt.astimezone().replace(tzinfo=None)
+                        else:
+                            created_dt_local = created_dt
+                    except Exception:
+                        created_dt_local = created_dt.replace(tzinfo=None)
+
+                    if created_dt_local < cutoff_date:
                         os.remove(backup['path'])
                         conn.execute('DELETE FROM migration_backups WHERE id = ?', (backup['id'],))
                         self.logger.info("Removed old backup: %s", backup['path'])
@@ -674,6 +701,138 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.error(f"Migration 007 failed: {e}")
             raise
+
+    def _migration_008_planner_history(self, conn) -> List[Dict]:
+        migrations_applied = []
+        try:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS planner_task_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    title TEXT,
+                    scheduled_hour INTEGER,
+                    scheduled_minute INTEGER,
+                    scheduled_duration INTEGER,
+                    strike_mode TEXT DEFAULT 'none',
+                    strikes_for_day INTEGER DEFAULT 0,
+                    completed BOOLEAN DEFAULT 0,
+                    strike_report TEXT,
+                    captured_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+            ''')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_planner_history_user_day ON planner_task_history (user_id, day)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_planner_history_day ON planner_task_history (day)')
+
+            self.logger.info("Created planner_task_history table")
+            migrations_applied.append({
+                'version': 8,
+                'description': 'Created planner_task_history table',
+                'sql': 'CREATE TABLE planner_task_history'
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 008 failed: {e}")
+            raise
+    def _migration_009_strike_report_history(self, conn) -> List[Dict]:
+        migrations_applied = []
+        try:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS strike_today_report_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    strike_number INTEGER NOT NULL,
+                    report TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+            ''')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_strike_report_user_task ON strike_today_report_history (user_id, task_id, created_at)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_strike_report_user_day ON strike_today_report_history (user_id, day)')
+
+            self.logger.info("Created strike_today_report_history table")
+            migrations_applied.append({
+                'version': 9,
+                'description': 'Created strike_today_report_history table',
+                'sql': 'CREATE TABLE strike_today_report_history'
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 009 failed: {e}")
+            raise
+
+    def _migration_010_struck_forever(self, conn) -> List[Dict]:
+        """Migration 10: Add struck_forever BOOLEAN column to tasks table (backward compatible)."""
+        migrations_applied = []
+        try:
+            cursor = conn.execute("PRAGMA table_info(tasks)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'struck_forever' not in columns:
+                conn.execute('ALTER TABLE tasks ADD COLUMN struck_forever BOOLEAN DEFAULT 0')
+                self.logger.info("Added struck_forever column to tasks table")
+
+            migrations_applied.append({
+                'version': 10,
+                'description': 'Added struck_forever column to tasks',
+                'sql': 'ALTER TABLE tasks ADD COLUMN struck_forever'
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 010 failed: {e}")
+            raise
+
+    def _migration_011_analytics_history(self, conn) -> List[Dict]:
+        migrations_applied = []
+        try:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS strike_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    strike_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+            ''')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_strike_events_user_day ON strike_events (user_id, day)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_strike_events_user_task ON strike_events (user_id, task_id, created_at)')
+
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS settings_change_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+            ''')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_settings_change_events_user_day ON settings_change_events (user_id, day)')
+
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS recap_seen (
+                    user_id TEXT NOT NULL,
+                    recap_day TEXT NOT NULL,
+                    seen_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, recap_day),
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+            ''')
+
+            migrations_applied.append({
+                'version': 11,
+                'description': 'Created strike_events, settings_change_events, recap_seen tables',
+                'sql': 'CREATE TABLE strike_events/settings_change_events/recap_seen'
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 011 failed: {e}")
+            raise
     
     def _get_connection(self):
         """Get a database connection with proper configuration"""
@@ -692,10 +851,10 @@ class SQLiteDataManager:
                 if cursor.fetchone():
                     return True
                 
-                # Create user if not exists (with default password hash for default_user)
-                if user_id == 'default_user':
-                    # For default user, use a placeholder password hash
-                    password_hash = 'default_user_no_password'
+                # Create user if not exists (single-user mode uses DEFAULT_USER_ID)
+                if user_id == DEFAULT_USER_ID:
+                    # For the default user, use a placeholder password hash
+                    password_hash = f"{DEFAULT_USER_ID}_no_password"
                 else:
                     password_hash = None
                 
@@ -780,6 +939,7 @@ class SQLiteDataManager:
             task.get('scheduled_minute'),
             task.get('scheduled_date'),
             task.get('scheduled_duration'),
+            task.get('struck_forever', False),
             task.get('struck_today', False),
             task.get('struck_date'),
             task.get('strike_report'),
@@ -815,6 +975,7 @@ class SQLiteDataManager:
             'scheduled_minute': row['scheduled_minute'] if 'scheduled_minute' in row.keys() else None,
             'scheduled_date': row['scheduled_date'] if 'scheduled_date' in row.keys() else None,
             'scheduled_duration': row['scheduled_duration'],
+            'struck_forever': bool(row['struck_forever'] if 'struck_forever' in row.keys() else False),
             'struck_today': bool(row['struck_today'] if 'struck_today' in row.keys() else False),
             'struck_date': row['struck_date'] if 'struck_date' in row.keys() else None,
             'strike_report': row['strike_report'] if 'strike_report' in row.keys() else None,
@@ -909,9 +1070,9 @@ class SQLiteDataManager:
                                 INSERT INTO tasks (
                                     id, user_id, title, description, project, priority, status,
                                     completed, completed_at, due_date, estimated_duration, scheduled_hour,
-                                    scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
+                                    scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
                                     daily_strikes, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_rows)
                             
                             # Verify insertion was successful
@@ -942,9 +1103,9 @@ class SQLiteDataManager:
                                         INSERT INTO tasks (
                                             id, user_id, title, description, project, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
-                                            scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
+                                            scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
                                             daily_strikes, created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     ''', backup_rows)
                                     conn.commit()
                                     self.logger.info(f"Backup restored for user {user_id}")
@@ -998,9 +1159,9 @@ class SQLiteDataManager:
                                 INSERT INTO tasks (
                                     id, user_id, title, description, project, priority, status,
                                     completed, completed_at, due_date, estimated_duration, scheduled_hour,
-                                    scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
+                                    scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
                                     daily_strikes, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_row)
                             
                             # Verify insertion
@@ -1080,9 +1241,9 @@ class SQLiteDataManager:
                     INSERT INTO tasks (
                         id, user_id, title, description, project, priority, status,
                         completed, completed_at, due_date, estimated_duration, scheduled_hour,
-                        scheduled_minute, scheduled_date, scheduled_duration, struck_today,
+                        scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today,
                         struck_date, strike_report, strike_count, daily_strikes, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', task_rows)
                 
                 conn.commit()
@@ -1128,32 +1289,41 @@ class SQLiteDataManager:
                             backup_row = backup_cursor.fetchone()
                             if not backup_row:
                                 raise Exception("Task disappeared during update")
+
+                            # Merge incoming payload over existing persisted task so partial updates
+                            # never clobber strike/schedule fields (e.g. struck_today) back to defaults.
+                            existing_task = self._row_to_task_dict(backup_row)
+                            merged_task = {**existing_task, **(task_data or {})}
                             
                             # Update task
                             conn.execute('''
                                 UPDATE tasks SET
                                     title = ?, description = ?, project = ?, priority = ?,
                                     status = ?, completed = ?, completed_at = ?, due_date = ?, estimated_duration = ?,
-                                    scheduled_hour = ?, scheduled_duration = ?, struck_today = ?, struck_date = ?,
+                                    scheduled_hour = ?, scheduled_minute = ?, scheduled_date = ?, scheduled_duration = ?,
+                                    struck_forever = ?, struck_today = ?, struck_date = ?,
                                     strike_report = ?, strike_count = ?, daily_strikes = ?, updated_at = ?
                                 WHERE id = ? AND user_id = ?
                             ''', (
-                                task_data.get('title', ''),
-                                task_data.get('description', ''),
-                                task_data.get('project', ''),
-                                task_data.get('priority', 'medium'),
-                                task_data.get('status', 'pending'),
-                                task_data.get('completed', False),
-                                task_data.get('completed_at'),
-                                task_data.get('due_date'),
-                                task_data.get('estimated_duration', 60),
-                                task_data.get('scheduled_hour'),
-                                task_data.get('scheduled_duration'),
-                                task_data.get('struck_today', False),
-                                task_data.get('struck_date'),
-                                task_data.get('strike_report'),
-                                task_data.get('strike_count', 0),
-                                json.dumps(task_data.get('daily_strikes', {})),
+                                merged_task.get('title', ''),
+                                merged_task.get('description', ''),
+                                merged_task.get('project', ''),
+                                merged_task.get('priority', 'medium'),
+                                merged_task.get('status', 'pending'),
+                                merged_task.get('completed', False),
+                                merged_task.get('completed_at'),
+                                merged_task.get('due_date'),
+                                merged_task.get('estimated_duration', 60),
+                                merged_task.get('scheduled_hour'),
+                                merged_task.get('scheduled_minute'),
+                                merged_task.get('scheduled_date'),
+                                merged_task.get('scheduled_duration'),
+                                merged_task.get('struck_forever', False),
+                                merged_task.get('struck_today', False),
+                                merged_task.get('struck_date'),
+                                merged_task.get('strike_report'),
+                                merged_task.get('strike_count', 0),
+                                json.dumps(merged_task.get('daily_strikes', {})),
                                 datetime.now().isoformat(),
                                 task_id,
                                 user_id
@@ -1677,7 +1847,7 @@ class SQLiteDataManager:
     def load_tasks(self, user_id: str = None):
         """Load tasks with optional user_id - backward compatibility"""
         if user_id is None:
-            user_id = "default_user"
+            user_id = DEFAULT_USER_ID
             self.logger.info(f"load_tasks called without user_id, using default: {user_id}")
         else:
             self.logger.info(f"load_tasks called with user_id: {user_id}")
@@ -1792,13 +1962,13 @@ class SQLiteDataManager:
     def load_notes(self, user_id: str = None):
         """Backward-compatible wrapper for loading notes"""
         if user_id is None:
-            user_id = "default_user"
+            user_id = DEFAULT_USER_ID
         return self.load_notes_for_user(user_id)
 
     def save_tasks(self, tasks, user_id: str = None):
         """Save tasks with optional user_id - backward compatibility"""
         if user_id is None:
-            user_id = "default_user"
+            user_id = DEFAULT_USER_ID
             self.logger.info(f"save_tasks called without user_id, using default: {user_id}")
         else:
             self.logger.info(f"save_tasks called with user_id: {user_id}")
@@ -1808,7 +1978,7 @@ class SQLiteDataManager:
     def load_settings(self, user_id: str = None):
         """Load settings with optional user_id - backward compatibility"""
         if user_id is None:
-            user_id = "default_user"
+            user_id = DEFAULT_USER_ID
         return self.load_settings_for_user(user_id)
     
     def save_settings(self, *args):
@@ -1816,7 +1986,7 @@ class SQLiteDataManager:
         if len(args) == 1:
             # Called with one argument: save_settings(settings)
             settings = args[0]
-            user_id = "default_user"
+            user_id = DEFAULT_USER_ID
         elif len(args) == 2:
             # Called with two arguments: save_settings(user_id, settings)
             user_id, settings = args
@@ -1993,4 +2163,483 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.error(f"Error saving planner v2 schedule: {e}")
             return False
+
+    def save_planner_history_snapshot(self, user_id: str, day: str, tasks: List[Dict[str, Any]]) -> bool:
+        try:
+            self._ensure_user_exists(user_id)
+            captured_at = datetime.now().isoformat()
+
+            def to_int(value):
+                try:
+                    return int(value) if value is not None else None
+                except Exception:
+                    return None
+
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+
+                conn.execute(
+                    'DELETE FROM planner_task_history WHERE user_id = ? AND day = ?',
+                    (user_id, day)
+                )
+
+                for t in tasks or []:
+                    task_id = t.get('id')
+                    if not task_id:
+                        continue
+
+                    scheduled_hour = to_int(t.get('scheduled_hour'))
+                    scheduled_minute = to_int(t.get('scheduled_minute'))
+                    scheduled_duration = to_int(t.get('scheduled_duration'))
+
+                    daily_strikes = t.get('daily_strikes') or {}
+                    strikes_for_day = 0
+                    try:
+                        strikes_for_day = int(daily_strikes.get(day, 0) or 0)
+                    except Exception:
+                        strikes_for_day = 0
+
+                    completed = bool(t.get('completed', False))
+                    strike_mode = 'none'
+                    if completed:
+                        strike_mode = 'forever'
+                    elif strikes_for_day > 0:
+                        strike_mode = 'today'
+
+                    conn.execute(
+                        '''
+                        INSERT INTO planner_task_history (
+                            user_id, day, task_id, title,
+                            scheduled_hour, scheduled_minute, scheduled_duration,
+                            strike_mode, strikes_for_day, completed, strike_report,
+                            captured_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (
+                            user_id,
+                            day,
+                            task_id,
+                            t.get('title', ''),
+                            scheduled_hour,
+                            scheduled_minute,
+                            scheduled_duration,
+                            strike_mode,
+                            strikes_for_day,
+                            1 if completed else 0,
+                            t.get('strike_report'),
+                            captured_at,
+                        )
+                    )
+
+                conn.execute(
+                    '''
+                    DELETE FROM planner_task_history
+                    WHERE user_id = ?
+                      AND day NOT IN (
+                        SELECT day FROM planner_task_history
+                        WHERE user_id = ?
+                        GROUP BY day
+                        ORDER BY day DESC
+                        LIMIT 7
+                      )
+                    ''',
+                    (user_id, user_id)
+                )
+
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.error(f"Error saving planner history snapshot: {e}")
+            return False
+
+    def load_planner_history_days(self, user_id: str, limit: int = 7) -> List[str]:
+        try:
+            self._ensure_user_exists(user_id)
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    '''
+                    SELECT day
+                    FROM planner_task_history
+                    WHERE user_id = ?
+                    GROUP BY day
+                    ORDER BY day DESC
+                    LIMIT ?
+                    ''',
+                    (user_id, int(limit))
+                )
+                return [row['day'] for row in cursor.fetchall() if row and row['day']]
+        except Exception as e:
+            self.logger.error(f"Error loading planner history days: {e}")
+            return []
+
+    def load_planner_history_for_day(self, user_id: str, day: str) -> List[Dict[str, Any]]:
+        try:
+            self._ensure_user_exists(user_id)
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    '''
+                    SELECT task_id, title, scheduled_hour, scheduled_minute, scheduled_duration,
+                           strike_mode, strikes_for_day, completed, strike_report, captured_at
+                    FROM planner_task_history
+                    WHERE user_id = ? AND day = ?
+                    ORDER BY scheduled_hour ASC, scheduled_minute ASC, title ASC
+                    ''',
+                    (user_id, day)
+                )
+                rows = cursor.fetchall()
+                items = []
+                for row in rows:
+                    items.append({
+                        'task_id': row['task_id'],
+                        'title': row['title'] or '',
+                        'scheduled_hour': row['scheduled_hour'],
+                        'scheduled_minute': row['scheduled_minute'],
+                        'scheduled_duration': row['scheduled_duration'],
+                        'strike_mode': row['strike_mode'] or 'none',
+                        'strikes_for_day': row['strikes_for_day'] if row['strikes_for_day'] is not None else 0,
+                        'completed': bool(row['completed']),
+                        'strike_report': row['strike_report'],
+                        'captured_at': row['captured_at'],
+                        'day': day,
+                    })
+                return items
+        except Exception as e:
+            self.logger.error(f"Error loading planner history for day {day}: {e}")
+            return []
+
+    def add_strike_today_report_event(self, user_id: str, task_id: str, day: str, strike_number: int, report: str) -> bool:
+        try:
+            self._ensure_user_exists(user_id)
+            if not task_id:
+                return False
+            created_at = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                conn.execute(
+                    '''
+                    INSERT INTO strike_today_report_history (user_id, task_id, day, strike_number, report, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ''',
+                    (user_id, task_id, day, int(strike_number or 0), report or '', created_at)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.error(f"Error adding strike report event for task {task_id}: {e}")
+            return False
+
+    def load_strike_today_report_history(self, user_id: str, task_id: str, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        try:
+            self._ensure_user_exists(user_id)
+            if not task_id:
+                return []
+            limit = int(limit) if limit is not None else 100
+            offset = int(offset) if offset is not None else 0
+            if limit <= 0:
+                limit = 100
+            if limit > 500:
+                limit = 500
+            if offset < 0:
+                offset = 0
+
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    '''
+                    SELECT id, task_id, day, strike_number, report, created_at
+                    FROM strike_today_report_history
+                    WHERE user_id = ? AND task_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ? OFFSET ?
+                    ''',
+                    (user_id, task_id, limit, offset)
+                )
+                rows = cursor.fetchall()
+                items = []
+                for row in rows:
+                    items.append({
+                        'id': row['id'],
+                        'task_id': row['task_id'],
+                        'day': row['day'],
+                        'strike_number': row['strike_number'],
+                        'report': row['report'] or '',
+                        'created_at': row['created_at'],
+                    })
+                return items
+        except Exception as e:
+            self.logger.error(f"Error loading strike report history for task {task_id}: {e}")
+            return []
+
+    def add_strike_event(self, user_id: str, task_id: str, day: str, strike_type: str) -> bool:
+        try:
+            self._ensure_user_exists(user_id)
+            if not user_id or not task_id or not day:
+                return False
+            if strike_type not in ('today', 'forever'):
+                return False
+            created_at = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                conn.execute(
+                    '''
+                    INSERT INTO strike_events (user_id, task_id, day, strike_type, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ''',
+                    (user_id, task_id, day, strike_type, created_at)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.error(f"Error adding strike event for task {task_id}: {e}")
+            return False
+
+    def add_settings_change_event(self, user_id: str, day: Optional[str] = None) -> bool:
+        try:
+            self._ensure_user_exists(user_id)
+            day_str = day or datetime.now().strftime('%Y-%m-%d')
+            created_at = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                conn.execute(
+                    '''
+                    INSERT INTO settings_change_events (user_id, day, created_at)
+                    VALUES (?, ?, ?)
+                    ''',
+                    (user_id, day_str, created_at)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.error(f"Error adding settings change event for user {user_id}: {e}")
+            return False
+
+    def get_strike_contributions_for_month(self, user_id: str, month: str) -> Dict[str, Any]:
+        try:
+            self._ensure_user_exists(user_id)
+            if not month or not isinstance(month, str) or len(month) != 7:
+                return {'month': month, 'days': {}, 'added': {}, 'max': 0}
+
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    '''
+                    SELECT day, COUNT(DISTINCT task_id) AS c
+                    FROM strike_events
+                    WHERE user_id = ? AND day LIKE ?
+                    GROUP BY day
+                    ORDER BY day ASC
+                    ''',
+                    (user_id, f"{month}-%")
+                )
+                rows = cursor.fetchall()
+                days: Dict[str, int] = {}
+                max_c = 0
+                for r in rows:
+                    d = r['day']
+                    c = int(r['c'] or 0)
+                    days[d] = c
+                    if c > max_c:
+                        max_c = c
+
+                cursor = conn.execute(
+                    '''
+                    SELECT SUBSTR(created_at, 1, 10) AS day, COUNT(*) AS c
+                    FROM tasks
+                    WHERE user_id = ? AND SUBSTR(created_at, 1, 7) = ?
+                    GROUP BY day
+                    ORDER BY day ASC
+                    ''',
+                    (user_id, month)
+                )
+                rows = cursor.fetchall()
+                added: Dict[str, int] = {}
+                for r in rows:
+                    d = r['day']
+                    c = int(r['c'] or 0)
+                    if d:
+                        added[d] = c
+
+                return {'month': month, 'days': days, 'added': added, 'max': max_c}
+        except Exception as e:
+            self.logger.error(f"Error loading strike contributions for month {month}: {e}")
+            return {'month': month, 'days': {}, 'added': {}, 'max': 0}
+
+    def list_strike_contribution_months(self, user_id: str, limit: int = 24) -> List[str]:
+        try:
+            self._ensure_user_exists(user_id)
+            limit = int(limit or 24)
+            if limit <= 0:
+                limit = 24
+            if limit > 120:
+                limit = 120
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    '''
+                    SELECT SUBSTR(day, 1, 7) AS m
+                    FROM strike_events
+                    WHERE user_id = ?
+                    GROUP BY m
+                    ORDER BY m DESC
+                    LIMIT ?
+                    ''',
+                    (user_id, limit)
+                )
+                rows = cursor.fetchall()
+                return [r['m'] for r in rows if r['m']]
+        except Exception as e:
+            self.logger.error(f"Error listing strike contribution months: {e}")
+            return []
+
+    def was_recap_seen(self, user_id: str, recap_day: str) -> bool:
+        try:
+            self._ensure_user_exists(user_id)
+            if not recap_day:
+                return False
+            with self._get_connection() as conn:
+                cur = conn.execute(
+                    'SELECT 1 FROM recap_seen WHERE user_id = ? AND recap_day = ? LIMIT 1',
+                    (user_id, recap_day)
+                )
+                return cur.fetchone() is not None
+        except Exception:
+            return False
+
+    def mark_recap_seen(self, user_id: str, recap_day: str) -> bool:
+        try:
+            self._ensure_user_exists(user_id)
+            if not recap_day:
+                return False
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                conn.execute(
+                    '''
+                    INSERT OR REPLACE INTO recap_seen (user_id, recap_day, seen_at)
+                    VALUES (?, ?, ?)
+                    ''',
+                    (user_id, recap_day, datetime.now().isoformat())
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.error(f"Error marking recap seen for {recap_day}: {e}")
+            return False
+
+    def get_daily_recap(self, user_id: str, day: str) -> Dict[str, Any]:
+        try:
+            self._ensure_user_exists(user_id)
+            if not day:
+                return {}
+
+            with self._get_connection() as conn:
+                cur = conn.execute(
+                    '''
+                    SELECT COUNT(DISTINCT task_id) AS c
+                    FROM strike_events
+                    WHERE user_id = ? AND day = ?
+                    ''',
+                    (user_id, day)
+                )
+                row = cur.fetchone()
+                struck = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
+
+                cur = conn.execute(
+                    '''
+                    SELECT COUNT(DISTINCT task_id) AS c
+                    FROM strike_events
+                    WHERE user_id = ? AND day = ? AND strike_type = 'forever'
+                    ''',
+                    (user_id, day)
+                )
+                row = cur.fetchone()
+                completed_forever = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
+
+                cur = conn.execute(
+                    '''
+                    SELECT COUNT(*) AS c
+                    FROM tasks
+                    WHERE user_id = ? AND SUBSTR(created_at, 1, 10) = ?
+                    ''',
+                    (user_id, day)
+                )
+                row = cur.fetchone()
+                tasks_added = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
+
+                cur = conn.execute(
+                    '''
+                    SELECT COUNT(*) AS c
+                    FROM settings_change_events
+                    WHERE user_id = ? AND day = ?
+                    ''',
+                    (user_id, day)
+                )
+                row = cur.fetchone()
+                settings_changed = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
+
+                cur = conn.execute(
+                    '''
+                    SELECT COUNT(*) AS c
+                    FROM notes
+                    WHERE user_id = ? AND SUBSTR(created_at, 1, 10) = ?
+                    ''',
+                    (user_id, day)
+                )
+                row = cur.fetchone()
+                notes_added = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
+
+                cur = conn.execute(
+                    '''
+                    SELECT COUNT(DISTINCT task_id) AS c
+                    FROM planner_task_history
+                    WHERE user_id = ? AND day = ?
+                    ''',
+                    (user_id, day)
+                )
+                row = cur.fetchone()
+                planned_tasks = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
+
+                streak_days = self._calculate_streak_days_from_tasks(conn, user_id, day)
+
+                return {
+                    'day': day,
+                    'tasks_striked': struck,
+                    'tasks_completed_forever': completed_forever,
+                    'new_tasks_added': tasks_added,
+                    'settings_changed': settings_changed,
+                    'tasks_planned': planned_tasks,
+                    'notes_added': notes_added,
+                    'streak_days': streak_days,
+                }
+        except Exception as e:
+            self.logger.error(f"Error building daily recap for {day}: {e}")
+            return {}
+
+    def _calculate_streak_days_from_tasks(self, conn, user_id: str, up_to_day: str) -> int:
+        try:
+            cur = conn.execute(
+                '''
+                SELECT DISTINCT SUBSTR(completed_at, 1, 10) AS d
+                FROM tasks
+                WHERE user_id = ? AND completed = 1 AND completed_at IS NOT NULL
+                ORDER BY d DESC
+                ''',
+                (user_id,)
+            )
+            rows = cur.fetchall() or []
+            completion_days = [r['d'] for r in rows if r['d']]
+            if not completion_days:
+                return 0
+
+            try:
+                anchor = datetime.strptime(up_to_day, '%Y-%m-%d').date()
+            except Exception:
+                anchor = datetime.now().date()
+
+            days_set = set(completion_days)
+            streak = 0
+            while True:
+                d = anchor - timedelta(days=streak)
+                if d.isoformat() in days_set:
+                    streak += 1
+                    continue
+                break
+            return streak
+        except Exception:
+            return 0
 

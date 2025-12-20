@@ -1,0 +1,236 @@
+            <div id="settings-page" class="page">
+                <div class="page-header">
+                    <div class="settings-header-inner">
+                        <h2>Settings</h2>
+                        <div class="donate-card" role="complementary" aria-label="Donate">
+                            <a href="https://ko-fi.com/vibin06" target="_blank" rel="noopener noreferrer" class="donate-link">
+                                <span class="donate-text">Help me buy a SSD</span>
+                                <span class="donate-cta">Donate!</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-container">
+                    <div class="settings-section">
+                        <h3>General</h3>
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="autostart-toggle">
+                                <span class="toggle-slider"></span>
+                                Start with Windows
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Auto-save interval:
+                                <select id="autosave-interval">
+                                    <option value="15">15 seconds</option>
+                                    <option value="30" selected>30 seconds</option>
+                                    <option value="60">1 minute</option>
+                                    <option value="300">5 minutes</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Quick project from title (first word before comma)</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="quick-project-from-title">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Casual dates (today, in 2 days, this weekend)</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="casual-dates-toggle">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="stacked-setting">
+                                <span>Daily reset time:</span>
+                                <div class="time-select" style="display:flex;align-items:center;gap:8px;">
+                                    <select id="reset-hour-select" aria-label="Hour"></select>
+                                    <span>:</span>
+                                    <select id="reset-minute-select" aria-label="Minute"></select>
+                                    <select id="reset-period-select" aria-label="AM/PM">
+                                        <option value="am">AM</option>
+                                        <option value="pm">PM</option>
+                                    </select>
+                                </div>
+                                <button type="button" id="save-reset-time-btn" class="btn-primary" style="margin-top: 8px; width: auto; min-width: unset; padding: 6px 10px;">
+                                    Save
+                                </button>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Appearance</h3>
+                        <div class="setting-item">
+                            <label>
+                                Theme:
+                                <select id="theme-selector">
+                                    <option value="light">Light (Orange)</option>
+                                    <option value="dark">Dark (Blue)</option>
+                                    <option value="orange" selected>Orange/Peach</option>
+                                    <option value="self-esteem">Self-Esteem (Mint Green)</option>
+                                    <option value="anxiety">Anxiety (Sky Blue)</option>
+                                    <option value="auto">Auto</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Finish:
+                                <select id="finish-selector">
+                                    <option value="glossy" selected>Glossy</option>
+                                    <option value="matte">Matte</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Color Intensity:
+                                <select id="intensity-selector">
+                                    <option value="1">1/10 - Neutral</option>
+                                    <option value="2">2/10 - Very Subtle</option>
+                                    <option value="3">3/10 - Subtle</option>
+                                    <option value="4">4/10 - Soft</option>
+                                    <option value="5" selected>5/10 - Current</option>
+                                    <option value="6">6/10 - Enhanced</option>
+                                    <option value="7">7/10 - Rich</option>
+                                    <option value="8">8/10 - Bold</option>
+                                    <option value="9">9/10 - Vibrant</option>
+                                    <option value="10">10/10 - Maximum</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                DPI Scale:
+                                <select id="dpi-selector">
+                                    <option value="75">75% (Compact)</option>
+                                    <option value="100" selected>100% (Normal)</option>
+                                    <option value="125">125% (Large)</option>
+                                    <option value="150">150% (Extra Large)</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Navbar Planner Style:
+                                <select id="navbar-planner-style">
+                                    <option value="modern" selected>Modern</option>
+                                    <option value="clean">Clean</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h3>Data Management</h3>
+                        <div class="setting-item data-actions-row">
+                            <button class="btn-secondary" id="export-data-btn">
+                                <i class="fas fa-download"></i>
+                                Export Data
+                            </button>
+                            <button class="btn-danger" id="clear-data-btn">
+                                <i class="fas fa-trash"></i>
+                                Clear All Data
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="settings-section updates-backups">
+                        <h3>Updates & Backups</h3>
+                        <div class="setting-item updates-actions-row">
+                            <button class="btn-secondary" id="check-updates-btn">
+                                <i class="fas fa-sync"></i>
+                                Check for Updates
+                            </button>
+                            <button class="btn-primary" id="github-update-btn">
+                                <i class="fas fa-code-branch"></i>
+                                Update from GitHub
+                            </button>
+                            <button class="btn-secondary" id="create-backup-btn">
+                                <i class="fas fa-save"></i>
+                                Create Backup
+                            </button>
+                            <button class="btn-secondary" id="manage-backups-btn">
+                                <i class="fas fa-history"></i>
+                                Manage Backups
+                            </button>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Auto-check for updates</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="auto-update-check">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Backup before updates</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="backup-before-update" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3>Logs & Changelog</h3>
+                        <div class="setting-item">
+                            <div class="action-buttons-row">
+                                <button class="btn-secondary" id="view-logs-btn">
+                                    <i class="fas fa-bug"></i>
+                                    View Logs
+                                </button>
+                                <button class="btn-secondary" id="view-changelog-btn">
+                                    <i class="fas fa-history"></i>
+                                    View Changelog
+                                </button>
+                                <button class="btn-secondary" id="show-recap-btn">
+                                    <i class="fas fa-moon"></i>
+                                    Show recap
+                                </button>
+                                <button class="btn-secondary" id="view-whats-new-btn">
+                                    <i class="fas fa-star"></i>
+                                    View current update features
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>About</h3>
+                        <div class="setting-item">
+                            <div class="version-info">
+                                <div class="version-header">
+                                    <h4>Shakshuka Task Manager</h4>
+                                    <span class="version-number">v{{ version }}</span>
+                                </div>
+                                <p class="version-description">Made with <span class="heart">♥</span> by <a href="https://vibinandvanshika.in/" target="_blank" rel="noopener noreferrer">vibinandvanshika.in</a></p>
+                                <div class="social-links">
+                                    <a href="https://wa.me/9769586810?text=Hey!%20What%27s%20step%202?" target="_blank" rel="noopener noreferrer" class="social-link whatsapp" title="Contact us on WhatsApp">
+                                        <i class="fas fa-phone"></i>
+                                    </a>
+                                    <a href="https://github.com/admiralsuez/shakshuka-python.git" target="_blank" rel="noopener noreferrer" class="social-link github" title="View on GitHub">
+                                        <i class="fas fa-code-branch"></i>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>

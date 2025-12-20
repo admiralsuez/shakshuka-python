@@ -1,0 +1,272 @@
+/* Update and Backup UI */
+.settings-section.updates-backups .btn-primary,
+.settings-section.updates-backups .btn-secondary,
+.settings-section.updates-backups .btn-danger {
+    padding: calc(0.6rem * var(--dpi-scale)) calc(1.2rem * var(--dpi-scale));
+    font-size: calc(0.9rem * var(--dpi-scale));
+    border-radius: calc(12px * var(--dpi-scale));
+}
+/* Unify button sizes within settings */
+#settings-page .setting-item { text-align: left; }
+#settings-page .time-select { justify-content: flex-start; margin-left: 0; }
+#settings-page .time-select select { min-width: 64px; }
+#settings-page .action-buttons-row {
+    display: flex;
+    gap: calc(0.5rem * var(--dpi-scale));
+    flex-wrap: wrap;
+}
+#settings-page .action-buttons-row .btn-secondary,
+#settings-page .action-buttons-row .btn-primary,
+#settings-page .action-buttons-row .btn-danger {
+    min-width: 200px;
+    justify-content: center;
+}
+
+/* Make only the Settings â†’ View Changelog button a bit narrower (~60% of
+   the default row width) without changing its padding/height. */
+#view-changelog-btn {
+    min-width: 120px;
+    /* Reduce only horizontal padding so the button is ~60% the visual width,
+       but keep the same height and overall style. */
+    padding: calc(0.6rem * var(--dpi-scale)) calc(0.7rem * var(--dpi-scale));
+}
+#settings-page .stacked-setting { display:flex; align-items:center; gap:12px; width:100%; }
+#settings-page .stacked-setting .time-select { margin-left:0; }
+.settings-container .btn-primary,
+.settings-container .btn-secondary,
+.settings-container .btn-danger {
+    padding: calc(0.6rem * var(--dpi-scale)) calc(1.2rem * var(--dpi-scale));
+    border-radius: calc(12px * var(--dpi-scale));
+}
+.settings-section.updates-backups .updates-actions-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(0.5rem * var(--dpi-scale));
+}
+.settings-section.updates-backups .updates-actions-row .btn-primary,
+.settings-section.updates-backups .updates-actions-row .btn-secondary,
+.settings-section.updates-backups .updates-actions-row .btn-danger {
+    min-width: 100px;
+    width: auto;
+}
+.settings-section.updates-backups .setting-item label { gap: calc(0.6rem * var(--dpi-scale)); }
+
+/* Data Management actions row */
+.settings-section .data-actions-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(0.5rem * var(--dpi-scale));
+    justify-content: flex-start;
+    align-items: center;
+}
+.settings-section .data-actions-row .btn-secondary,
+.settings-section .data-actions-row .btn-danger {
+    min-width: 140px;
+    width: auto;
+}
+
+.backup-list {
+    max-height: calc(400px * var(--dpi-scale));
+    overflow-y: auto;
+}
+.backup-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: calc(1rem * var(--dpi-scale));
+    margin-bottom: calc(0.5rem * var(--dpi-scale));
+    background: var(--surface-color);
+    border: calc(1px * var(--dpi-scale)) solid var(--border-color);
+    border-radius: calc(8px * var(--dpi-scale));
+}
+.backup-info {
+    flex: 1;
+}
+.backup-name {
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: calc(0.25rem * var(--dpi-scale));
+}
+.backup-details {
+    font-size: calc(0.9rem * var(--dpi-scale));
+    color: var(--text-secondary);
+}
+.backup-actions {
+    display: flex;
+    gap: calc(0.5rem * var(--dpi-scale));
+}
+.backup-action {
+    padding: calc(0.5rem * var(--dpi-scale)) calc(1rem * var(--dpi-scale));
+    border: none;
+    border-radius: calc(6px * var(--dpi-scale));
+    cursor: pointer;
+    font-size: calc(0.9rem * var(--dpi-scale));
+    transition: all 0.3s ease;
+}
+.backup-restore {
+    background: var(--primary-gradient);
+    color: white;
+}
+.backup-restore:hover {
+    transform: translateY(calc(-2px * var(--dpi-scale)));
+    box-shadow: 0 calc(4px * var(--dpi-scale)) calc(15px * var(--dpi-scale)) var(--shadow-color);
+}
+.update-info {
+    margin-bottom: calc(1.5rem * var(--dpi-scale));
+}
+.update-version {
+    font-size: calc(1.2rem * var(--dpi-scale));
+    font-weight: 600;
+    color: var(--accent-color);
+    margin-bottom: calc(0.5rem * var(--dpi-scale));
+}
+.update-notes {
+    background: var(--surface-color);
+    padding: calc(1rem * var(--dpi-scale));
+    border-radius: calc(8px * var(--dpi-scale));
+    border-left: calc(4px * var(--dpi-scale)) solid var(--accent-color);
+    white-space: pre-wrap;
+    line-height: 1.6;
+}
+.progress-bar {
+    width: 100%;
+    height: calc(8px * var(--dpi-scale));
+    background: var(--border-color);
+    border-radius: calc(4px * var(--dpi-scale));
+    overflow: hidden;
+    margin-bottom: calc(1rem * var(--dpi-scale));
+}
+.progress-fill {
+    height: 100%;
+    background: var(--primary-gradient);
+    width: 0%;
+    transition: width 0.3s ease;
+}
+.progress-text {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: calc(0.9rem * var(--dpi-scale));
+}
+.setting-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: calc(1rem * var(--dpi-scale));
+}
+.setting-label span {
+    font-weight: 500;
+    color: var(--text-color);
+}
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: calc(50px * var(--dpi-scale));
+    height: calc(24px * var(--dpi-scale));
+}
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: calc(50px * var(--dpi-scale));
+    height: calc(25px * var(--dpi-scale));
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+/* Compact schedule card in sidebar */
+.nav-compact-schedule {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: calc(10px * var(--dpi-scale));
+    padding: calc(0.4rem * var(--dpi-scale));
+    margin: calc(0.4rem * var(--dpi-scale));
+    box-shadow: 0 calc(3px * var(--dpi-scale)) calc(10px * var(--dpi-scale)) var(--shadow-color);
+}
+/* Clean (stacked) layout pieces remain */
+.nav-compact-schedule.clean .entry { display: flex; flex-direction: column; gap: calc(0.2rem * var(--dpi-scale)); padding: calc(0.35rem * var(--dpi-scale)) calc(0.45rem * var(--dpi-scale)); }
+.nav-compact-schedule.clean .entry + .entry { border-top: 1px solid var(--border-color); margin-top: calc(0.2rem * var(--dpi-scale)); padding-top: calc(0.4rem * var(--dpi-scale)); }
+.nav-compact-schedule.clean .label { font-weight: 700; color: var(--text-secondary); font-size: calc(0.8rem * var(--dpi-scale)); }
+.nav-compact-schedule.clean .details .title { font-weight: 700; color: var(--text-color); font-size: calc(0.95rem * var(--dpi-scale)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-compact-schedule.clean .details .time { color: var(--accent-color); font-weight: 700; font-size: calc(0.85rem * var(--dpi-scale)); }
+.nav-compact-schedule.clean .badge { display: none; }
+
+/* Modern layout: title + time at left, badge at right spanning both lines */
+.nav-compact-schedule.modern .entry { display: flex; align-items: center; justify-content: space-between; padding: calc(0.35rem * var(--dpi-scale)) calc(0.35rem * var(--dpi-scale)); }
+.nav-compact-schedule.modern .entry + .entry { border-top: 1px solid var(--border-color); margin-top: calc(0.15rem * var(--dpi-scale)); padding-top: calc(0.35rem * var(--dpi-scale)); }
+.nav-compact-schedule.modern .label { display: none; }
+.nav-compact-schedule.modern .details { display: flex; flex-direction: column; gap: calc(0.1rem * var(--dpi-scale)); min-width: 0; }
+.nav-compact-schedule.modern .details .title { font-weight: 700; color: var(--text-color); font-size: calc(0.9rem * var(--dpi-scale)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-compact-schedule.modern .details .time { color: var(--text-secondary); font-weight: 600; font-size: calc(0.75rem * var(--dpi-scale)); }
+.nav-compact-schedule.modern .badge { display: inline-flex; align-items: center; justify-content: center; padding: 0.18rem 0.45rem; border-radius: 9999px; background: var(--text-color); color: var(--surface-color); font-weight: 700; font-size: calc(0.7rem * var(--dpi-scale)); margin-left: calc(0.4rem * var(--dpi-scale)); white-space: nowrap; }
+
+/* Remove old sidebar toggle styling (no longer used) */
+.sidebar-toggle-item { display: none; }
+
+
+/* Kill app item styling */
+.kill-app-item {
+    border-top: 1px solid var(--border-color);
+    margin-top: calc(8px * var(--dpi-scale));
+    padding-top: calc(8px * var(--dpi-scale));
+    color: #dc3545; /* Red color for destructive action */
+    transition: all 0.3s ease;
+}
+
+.kill-app-item:hover {
+    background: rgba(220, 53, 69, 0.1);
+    color: #c82333;
+    border-radius: calc(8px * var(--dpi-scale));
+}
+
+.kill-app-item i {
+    color: #dc3545;
+}
+
+.kill-app-item span {
+    color: #dc3545;
+}
+
+.kill-app-item:hover i {
+    color: #c82333;
+}
+
+.kill-app-item:hover span {
+    color: #c82333;
+}
+.layout-btn i,
+.nav-item i,
+.sidebar-toggle i {
+    font-family: "Font Awesome 6 Free" !important;
+    font-weight: 900 !important;
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: auto !important;
+    height: auto !important;
+}
+
+/* Force layout toggle icons to maintain Font Awesome icons at all screen sizes */
+.layout-toggle .layout-btn i {
+    font-family: "Font Awesome 6 Free" !important;
+    font-weight: 900 !important;
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    width: auto !important;
+    height: auto !important;
+}
+
+/* Specific icon fixes for layout toggle */
+.layout-btn[data-layout="list"] i::before {
+    content: "\f03a" !important; /* fa-list */
+    font-family: "Font Awesome 6 Free" !important;
+    font-weight: 900 !important;
+}
+
+.layout-btn[data-layout="grid"] i::before {
+    content: "\f00a" !important; /* fa-th */
+    font-family: "Font Awesome 6 Free" !important;
+    font-weight: 900 !important;
+}

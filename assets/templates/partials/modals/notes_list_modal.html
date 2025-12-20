@@ -1,0 +1,25 @@
+
+
+    <!-- Developer Logs Modal -->
+    <div class="modal" id="notes-list-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>All Notes</h3>
+                <button class="modal-close" id="close-notes-list-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="notes-list-toolbar">
+                    <label class="notes-list-select-all">
+                        <input type="checkbox" id="notes-select-all">
+                        <span>Select all</span>
+                    </label>
+                    <button type="button" id="notes-delete-selected-btn" class="notes-list-bulk-delete-btn" disabled>
+                        Delete selected
+                    </button>
+                </div>
+                <ul class="notes-list" id="notes-list"></ul>
+            </div>
+        </div>
+    </div>

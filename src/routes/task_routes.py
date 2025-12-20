@@ -13,6 +13,7 @@ import logging
 import uuid
 from datetime import datetime
 from typing import Dict, List, Tuple
+import re
 
 # Import app context and utilities (will be injected)
 from src.constants import DEFAULT_USER_ID
@@ -56,6 +57,84 @@ def _get_user_id():
 def _get_data_manager():
     """Get data manager instance"""
     return _app_context.data_manager if _app_context else None
+
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_date_yyyy_mm_dd(value: str) -> bool:
+    if not isinstance(value, str):
+        return False
+    if not _DATE_RE.match(value):
+        return False
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+
+def _parse_schedule_payload(payload: Dict) -> Tuple[bool, Dict, str]:
+    if not isinstance(payload, dict):
+        return False, {}, "Request must contain JSON object"
+
+    hour_input = payload.get('hour')
+    minute_input = payload.get('minute', 0)
+    duration_input = payload.get('duration', 30)
+    date_input = payload.get('date')
+
+    if hour_input is None:
+        return False, {}, "Hour is required"
+
+    # Parse hour/minute
+    hour: int
+    minute: int
+
+    if isinstance(hour_input, str) and ':' in hour_input:
+        parts = hour_input.split(':', 1)
+        try:
+            hour = int(parts[0])
+            minute = int(parts[1])
+        except Exception:
+            return False, {}, "Hour must be an integer hour or 'HH:MM'"
+    else:
+        try:
+            hour = int(hour_input)
+        except Exception:
+            return False, {}, "Hour must be an integer"
+        try:
+            minute = int(minute_input)
+        except Exception:
+            return False, {}, "Minute must be an integer"
+
+    if hour < 0 or hour > 23:
+        return False, {}, "Hour must be between 0 and 23"
+    if minute < 0 or minute > 59:
+        return False, {}, "Minute must be between 0 and 59"
+
+    # Duration
+    try:
+        duration = int(duration_input)
+    except Exception:
+        return False, {}, "Duration must be an integer"
+    if duration < 5 or duration > 480:
+        return False, {}, "Duration must be between 5 and 480 minutes"
+
+    # Date (default to today in local time)
+    if date_input is None:
+        date_value = datetime.now().strftime('%Y-%m-%d')
+    else:
+        date_value = date_input
+
+    if not _validate_date_yyyy_mm_dd(date_value):
+        return False, {}, "Date must be in YYYY-MM-DD format"
+
+    return True, {
+        'hour': hour,
+        'minute': minute,
+        'duration': duration,
+        'date': date_value,
+    }, ""
 
 
 @task_bp.route('', methods=['GET'])
@@ -259,7 +338,7 @@ def delete_task(task_id):
         if not task_to_delete:
             logger.warning(f"Task {task_id} not found for user {user_id}")
             return jsonify({'error': 'Task not found'}), 404
-        
+
         # Delete task using data manager
         success = data_manager.delete_task_for_user(user_id, task_id)
         
@@ -275,6 +354,39 @@ def delete_task(task_id):
         return jsonify({'error': 'Internal server error'}), 500
 
 
+@task_bp.route('/<task_id>/strike-reports', methods=['GET'])
+def get_strike_today_report_history(task_id):
+    user_id = _get_user_id()
+    data_manager = _get_data_manager()
+    if not data_manager:
+        return jsonify({'success': False, 'error': 'Data manager not available'}), 500
+
+    limit_raw = request.args.get('limit', '200')
+    offset_raw = request.args.get('offset', '0')
+    try:
+        limit = int(limit_raw)
+    except Exception:
+        limit = 200
+    try:
+        offset = int(offset_raw)
+    except Exception:
+        offset = 0
+
+    if limit <= 0:
+        limit = 200
+    if limit > 500:
+        limit = 500
+    if offset < 0:
+        offset = 0
+
+    try:
+        items = data_manager.load_strike_today_report_history(user_id, task_id, limit=limit, offset=offset)
+        return jsonify({'success': True, 'task_id': task_id, 'items': items})
+    except Exception as e:
+        logger.error(f"Error loading strike report history for task {task_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @task_bp.route('/<task_id>/complete', methods=['POST'])
 def complete_task(task_id):
     """Mark a task as completed for the authenticated user"""
@@ -288,7 +400,7 @@ def complete_task(task_id):
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
             tasks[i]['completed'] = True
-            tasks[i]['completed_at'] = datetime.utcnow().isoformat()
+            tasks[i]['completed_at'] = datetime.now().isoformat()
             if data_manager.save_tasks_for_user(user_id, tasks):
                 return jsonify(tasks[i])
             else:
@@ -305,9 +417,21 @@ def strike_task(task_id):
     SQLite-backed analytics manager (no more JSON file writes).
     """
     user_id = _get_user_id()
-    strike_data = request.json or {}
+    strike_data = request.json
+    if strike_data is None:
+        strike_data = {}
+    if not isinstance(strike_data, dict):
+        return jsonify({'error': 'Request must contain JSON object'}), 400
+
     strike_type = strike_data.get('type')
     report = strike_data.get('report', '')
+
+    if report is None:
+        report = ''
+    if not isinstance(report, str):
+        return jsonify({'error': 'Report must be a string'}), 400
+    if len(report) > 2000:
+        return jsonify({'error': 'Report too long'}), 400
     
     if not strike_type or strike_type not in ['today', 'forever']:
         return jsonify({'error': 'Invalid strike type'}), 400
@@ -317,7 +441,7 @@ def strike_task(task_id):
         return jsonify({'error': 'Data manager not available'}), 500
     
     tasks = data_manager.load_tasks_for_user(user_id)
-    today = datetime.utcnow().strftime('%Y-%m-%d')
+    today = datetime.now().strftime('%Y-%m-%d')
     
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
@@ -330,19 +454,44 @@ def strike_task(task_id):
                     return jsonify({'error': 'Maximum strikes reached for today'}), 400
                 
                 # Update daily strikes
-                daily_strikes[today] = strikes_today + 1
+                strike_number = strikes_today + 1
+                daily_strikes[today] = strike_number
                 tasks[i]['daily_strikes'] = daily_strikes
                 tasks[i]['struck_today'] = True
                 tasks[i]['struck_date'] = today
                 tasks[i]['strike_report'] = report
                 tasks[i]['strike_count'] = tasks[i].get('strike_count', 0) + 1
+
+                try:
+                    data_manager.add_strike_today_report_event(
+                        user_id=user_id,
+                        task_id=task_id,
+                        day=today,
+                        strike_number=strike_number,
+                        report=report,
+                    )
+                except Exception:
+                    pass
             elif strike_type == 'forever':
                 tasks[i]['completed'] = True
-                tasks[i]['completed_at'] = datetime.utcnow().isoformat()
+                tasks[i]['completed_at'] = datetime.now().isoformat()
+                # Persist a dedicated forever flag so UI and analytics that
+                # rely on struck_forever behave consistently.
+                tasks[i]['struck_forever'] = True
                 tasks[i]['struck_today'] = True
                 tasks[i]['struck_date'] = today
                 tasks[i]['strike_report'] = report
                 tasks[i]['strike_count'] = tasks[i].get('strike_count', 0) + 1
+
+            try:
+                data_manager.add_strike_event(
+                    user_id=user_id,
+                    task_id=task_id,
+                    day=today,
+                    strike_type=strike_type,
+                )
+            except Exception:
+                pass
             
             if data_manager.save_tasks_for_user(user_id, tasks):
                 # Increment analytics counters (decoupled from daily reset)
@@ -369,7 +518,7 @@ def undo_strike(task_id):
         return jsonify({'error': 'Data manager not available'}), 500
     
     tasks = data_manager.load_tasks_for_user(user_id)
-    today = datetime.utcnow().strftime('%Y-%m-%d')
+    today = datetime.now().strftime('%Y-%m-%d')
     
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
@@ -381,6 +530,7 @@ def undo_strike(task_id):
                     # Undo strike forever - revert to incomplete state
                     tasks[i]['completed'] = False
                     tasks[i]['completed_at'] = None
+                    tasks[i]['struck_forever'] = False
                     tasks[i]['struck_today'] = False
                     tasks[i]['struck_date'] = None
                     tasks[i]['strike_report'] = None
@@ -448,31 +598,18 @@ def unschedule_task(task_id):
 def schedule_task(task_id):
     """Schedule a task for a specific hour and duration for the authenticated user"""
     user_id = _get_user_id()
-    schedule_data = request.json or {}
-    logger.info(f"RAW schedule_data received: {schedule_data}")
-    
-    hour_input = schedule_data.get('hour')
-    minute = schedule_data.get('minute', 0)
-    duration = schedule_data.get('duration', 30)
-    date = schedule_data.get('date', datetime.utcnow().strftime('%Y-%m-%d'))
-    
-    logger.info(f"Extracted: hour_input={hour_input} (type={type(hour_input).__name__}), minute={minute}, duration={duration}, date={date}")
-    
-    if hour_input is None:
-        return jsonify({'error': 'Hour is required'}), 400
-    
-    # Parse hour - can be either "HH:MM" string or numeric hour
-    if isinstance(hour_input, str) and ':' in hour_input:
-        logger.info(f"Parsing HH:MM format: {hour_input}")
-        parts = hour_input.split(':')
-        hour = int(parts[0])
-        minute = int(parts[1]) if len(parts) > 1 else 0
-        logger.info(f"Parsed to hour={hour}, minute={minute}")
-    else:
-        logger.info(f"Using numeric hour: {hour_input}")
-        hour = int(hour_input)
-    
-    logger.info(f"FINAL: Scheduling task {task_id} at {hour}:{minute} on {date} for {duration} minutes")
+    schedule_data = request.json
+    if schedule_data is None:
+        schedule_data = {}
+
+    ok, parsed, err = _parse_schedule_payload(schedule_data)
+    if not ok:
+        return jsonify({'error': err}), 400
+
+    hour = parsed['hour']
+    minute = parsed['minute']
+    duration = parsed['duration']
+    date = parsed['date']
     
     data_manager = _get_data_manager()
     if not data_manager:

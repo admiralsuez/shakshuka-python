@@ -1,0 +1,89 @@
+/* Daily Recap Modal Styling */
+
+.daily-recap-modal-content {
+    max-width: 600px;
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+.daily-recap-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.daily-recap-modal-body {
+    padding: calc(0.75rem * var(--dpi-scale)) calc(1.5rem * var(--dpi-scale)) calc(1.5rem * var(--dpi-scale));
+    max-height: 70vh;
+    overflow-y: auto;
+    border-radius: 0 0 20px 20px;
+}
+
+/* Custom scrollbar for modal body */
+.daily-recap-modal-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.daily-recap-modal-body::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 0 0 20px 0;
+}
+
+.daily-recap-modal-body::-webkit-scrollbar-thumb {
+    background: var(--border-color, #ccc);
+    border-radius: 10px;
+}
+
+.daily-recap-modal-body::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary, #999);
+}
+
+/* Streak Banner */
+.daily-recap-streak-banner {
+    background: linear-gradient(135deg, #F4F6B3 0%, #D4E157 100%);
+    border-radius: calc(12px * var(--dpi-scale));
+    padding: calc(1rem * var(--dpi-scale)) calc(1.5rem * var(--dpi-scale));
+    margin-bottom: calc(1.5rem * var(--dpi-scale));
+    display: flex;
+    align-items: center;
+    gap: calc(0.75rem * var(--dpi-scale));
+    font-size: calc(16px * var(--dpi-scale));
+    color: #333;
+}
+
+.daily-recap-streak-banner .streak-label {
+    font-weight: 400;
+}
+
+.daily-recap-streak-banner .streak-value {
+    font-weight: 700;
+}
+
+/* Stats Grid */
+.daily-recap-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: calc(1rem * var(--dpi-scale));
+}
+
+.daily-recap-item {
+    background: var(--surface-color, #fff);
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: calc(8px * var(--dpi-scale));
+    padding: calc(1rem * var(--dpi-scale));
+    display: flex;
+    flex-direction: column;
+    gap: calc(0.5rem * var(--dpi-scale));
+}
+
+.daily-recap-item .label {
+    font-size: calc(14px * var(--dpi-scale));
+    color: var(--text-secondary, #666);
+    font-weight: 400;
+}
+
+.daily-recap-item .value {
+    font-size: calc(24px * var(--dpi-scale));
+    font-weight: 700;
+    color: var(--text-color);
+}

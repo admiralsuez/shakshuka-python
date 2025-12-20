@@ -12,7 +12,7 @@ import logging
 import threading
 import time
 import schedule
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 # These will be injected at runtime
@@ -20,6 +20,10 @@ _app_context = None
 _data_manager_getter = None
 
 logger = logging.getLogger(__name__)
+
+
+_scheduler_thread: Optional[threading.Thread] = None
+_stop_event: Optional[threading.Event] = None
 
 
 def set_app_context(app_context):
@@ -111,6 +115,30 @@ def reset_daily_strikes_job():
         if not tasks:
             logger.info("No tasks found for daily reset")
             return
+
+        # Snapshot previous day's planner tasks before we clear scheduling/strike flags.
+        try:
+            previous_day = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+            snapshot_tasks = []
+            for t in tasks:
+                scheduled_date = t.get('scheduled_date')
+                daily_strikes = t.get('daily_strikes') or {}
+                strikes_for_day = 0
+                try:
+                    strikes_for_day = int(daily_strikes.get(previous_day, 0) or 0)
+                except Exception:
+                    strikes_for_day = 0
+
+                completed_at = (t.get('completed_at') or '')
+                completed_at_day = completed_at[:10] if isinstance(completed_at, str) else ''
+
+                if scheduled_date == previous_day or strikes_for_day > 0 or completed_at_day == previous_day:
+                    snapshot_tasks.append(t)
+
+            if snapshot_tasks:
+                data_manager.save_planner_history_snapshot(user_id, previous_day, snapshot_tasks)
+        except Exception as e:
+            logger.warning(f"Failed to capture planner history snapshot: {e}")
         
         # 1) Clear today's strike flags and ALL scheduling for struck-today tasks
         reset_count = 0
@@ -179,11 +207,16 @@ def check_and_run_missed_reset(reset_time_str: str, verbose: bool = True):
         
         # Use local time so it matches how the scheduler runs
         now = datetime.now()
+        today_str_local = now.strftime('%Y-%m-%d')
         
         # Create datetime for today's reset time (local)
         today_reset_time = now.replace(hour=reset_hour, minute=reset_minute, second=0, microsecond=0)
         
-        # If current time is past today's reset time and any task is still flagged struck_today, run reset
+        # If current time is past today's reset time, only run a "missed" reset when we detect
+        # leftover struck_today flags from *before* today (i.e., struck_date != today).
+        #
+        # This prevents a restart after reset time from clearing strikes that were legitimately
+        # made today after the reset time.
         if now > today_reset_time:
             user_id = _get_user_id()
             if not user_id:
@@ -197,12 +230,31 @@ def check_and_run_missed_reset(reset_time_str: str, verbose: bool = True):
             if not tasks:
                 return
             
-            needs_reset = any(task.get('struck_today') for task in tasks)
+            stale_struck_today = 0
+            missing_strike_date = 0
+            for task in tasks:
+                if not task.get('struck_today'):
+                    continue
+
+                struck_date = task.get('struck_date')
+                if not struck_date:
+                    missing_strike_date += 1
+                    continue
+
+                if struck_date != today_str_local:
+                    stale_struck_today += 1
+
+            needs_reset = stale_struck_today > 0
             if needs_reset:
                 logger.info(f"⏰ Missed reset detected! Current time {now.strftime('%H:%M')} is past reset time {reset_time_str}. Running reset now...")
                 reset_daily_strikes_job()
             elif verbose:
-                logger.debug("👍 No tasks flagged for today; reset not needed")
+                if missing_strike_date > 0:
+                    logger.warning(
+                        f"⚠️ Found {missing_strike_date} tasks with struck_today=True but missing struck_date; skipping missed reset for safety"
+                    )
+                else:
+                    logger.debug("👍 No tasks flagged for today; reset not needed")
         elif verbose:
             logger.info(f"⏳ Reset time {reset_time_str} is still upcoming today (current: {now.strftime('%H:%M')})")
             
@@ -243,18 +295,18 @@ def setup_daily_reset():
         logger.error(f"Error setting up daily reset: {e}")
 
 
-def scheduler_worker():
+def scheduler_worker(stop_event: threading.Event):
     """Robust background thread for scheduled tasks with timezone awareness."""
     logger.info("Scheduler worker started")
-    last_missed_check = datetime.utcnow()
+    last_missed_check = datetime.now()
     
-    while True:
+    while not stop_event.is_set():
         try:
             # Run pending scheduled jobs
             schedule.run_pending()
             
             # Periodically check for missed resets (every 15 minutes)
-            now = datetime.utcnow()
+            now = datetime.now()
             if (now - last_missed_check).total_seconds() >= 900:  # 15 minutes
                 data_manager = _get_data_manager()
                 if data_manager:
@@ -264,29 +316,57 @@ def scheduler_worker():
                     check_and_run_missed_reset(reset_time, verbose=False)  # Quiet mode for intervals
                 last_missed_check = now
             
-            # Sleep for 60 seconds
-            time.sleep(60)
+            # Sleep for 60 seconds or until stop requested
+            stop_event.wait(timeout=60)
             
         except Exception as e:
             logger.error(f"Scheduler worker error: {e}")
             # Wait a bit before retrying to prevent rapid error loops
-            time.sleep(30)
+            stop_event.wait(timeout=30)
 
 
 def start_scheduler():
     """Start the scheduler background thread with proper error handling."""
+    global _scheduler_thread, _stop_event
     try:
+        if _scheduler_thread and _scheduler_thread.is_alive():
+            logger.info("Scheduler thread already running")
+            return
+
         # Setup daily reset schedule
         setup_daily_reset()
         
         # Start scheduler thread
-        scheduler_thread = threading.Thread(target=scheduler_worker, daemon=True, name="SchedulerWorker")
-        scheduler_thread.start()
+        _stop_event = threading.Event()
+        _scheduler_thread = threading.Thread(
+            target=scheduler_worker,
+            args=(_stop_event,),
+            daemon=True,
+            name="SchedulerWorker",
+        )
+        _scheduler_thread.start()
         
         logger.info("Scheduler thread started successfully")
         
     except Exception as e:
         logger.error(f"Failed to start scheduler: {e}")
+
+
+def stop_scheduler(timeout: float = 10.0) -> None:
+    """Stop the scheduler background thread gracefully if it is running."""
+    global _scheduler_thread, _stop_event
+    try:
+        if not _scheduler_thread or not _scheduler_thread.is_alive():
+            return
+
+        if _stop_event is None:
+            return
+
+        _stop_event.set()
+        _scheduler_thread.join(timeout=timeout)
+    finally:
+        _scheduler_thread = None
+        _stop_event = None
 
 
 # Deprecated: kept for backward compatibility

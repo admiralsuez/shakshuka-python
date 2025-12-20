@@ -1,0 +1,55 @@
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    
+    <!-- PIN Authentication - load first -->
+    <script src="{{ url_for('static', filename='js/auth/pin-auth.js') }}?v=6.2"></script>
+    
+    <!-- Core utilities - load first -->
+    <script src="{{ url_for('static', filename='js/utils-new/error-handler.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/core/state.js') }}?v=6.2"></script>
+    <script id="app-config-data" type="application/json">
+{{ {
+        "authEnabled": config.AUTH_ENABLED,
+        "version": version
+    } | tojson | safe }}
+    </script>
+    <script>
+    (function () {
+        const configElement = document.getElementById('app-config-data');
+        window.APP_CONFIG = configElement ? JSON.parse(configElement.textContent) : {};
+    }());
+    </script>
+
+    <script src="{{ url_for('static', filename='js/utils/utils.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/utils/task-helpers.js') }}?v=6.2"></script>
+    
+    <!-- Feature modules -->
+    <script src="{{ url_for('static', filename='js/core/keyboard.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/features/settings.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/pages/tasks.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/auth/auth.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/modules/planner-v2.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/pages/notes.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/loading-screen.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/logs-and-strike.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/backup-update.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/changelog.js') }}?v={{ version }}"></script>
+    <script src="{{ url_for('static', filename='js/app/ui-shell.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/notification-styles.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/loading-overlay.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/notifications.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/task-date-helpers.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/import-tasks.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/dashboard.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/analytics-extras.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/navbar-schedule-card.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/schedule-modal.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/retry-task.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/task-crud.js') }}?v=6.2"></script>
+    <script src="{{ url_for('static', filename='js/app/account.js') }}?v=6.2"></script>
+    
+    <!-- Main application -->
+    <script src="{{ url_for('static', filename='js/app/app.js') }}?v=6.2"></script>
+    
+    <!-- App initialization - load last -->
+    <script src="{{ url_for('static', filename='js/core/app-init.js') }}?v=6.2"></script>

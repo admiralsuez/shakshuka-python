@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import logging
 
 from src.core import config
+from src.constants import DEFAULT_USER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def get_user_id():
         return user_id
     else:
         # Authentication disabled - use default user
-        return config.DEFAULT_USER
+        return DEFAULT_USER_ID
 
 
 def require_auth(f):

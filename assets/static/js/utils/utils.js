@@ -86,7 +86,7 @@ window.addEventListener('error', function(event) {
                 type: 'error',
                 message: event.error.message,
                 stack: event.error.stack,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toLocaleString()
             });
         }
     } catch (e) {
@@ -105,7 +105,7 @@ window.addEventListener('unhandledrejection', function(event) {
                 type: 'error',
                 message: `Promise rejection: ${event.reason}`,
                 stack: (event.reason && event.reason.stack) ? event.reason.stack : 'No stack trace',
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toLocaleString()
             });
         }
     } catch (e) {
@@ -116,7 +116,7 @@ window.addEventListener('unhandledrejection', function(event) {
 // Custom Logger (don't override console)
 const Logger = {
     log: (message, type = 'info') => {
-        const timestamp = new Date().toISOString();
+        const timestamp = new Date().toLocaleString();
         const logEntry = { type, message, timestamp };
 
         // Add to AppState developer logs if available

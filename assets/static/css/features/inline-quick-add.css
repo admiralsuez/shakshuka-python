@@ -1,0 +1,24 @@
+/* Inline Quick Add border animation */
+#inline-quick-add {
+    position: relative;
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--surface-color);
+}
+#inline-quick-add::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    padding: 2px; /* thickness of the ring */
+    background: conic-gradient(from 0deg, rgba(255,140,66,0.85) 0%, rgba(255,140,66,0) 25%, rgba(255,140,66,0) 75%, rgba(255,140,66,0.85) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    animation: spinBorder 3s linear infinite;
+    pointer-events: none;
+}
+@keyframes spinBorder {
+    to { transform: rotate(360deg); }
+}

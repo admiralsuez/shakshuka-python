@@ -1,0 +1,52 @@
+    <!-- Task Modal -->
+    <div id="task-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Add New Task</h3>
+                <button class="modal-close" id="close-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="task-form">
+                    <div class="form-group">
+                        <label for="task-title">Task Title</label>
+                        <input type="text" id="task-title" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-description">Description</label>
+                        <textarea id="task-description" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-project">Project</label>
+                        <input type="text" id="task-project" placeholder="e.g., Work, Personal, Health">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="task-due-date">Due Date</label>
+                            <input type="date" id="task-due-date">
+                            <div class="quick-date-buttons" style="display: flex; gap: 8px; margin-top: 8px;">
+                                <button type="button" class="btn-quick-date" onclick="setQuickDate('today')" style="flex: 1; padding: 6px 12px; font-size: 12px;">
+                                    <i class="fas fa-calendar-day"></i> Today
+                                </button>
+                                <button type="button" class="btn-quick-date" onclick="setQuickDate('tomorrow')" style="flex: 1; padding: 6px 12px; font-size: 12px;">
+                                    <i class="fas fa-calendar-plus"></i> Tomorrow
+                                </button>
+                                <button type="button" class="btn-quick-date" onclick="setQuickDate('thisweek')" style="flex: 1; padding: 6px 12px; font-size: 12px;">
+                                    <i class="fas fa-calendar-week"></i> This Week
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-duration">Duration (minutes)</label>
+                            <input type="number" id="task-duration" value="60" min="5" max="480">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-task">Cancel</button>
+                <button type="submit" class="btn-primary" id="save-task">Save Task</button>
+            </div>
+        </div>
+    </div>

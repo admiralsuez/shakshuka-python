@@ -884,7 +884,14 @@ window.updateResetTime = () => Settings.updateResetTime();
         
         const handler = () => {
             console.log('[DEBUG] Select change handler fired');
-            Settings.debouncedUpdateResetTimeFromSelects();
+            try {
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    if (saveBtn.textContent && saveBtn.textContent !== 'Save') {
+                        saveBtn.textContent = 'Save';
+                    }
+                }
+            } catch (e) {}
         };
         
         if (hourSelect && !hourSelect._resetBound) {
@@ -964,6 +971,27 @@ window.updateResetTime = () => Settings.updateResetTime();
         }, { once: true });
     }
 })();
+
+// Daily recap manual trigger from Settings
+window.bindShowRecapButton = function bindShowRecapButton() {
+    if (!window.__recapDelegateBound) {
+        window.__recapDelegateBound = true;
+        document.addEventListener('click', async (e) => {
+            try {
+                const target = e.target && (e.target.closest ? e.target.closest('#show-recap-btn') : null);
+                if (!target) return;
+                e.preventDefault();
+                if (window.AnalyticsExtras && window.AnalyticsExtras.DailyRecap && typeof window.AnalyticsExtras.DailyRecap.showNow === 'function') {
+                    await window.AnalyticsExtras.DailyRecap.showNow();
+                }
+            } catch (err) { /* no-op */ }
+        });
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    try { window.bindShowRecapButton(); } catch (e) {}
+});
 
 // Global explicit save function used by the Save button as a hard fallback
 window.saveResetTimeNow = async function() {

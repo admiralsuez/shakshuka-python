@@ -41,9 +41,20 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
+    padding: calc(2px * var(--dpi-scale));
     color: white;
     font-size: calc(1.2rem * var(--dpi-scale));
     box-shadow: 0 calc(6px * var(--dpi-scale)) calc(20px * var(--dpi-scale)) var(--shadow-color);
+}
+
+.logo-icon img {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
 }
 
 .logo h1 {

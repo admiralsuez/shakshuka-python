@@ -4,6 +4,63 @@ Complete guide for building Shakshuka for Windows, Linux, and macOS.
 
 ---
 
+## Recent Work Summary (v15.2)
+
+This section documents the most recent fixes and refactors so a new contributor can quickly understand what changed, where to look in the codebase, and how to verify behavior.
+
+### What changed
+
+- **Analytics: Completed Forever + Analytics page cards**
+  - Completed Forever now counts tasks that are either `completed` or `struck_forever`.
+  - Analytics page cards (Completed Today / Day Streak / Striked Today) now refresh reliably.
+- **Notes: Split View correctness + chooser UX**
+  - Fixed a bug where opening a note in the secondary pane could overwrite another note's secondary content.
+  - Split-pane choice modal now explicitly asks Primary (Left) vs Secondary (Right) and shows current note titles.
+- **Changelog maintenance**
+  - Consolidated consecutive versions with empty Highlights into version ranges (e.g., `## Versions 14.4 – 14.9`).
+- **UI: Matte finish**
+  - Matte finish now applies a visible matte look to buttons consistently.
+- **Installer/Upgrades**
+  - Installer attempts graceful shutdown using `Shakshuka.exe --shutdown` before upgrade, with fallback to force-close.
+
+### Key files touched
+
+- **Frontend (JS)**
+  - `assets/static/js/app/dashboard.js` (analytics card calculations + refresh)
+  - `assets/static/js/app/app.js` (await `AppState.setTasks(...)`, analytics navigation refresh)
+  - `assets/static/js/pages/tasks.js` (await task state updates)
+  - `assets/static/js/pages/notes.js` (split view binding + chooser modal)
+- **Frontend (CSS)**
+  - `assets/static/css/core/theme.css` (matte finish overrides)
+  - `assets/static/css/layout/layout-shell.css` (sidebar spacing + `#app-logo` cursor)
+- **Backend (Python)**
+  - `src/routes/task_routes.py` (set/clear `struck_forever` on strike forever + undo)
+  - `src/app.py` + `src/analytics_manager.py` (SQLite-backed `/api/analytics` counters)
+- **Build/Installer**
+  - `scripts/installer.iss` (upgrade shutdown handling, versioning)
+- **Changelog**
+  - `config/changelog.txt`
+
+### How to verify (manual)
+
+- **Analytics**
+  - Strike-forever a task and confirm Completed Forever increments.
+  - Complete a task today and confirm Analytics "Completed Today" increments.
+  - Strike a task and confirm Analytics "Striked Today" updates (prefers `/api/analytics.today_strikes`).
+  - Confirm Day Streak reflects consecutive days of task completions via `completed_at`.
+- **Notes split view**
+  - Open Note A in primary and Note B in secondary; edit each and confirm only the correct note content changes.
+  - When secondary already contains a note, confirm the chooser prompts Primary vs Secondary with titles.
+- **Matte finish**
+  - Switch Finish to Matte and confirm buttons look visibly flatter (reduced gloss/shadows).
+- **Installer**
+  - Upgrade over an existing install with Shakshuka running; verify the installer closes the app automatically.
+
+### Known pending items
+
+- **Strike Report History 404**: may occur when running an older packaged backend/exe that does not include `/api/tasks/<id>/strike-reports`.
+- **Windows shutdown scheduling**: needs clarification on desired timing/behavior before adding commands.
+
 ## 📋 Quick Start
 
 ### Windows

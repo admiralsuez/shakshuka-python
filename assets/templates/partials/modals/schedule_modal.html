@@ -1,0 +1,78 @@
+
+
+    <!-- Schedule Modal -->
+        <div id="schedule-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Schedule Task</h3>
+                    <button class="modal-close" id="close-schedule-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="schedule-form">
+                        <div class="form-group">
+                            <label for="schedule-task-select">Task:</label>
+                            <select id="schedule-task-select" required>
+                                <option value="">Select a task</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="schedule-task-title">Or create new task:</label>
+                            <input type="text" id="schedule-task-title" placeholder="Enter task title">
+                        </div>
+                        <div class="form-group">
+                            <label for="schedule-task-description">Description (optional):</label>
+                            <textarea id="schedule-task-description" placeholder="Enter task description" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="schedule-task-project">Project (optional):</label>
+                            <input type="text" id="schedule-task-project" placeholder="Enter project name">
+                        </div>
+                        <div class="form-group">
+                            <label for="schedule-hour">Time:</label>
+                            <select id="schedule-hour" required>
+                                <option value="">Select time</option>
+                                <option value="06:00">6:00 AM</option>
+                                <option value="07:00">7:00 AM</option>
+                                <option value="08:00">8:00 AM</option>
+                                <option value="09:00">9:00 AM</option>
+                                <option value="10:00">10:00 AM</option>
+                                <option value="11:00">11:00 AM</option>
+                                <option value="12:00">12:00 PM</option>
+                                <option value="13:00">1:00 PM</option>
+                                <option value="14:00">2:00 PM</option>
+                                <option value="15:00">3:00 PM</option>
+                                <option value="16:00">4:00 PM</option>
+                                <option value="17:00">5:00 PM</option>
+                                <option value="18:00">6:00 PM</option>
+                                <option value="19:00">7:00 PM</option>
+                                <option value="20:00">8:00 PM</option>
+                                <option value="21:00">9:00 PM</option>
+                                <option value="22:00">10:00 PM</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="schedule-duration">Duration (minutes):</label>
+                            <select id="schedule-duration" required>
+                                <option value="15">15 minutes</option>
+                                <option value="30" selected>30 minutes</option>
+                                <option value="45">45 minutes</option>
+                                <option value="60">1 hour</option>
+                                <option value="90">1.5 hours</option>
+                                <option value="120">2 hours</option>
+                                <option value="180">3 hours</option>
+                                <option value="240">4 hours</option>
+                            </select>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" id="cancel-schedule">Cancel</button>
+                    <button type="button" class="btn-primary" id="confirm-schedule">
+                        <i class="fas fa-calendar-plus"></i>
+                        Schedule Task
+                    </button>
+                </div>
+            </div>
+        </div>

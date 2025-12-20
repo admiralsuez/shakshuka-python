@@ -10,7 +10,7 @@
     <link rel="shortcut icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
     
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=6.2">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/pin-auth.css') }}?v=6.2">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/auth/pin-auth.css') }}?v=6.2">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fontawesome.css') }}?v=6.2">
 </head>
@@ -801,6 +801,20 @@
         </div>
     </div>
 
+    <div class="modal" id="strike-report-history-modal">
+        <div class="modal-content strike-report-history-modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-clipboard-list"></i> Strike Report History</h3>
+                <button class="modal-close" id="close-strike-report-history-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body strike-report-history-modal-body">
+                <div id="strike-report-history-content"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Developer Logs Modal -->
     <div class="modal" id="notes-list-modal">
         <div class="modal-content">
@@ -966,43 +980,26 @@
         </div>
     </div>
 
-    <!-- Scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    
-    <!-- PIN Authentication - load first -->
-    <script src="{{ url_for('static', filename='js/pin-auth.js') }}?v=6.2"></script>
-    
-    <!-- Core utilities - load first -->
-    <script src="{{ url_for('static', filename='js/utils-new/error-handler.js') }}?v=6.2"></script>
-    <script src="{{ url_for('static', filename='js/state.js') }}?v=6.2"></script>
-    <script id="app-config-data" type="application/json">
-{{ {
-        "authEnabled": config.AUTH_ENABLED,
-        "version": version
-    } | tojson | safe }}
-    </script>
-    <script>
-    (function () {
-        const configElement = document.getElementById('app-config-data');
-        window.APP_CONFIG = configElement ? JSON.parse(configElement.textContent) : {};
-    }());
-    </script>
+    <!-- Daily Recap Modal -->
+    <div class="modal" id="daily-recap-modal">
+        <div class="modal-content daily-recap-modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-moon"></i> Daily Recap</h3>
+                <button class="modal-close" id="close-daily-recap-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body daily-recap-modal-body">
+                <div class="daily-recap-subtitle" id="daily-recap-subtitle">—</div>
+                <div class="daily-recap-grid" id="daily-recap-grid"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="daily-recap-dismiss">Got it</button>
+            </div>
+        </div>
+    </div>
 
-    <script src="{{ url_for('static', filename='js/utils.js') }}?v=6.2"></script>
-    <script src="{{ url_for('static', filename='js/task-helpers.js') }}?v=6.2"></script>
-    
-    <!-- Feature modules -->
-    <script src="{{ url_for('static', filename='js/core/keyboard.js') }}?v=6.2"></script>
-    <script src="{{ url_for('static', filename='js/features/settings.js') }}?v=6.2"></script>
-    <script src="{{ url_for('static', filename='js/tasks.js') }}?v=6.2"></script>
-    <script src="{{ url_for('static', filename='js/auth.js') }}?v=6.2"></script>
-    <script src="{{ url_for('static', filename='js/modules/planner-v2.js') }}?v=6.2"></script>
-    <script src="{{ url_for('static', filename='js/notes.js') }}?v=6.2"></script>
-    
-    <!-- Main application -->
-    <script src="{{ url_for('static', filename='js/app.js') }}?v=6.2"></script>
-    
-    <!-- App initialization - load last -->
-    <script src="{{ url_for('static', filename='js/core/app-init.js') }}?v=6.2"></script>
+    {% include 'partials/scripts.html' %}
+
 </body>
 </html>

@@ -1,0 +1,169 @@
+/* Tooltips removed - using native browser tooltips only */
+/* Desktop Base Styles - Default Layout */
+.sidebar {
+    width: calc(240px * var(--dpi-scale));
+    background: var(--surface-color);
+    backdrop-filter: blur(20px);
+    border-right: 1px solid var(--border-color);
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    z-index: 1000;
+    box-shadow: 0 0 30px var(--shadow-color);
+    transform: translateX(0);
+    transition: transform 0.3s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+.main-content {
+    flex: 1;
+    margin-left: calc(240px * var(--dpi-scale));
+    padding: calc(1.5rem * var(--dpi-scale));
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Desktop Grid Layout */
+.tasks-container .tasks-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)) !important;
+    gap: calc(1.5rem * var(--dpi-scale));
+    padding: calc(1rem * var(--dpi-scale));
+}
+
+@media (min-width: 769px) {
+    .tasks-container .tasks-grid {
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)) !important;
+    }
+}
+
+/* Desktop Planner Layout */
+.planner-container {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: calc(2rem * var(--dpi-scale));
+    height: calc(100vh - 200px);
+}
+
+/* Desktop Dashboard Layout */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+    margin-bottom: 2rem;
+}
+
+/* Desktop Form Layout */
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: calc(1rem * var(--dpi-scale));
+}
+
+/* Desktop Header Layout */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: calc(2rem * var(--dpi-scale));
+    padding-bottom: calc(1rem * var(--dpi-scale));
+    border-bottom: 1px solid var(--border-color);
+    flex-wrap: wrap;
+    gap: calc(1rem * var(--dpi-scale));
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: calc(1rem * var(--dpi-scale));
+    flex-wrap: wrap;
+}
+/* Tasks Container - Flexible Layout */
+.tasks-container {
+    width: 100%;
+}
+.tasks-container .tasks-list {
+    display: flex;
+    flex-direction: column;
+    gap: calc(1rem * var(--dpi-scale));
+}
+/* Responsive Design - Mobile */
+@media (max-width: 768px) {
+    .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+    }
+    .sidebar.open {
+        transform: translateX(0) !important;
+    }
+    .main-content {
+        margin-left: 0 !important;
+        padding: calc(1rem * var(--dpi-scale));
+        padding-top: calc(4rem * var(--dpi-scale));
+    }
+    /* Sidebar toggle is now always visible */
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    .planner-container {
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: calc(1rem * var(--dpi-scale));
+    }
+    .header-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+    /* Mobile Grid Layout */
+    .tasks-container .tasks-grid {
+        grid-template-columns: 1fr !important;
+        gap: calc(1rem * var(--dpi-scale));
+        padding: calc(0.5rem * var(--dpi-scale));
+    }
+    /* Mobile Task Cards */
+    .task-card {
+        min-height: calc(150px * var(--dpi-scale));
+    }
+}
+
+/* Desktop specific styles */
+@media (min-width: 769px) {
+    .sidebar {
+        transform: translateX(0) !important;
+    }
+    .main-content {
+        margin-left: calc(240px * var(--dpi-scale));
+        padding-top: calc(1.5rem * var(--dpi-scale));
+    }
+    
+    /* Ensure layout toggle remains visible and functional on desktop */
+    .layout-toggle {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    
+    .layout-btn {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    
+    .layout-btn i {
+        font-family: "Font Awesome 6 Free" !important;
+        font-weight: 900 !important;
+        display: inline-block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+}

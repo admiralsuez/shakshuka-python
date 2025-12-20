@@ -218,3 +218,5 @@ Thumbs.db
 enhanced_logging.py
 graceful_shutdown.py
 config.py
+
+!src/core/config.py

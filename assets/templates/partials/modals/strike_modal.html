@@ -1,0 +1,32 @@
+
+
+        <!-- Strike Modal -->
+    <div id="strike-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Strike Task</h3>
+                <button class="modal-close" id="close-strike-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="strike-form">
+                    <div class="form-group">
+                        <label for="strike-report">What did you accomplish?</label>
+                        <textarea id="strike-report" placeholder="Describe what you completed or accomplished..." rows="4"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-strike">Cancel</button>
+                <button type="button" class="btn-warning" id="strike-today-btn">
+                    <i class="fas fa-calendar-day"></i>
+                    Strike for Today
+                </button>
+                <button type="button" class="btn-danger" id="strike-forever-btn">
+                    <i class="fas fa-check-circle"></i>
+                    Strike Forever
+                </button>
+            </div>
+        </div>
+    </div>

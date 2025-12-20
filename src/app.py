@@ -18,6 +18,7 @@ import re
 import secrets
 import logging
 import subprocess
+import sqlite3
 from werkzeug.utils import secure_filename
 
 # Add the parent directory to Python path for imports
@@ -36,101 +37,38 @@ from src.constants import (
     DEFAULT_USER_ID
 )
 from src.core.config import config
+from src.app_factory import create_app
+from src.app_setup import resolve_root_dir, configure_assets, configure_working_dir, configure_logging
 from src.utils.validators import validate_task_data
 from src.routes.task_routes import task_bp, init_task_routes
 from src.routes.notes_routes import notes_bp, init_notes_routes
+from src.routes.pin_routes import pin_bp, init_pin_routes
+from src.routes.planner_routes import planner_bp, init_planner_routes
+from src.routes.monitoring_routes import monitoring_bp, init_monitoring_routes
+from src.routes.updates_routes import updates_bp, init_updates_routes
+from src.routes.backups_routes import backups_bp, init_backups_routes
+from src.routes.github_update_routes import github_update_bp, init_github_update_routes
+from src.services import scheduler as scheduler_service
+from src.services import autosave as autosave_service
+from src.services import tray as tray_service
 
 # Flask app configuration
-app = Flask(__name__)
+app = create_app()
 # Enable debug mode for better error messages (disable in production)
-app.config['DEBUG'] = True
-app.debug = True
+app.config['DEBUG'] = bool(config.DEBUG)
+app.debug = bool(config.DEBUG)
 
 # Issue #30: Set request size limit
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH_BYTES
 
-# Set up user data directory and secret key immediately to avoid permission issues
-# Use centralized path helper so all components agree on the same location
 from src.utils.paths import get_user_data_dir
 
 user_data_dir = get_user_data_dir()
 os.makedirs(user_data_dir, exist_ok=True)
-secret_key_file = os.path.join(user_data_dir, '.flask_secret')
 
-# Issue #7: Secret key management with proper fallback
-try:
-    if os.path.exists(secret_key_file):
-        with open(secret_key_file, 'rb') as f:
-            secret_key_data = f.read()
-            if len(secret_key_data) >= 32:
-                app.secret_key = secret_key_data
-            else:
-                raise ValueError("Invalid secret key size")
-    else:
-        app.secret_key = os.urandom(32)
-        with open(secret_key_file, 'wb') as f:
-            f.write(app.secret_key)
-except Exception as e:
-    # Logging not yet initialized — use a temporary logger
-    import logging as _logging
-    _init_logger = _logging.getLogger(__name__)
-    _init_logger.warning("Could not create Flask secret key file: %s. Using environment or generated key", e)
-    # Try environment variable first, then generate persistent key
-    env_key = os.getenv('FLASK_SECRET_KEY')
-    if env_key:
-        app.secret_key = env_key.encode()
-    else:
-        # Generate and persist even on failure
-        app.secret_key = os.urandom(32)
-
-# Use persistent secret key from environment or generate once and store
-# Use user AppData directory to avoid permission issues when installed in Program Files
-import tempfile
-
-# Set up static and template folders after app creation
-# Handle both development, PyInstaller executable, and installed package modes
-if getattr(sys, 'frozen', False):
-    # Running as compiled executable
-    base_path = os.path.dirname(sys.executable)
-    root_dir = base_path
-else:
-    # Check if running as installed package
-    import pkg_resources
-    try:
-        # Try to get package location
-        dist = pkg_resources.get_distribution('shakshuka')
-        if dist:
-            # Running as installed package
-            # Look for assets in package data or share directory
-            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            # Check if assets exist in package location
-            package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if not os.path.exists(os.path.join(package_root, 'assets')):
-                # Try share directory
-                share_dir = '/usr/share/shakshuka'
-                if os.path.exists(share_dir):
-                    root_dir = share_dir
-                else:
-                    # Fall back to development mode
-                    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    except (pkg_resources.DistributionNotFound, Exception):
-        # Running as development script
-        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-static_dir = os.path.join(root_dir, 'assets', 'static')
-template_dir = os.path.join(root_dir, 'assets', 'templates')
-
-# Configure Flask app paths
-app.static_folder = static_dir
-app.template_folder = template_dir
-
-# Try to set working directory to app root to avoid system32 when launched from shortcuts
-try:
-    os.chdir(root_dir)
-    # Logger not initialized yet; defer logging until logger is set
-except Exception:
-    # Ignore failures; code uses absolute paths
-    pass
+root_dir = resolve_root_dir()
+configure_assets(app, root_dir)
+configure_working_dir(root_dir)
 
 
 # System tray availability - will be checked when needed
@@ -160,73 +98,7 @@ def _check_system_tray_available():
         SYSTEM_TRAY_AVAILABLE = True  # Allow it to try, will fail gracefully
         return True
 
-# Setup logging
-try:
-    # Always use user data directory for logs to avoid permission issues
-    logs_dir = os.path.join(user_data_dir, 'logs')
-    os.makedirs(logs_dir, exist_ok=True)
-
-    # Create a new log file on each launch with format: date-time-log#number.txt
-    # Example: 2025-11-24_21-06-18-log#1.txt
-    from datetime import datetime as _dt
-
-    timestamp = _dt.now().strftime('%Y-%m-%d_%H-%M-%S')
-    existing_txt_logs = [f for f in os.listdir(logs_dir) if f.lower().endswith('.txt')]
-
-    # Determine next sequence number for this launch
-    next_index = 1
-    if existing_txt_logs:
-        import re as _re
-        pattern = _re.compile(rf"^{timestamp}-log#(\d+)\.txt$", _re.IGNORECASE)
-        for name in existing_txt_logs:
-            m = pattern.match(name)
-            if m:
-                try:
-                    idx = int(m.group(1))
-                    if idx >= next_index:
-                        next_index = idx + 1
-                except ValueError:
-                    continue
-
-    log_filename = f"{timestamp}-log#{next_index}.txt"
-    log_file = os.path.join(logs_dir, log_filename)
-
-    # Configure logging to use the per-launch file plus console
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file, encoding='utf-8'),
-            logging.StreamHandler()
-        ]
-    )
-
-    # Enforce a maximum of 10 txt log files; when we reach/exceed 10, delete the oldest 5
-    try:
-        txt_paths = [os.path.join(logs_dir, f) for f in os.listdir(logs_dir) if f.lower().endswith('.txt')]
-        if len(txt_paths) >= 10:
-            txt_paths.sort(key=lambda p: os.path.getmtime(p))
-            for old_path in txt_paths[:5]:
-                try:
-                    os.remove(old_path)
-                except Exception:
-                    # Best-effort cleanup; ignore failures
-                    pass
-    except Exception:
-        # Never let rotation failures break app startup
-        pass
-
-except Exception as e:
-    # Fallback to console-only logging if file logging fails
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler()
-        ]
-    )
-    logger = logging.getLogger(__name__)
-    logger.warning(f"Could not set up file logging: {e}. Using console logging only.")
+configure_logging(user_data_dir)
 logger = logging.getLogger(__name__)
 
 # Version compare helper
@@ -414,7 +286,7 @@ class AppContext:
     # Password hashing functions removed - were unused dead code
 
 # Initialize application context
-app_context = AppContext()
+from src.core.app_context import app_context
 
 # Issue #29: Configure CORS with proper origins
 if '*' in ALLOWED_ORIGINS:
@@ -673,6 +545,42 @@ init_notes_routes(
 )
 app.register_blueprint(notes_bp)
 
+init_pin_routes(app_context=app_context)
+app.register_blueprint(pin_bp)
+
+init_planner_routes(app_context=app_context, get_user_id_func=get_user_id)
+app.register_blueprint(planner_bp)
+
+init_monitoring_routes(
+    monitor=monitor,
+    security_manager=security_manager,
+    get_user_id_func=get_user_id,
+    get_user_data_dir_func=get_user_data_dir,
+)
+app.register_blueprint(monitoring_bp)
+
+init_updates_routes(
+    app_context=app_context,
+    update_manager_cls=UpdateManager,
+    get_user_data_dir_func=get_user_data_dir,
+)
+app.register_blueprint(updates_bp)
+
+init_backups_routes(
+    app_context=app_context,
+    update_manager_cls=UpdateManager,
+    get_user_data_dir_func=get_user_data_dir,
+)
+app.register_blueprint(backups_bp)
+
+init_github_update_routes(
+    get_app_version_func=_get_app_version,
+    is_newer_version_func=_is_newer_version,
+    repo_owner=GITHUB_REPO_OWNER,
+    repo_name=GITHUB_REPO_NAME,
+)
+app.register_blueprint(github_update_bp)
+
 
 def initialize_data_manager():
     """Initialize data manager without password"""
@@ -847,26 +755,9 @@ def auto_save_worker():
 def start_auto_save():
     """Start the auto-save background thread with proper state management"""
     try:
-        # Check if auto-save is already running
-        if app_context.is_auto_save_running():
-            logger.warning("Auto-save is already running")
-            return
-        
-        # Clear any previous stop event
-        app_context.clear_auto_save_stop_event()
-        
-        # Enable auto-save
-        app_context.auto_save_enabled = True
-        
-        # Start the thread
-        app_context.auto_save_thread = threading.Thread(
-            target=auto_save_worker, 
-            daemon=True,
-            name="AutoSaveWorker"
-        )
-        app_context.set_auto_save_running(True)
-        app_context.auto_save_thread.start()
-        
+        autosave_service.set_app_context(app_context)
+        autosave_service.set_get_user_id(get_user_id)
+        autosave_service.start_auto_save()
         logger.info("Auto-save thread started successfully")
         
     except Exception as e:
@@ -876,24 +767,8 @@ def start_auto_save():
 def stop_auto_save():
     """Stop the auto-save background thread with proper cleanup"""
     try:
-        logger.info("Stopping auto-save...")
-        
-        # Disable auto-save
-        app_context.auto_save_enabled = False
-        
-        # Signal the worker to stop
-        app_context.stop_auto_save_event()
-        
-        # Wait for the thread to finish (with timeout)
-        if app_context.auto_save_thread and app_context.auto_save_thread.is_alive():
-            app_context.auto_save_thread.join(timeout=10)
-            
-            if app_context.auto_save_thread.is_alive():
-                logger.warning("Auto-save thread did not stop gracefully")
-            else:
-                logger.info("Auto-save thread stopped successfully")
-        
-        # Clear the running state
+        autosave_service.set_app_context(app_context)
+        autosave_service.stop_auto_save(timeout=10)
         app_context.set_auto_save_running(False)
         
     except Exception as e:
@@ -902,7 +777,7 @@ def stop_auto_save():
 def scheduler_worker(stop_event: threading.Event):
     """Robust background thread for scheduled tasks with timezone awareness"""
     logger.info("Scheduler worker started")
-    last_missed_check = datetime.utcnow()
+    last_missed_check = datetime.now()
     
     while not stop_event.is_set():
         try:
@@ -910,7 +785,7 @@ def scheduler_worker(stop_event: threading.Event):
             schedule.run_pending()
             
             # Periodically check for missed resets (every 15 minutes)
-            now = datetime.utcnow()
+            now = datetime.now()
             if (now - last_missed_check).total_seconds() >= 900:  # 15 minutes
                 if app_context.data_manager:
                     user_id = get_user_id()
@@ -1076,24 +951,10 @@ def reset_daily_strikes_job():
 
 def start_scheduler():
     """Start the scheduler background thread with proper error handling"""
-    global scheduler_thread, scheduler_stop_event
     try:
-        # Setup daily reset schedule
-        setup_daily_reset()
-        
-        # Start scheduler thread
-        if scheduler_thread and scheduler_thread.is_alive():
-            logger.warning("Scheduler thread already running")
-        else:
-            scheduler_stop_event = threading.Event()
-            scheduler_thread = threading.Thread(
-                target=scheduler_worker,
-                args=(scheduler_stop_event,),
-                daemon=True,
-                name="SchedulerWorker",
-            )
-            scheduler_thread.start()
-        
+        scheduler_service.set_app_context(app_context)
+        scheduler_service.set_data_manager_getter(lambda: app_context.data_manager)
+        scheduler_service.start_scheduler()
         logger.info("Scheduler thread started successfully")
         
     except Exception as e:
@@ -1102,24 +963,10 @@ def start_scheduler():
 
 def stop_scheduler(timeout: float = 10.0):
     """Stop the scheduler background thread gracefully if it is running."""
-    global scheduler_thread, scheduler_stop_event
     try:
-        if not scheduler_thread or not scheduler_thread.is_alive():
-            logger.info("Scheduler thread is not running; nothing to stop")
-            return
-
-        if scheduler_stop_event is None:
-            logger.warning("Scheduler stop event is not initialized; cannot signal stop cleanly")
-            return
-
         logger.info("Stopping scheduler thread...")
-        scheduler_stop_event.set()
-        scheduler_thread.join(timeout=timeout)
-
-        if scheduler_thread.is_alive():
-            logger.warning("Scheduler thread did not stop within timeout")
-        else:
-            logger.info("Scheduler thread stopped successfully")
+        scheduler_service.stop_scheduler(timeout=timeout)
+        logger.info("Scheduler thread stopped successfully")
     except Exception as e:
         logger.error(f"Error stopping scheduler: {e}")
 
@@ -1164,7 +1011,7 @@ def index():
         version = '1.0.0'
 
     return render_template(
-        'index.html',
+        'index_modular.html',
         version=version,
         config=config
     )
@@ -1205,7 +1052,7 @@ def get_changelog():
         else:
             # Running as Python script
             root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
+
         changelog_path = os.path.join(root_dir, 'config', 'changelog.txt')
         logger.info(f"Looking for changelog at: {changelog_path}")
         
@@ -1236,266 +1083,74 @@ def get_analytics():
         logger.error(f"Analytics read error: {e}")
         return jsonify({
             'success': False,
-            'today_date': datetime.utcnow().strftime('%Y-%m-%d'),
+            'today_date': datetime.now().strftime('%Y-%m-%d'),
             'today_strikes': 0,
             'total_strikes': 0,
         }), 200
 
 
-@app.route('/api/check-updates')
-def check_updates():
-    """Check for available updates"""
-    try:
-        # Get current version
-        current_version = _get_app_version()
-        
-        # For now, return current version info
-        # In a real implementation, this would check a remote server
-        return jsonify({
-            'current_version': current_version,
-            'latest_version': current_version,
-            'update_available': False,
-            'download_url': None,
-            'release_notes': 'No updates available'
-        })
-    except Exception as e:
-        logger.error(f"Error checking updates: {e}")
-        return jsonify({
-            'error': 'Failed to check for updates',
-            'current_version': 'unknown',
-            'latest_version': 'unknown',
-            'update_available': False
-        }), 500
+@app.route('/api/analytics/strike-calendar', methods=['GET'])
+def get_strike_calendar():
+    """Return strike contribution calendar counts for a given month.
 
-@app.route('/api/updates/check', methods=['POST'])
-def check_updates_legacy():
-    """Check for available updates (legacy endpoint)"""
-    try:
-        # Get current version
-        current_version = _get_app_version()
-        
-        # For now, return current version info
-        # In a real implementation, this would check a remote server
-        return jsonify({
-            'update_available': False,
-            'current_version': current_version,
-            'latest_version': current_version,
-            'update_info': {
-                'version': current_version,
-                'release_notes': 'No updates available',
-                'download_url': None,
-                'file_size': 0
-            }
-        })
-    except Exception as e:
-        logger.error(f"Error checking updates: {e}")
-        return jsonify({
-            'error': 'Failed to check for updates',
-            'update_available': False,
-            'current_version': 'unknown',
-            'latest_version': 'unknown'
-        }), 500
-
-@app.route('/api/github/check-update', methods=['POST'])
-def check_github_update():
-    """Check for updates from GitHub releases"""
-    try:
-        import requests
-        import json
-        
-        # Get request data
-        data = request.get_json() or {}
-        branch = data.get('branch', 'main')
-        
-        # GitHub repository info
-        repo_owner = GITHUB_REPO_OWNER
-        repo_name = GITHUB_REPO_NAME
-        
-        # Get latest release from GitHub API
-        if branch == 'main':
-            # For main branch, get the latest stable release
-            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
-        else:
-            # For other branches, get the latest release with prerelease tag
-            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
-            params = {'per_page': 1}
-            if branch == 'testing':
-                params['prerelease'] = True
-            elif branch == 'development':
-                params['prerelease'] = True
-        
-        response = requests.get(url, params=params if branch != 'main' else None, timeout=10)
-        response.raise_for_status()
-        
-        if branch == 'main':
-            release_data = response.json()
-        else:
-            releases = response.json()
-            if not releases:
-                return jsonify({
-                    'update_available': False,
-                    'message': 'No releases found for this branch'
-                })
-            release_data = releases[0]
-        
-        # Get current version
-        current_version = _get_app_version()
-        
-        # Compare versions (semver aware)
-        latest_version = str(release_data['tag_name']).lstrip('v')
-        update_available = _is_newer_version(latest_version, current_version)
-        
-        # Try to pick a Windows installer asset for GitHub modal convenience
-        asset_url = None
-        asset_size = 0
-        for asset in release_data.get('assets', []):
-            name = asset.get('name', '').lower()
-            if name.endswith('.exe') and ('setup' in name or 'installer' in name):
-                asset_url = asset.get('browser_download_url')
-                asset_size = int(asset.get('size', 0))
-                break
-        if not asset_url:
-            # fallback to any asset
-            assets = release_data.get('assets', [])
-            if assets:
-                asset_url = assets[0].get('browser_download_url')
-                asset_size = int(assets[0].get('size', 0))
-        
-        return jsonify({
-            'update_available': update_available,
-            'current_version': current_version,
-            'latest_version': latest_version,
-            'release_info': {
-                'tag_name': release_data.get('tag_name'),
-                'name': release_data.get('name'),
-                'body': release_data.get('body'),
-                'published_at': release_data.get('published_at'),
-                'download_url': asset_url,
-                'file_size': asset_size
-            }
-        })
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"GitHub API error: {e}")
-        return jsonify({
-            'error': 'Failed to connect to GitHub',
-            'update_available': False
-        }), 500
-    except Exception as e:
-        logger.error(f"Error checking GitHub update: {e}")
-        return jsonify({
-            'error': 'Failed to check for updates',
-            'update_available': False
-        }), 500
-
-@app.route('/api/github/download-update', methods=['POST'])
-def download_github_update():
-    """Download and prepare update from GitHub.
-
-    Note: For security reasons this endpoint only downloads the installer to a
-    temporary directory and returns its path/size. Actual execution of the
-    installer must be handled by the user or a trusted local component.
+    Contribution = any task struck (today or forever) on that date.
+    Data is persisted in the main tasks SQLite database via strike_events.
     """
+    user_id = get_user_id()
+    if not ensure_data_manager():
+        return jsonify({'success': False, 'error': 'Failed to initialize data manager'}), 500
+
     try:
-        import requests
-        import json
-        import tempfile
-        import shutil
-        
-        # Get request data
-        data = request.get_json() or {}
-        branch = data.get('branch', 'main')
-        
-        # GitHub repository info
-        repo_owner = GITHUB_REPO_OWNER
-        repo_name = GITHUB_REPO_NAME
-        
-        # Get latest release
-        if branch == 'main':
-            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
-        else:
-            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
-            params = {'per_page': 1}
-            if branch in ('testing', 'development'):
-                params['prerelease'] = True
-
-        response = requests.get(url, params=params if branch != 'main' else None, timeout=10)
-        response.raise_for_status()
-        
-        if branch == 'main':
-            release_data = response.json()
-        else:
-            releases = response.json()
-            if not releases:
-                return jsonify({'error': 'No releases found for this branch'}), 404
-            release_data = releases[0]
-        
-        # Find the Windows installer asset
-        installer_url = None
-        installer_size = 0
-        installer_name = None
-        for asset in release_data.get('assets', []):
-            name = asset.get('name', '')
-            if name.lower().endswith('.exe') and 'setup' in name.lower():
-                installer_url = asset.get('browser_download_url')
-                installer_size = int(asset.get('size', 0) or 0)
-                installer_name = name
-                break
-        
-        if not installer_url:
-            return jsonify({'error': 'No Windows installer found in release'}), 404
-        
-        # Choose a Downloads folder as the destination when possible
-        try:
-            home_dir = os.path.expanduser('~')
-            downloads_dir = os.path.join(home_dir, 'Downloads')
-            if not os.path.isdir(downloads_dir):
-                downloads_dir = tempfile.gettempdir()
-        except Exception:
-            downloads_dir = tempfile.gettempdir()
-        os.makedirs(downloads_dir, exist_ok=True)
-        
-        if not installer_name:
-            # Fallback file name if the asset name isn't available
-            tag = str(release_data.get('tag_name') or 'latest').lstrip('v')
-            installer_name = f'Shakshuka-Setup-{tag}.exe'
-        
-        installer_path = os.path.join(downloads_dir, installer_name)
-        
-        # Download the installer
-        logger.info(f"Downloading update from: {installer_url} to {installer_path}")
-        download_response = requests.get(installer_url, stream=True, timeout=30)
-        download_response.raise_for_status()
-        
-        # Save to chosen path
-        with open(installer_path, 'wb') as f:
-            for chunk in download_response.iter_content(chunk_size=8192):
-                if not chunk:
-                    continue
-                f.write(chunk)
-        
-        logger.info(f"Downloaded installer to: {installer_path}")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Update downloaded successfully',
-            'installer_size': installer_size,
-            'installer_path': installer_path,
-            'release_info': {
-                'tag_name': release_data.get('tag_name'),
-                'name': release_data.get('name'),
-                'body': release_data.get('body'),
-            }
-        })
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"GitHub download error: {e}")
-        return jsonify({'error': 'Failed to download update from GitHub'}), 500
+        month = request.args.get('month')
+        if not month:
+            month = datetime.now().strftime('%Y-%m')
+        data = app_context.data_manager.get_strike_contributions_for_month(user_id, month)
+        months = app_context.data_manager.list_strike_contribution_months(user_id, limit=36)
+        return jsonify({'success': True, **data, 'months': months})
     except Exception as e:
-        logger.error(f"Error downloading GitHub update: {e}")
-        return jsonify({'error': 'Failed to download update'}), 500
+        logger.error(f"Strike calendar error: {e}")
+        return jsonify({'success': False, 'month': datetime.now().strftime('%Y-%m'), 'days': {}, 'added': {}, 'max': 0, 'months': []}), 200
 
-# Basic account endpoint to prevent 404s from frontend probes
+
+@app.route('/api/analytics/daily-recap', methods=['GET'])
+def get_daily_recap():
+    """Return recap metrics for a given day (defaults to yesterday).
+
+    Includes a 'seen' boolean so the frontend can decide whether to show the modal.
+    """
+    user_id = get_user_id()
+    if not ensure_data_manager():
+        return jsonify({'success': False, 'error': 'Failed to initialize data manager'}), 500
+
+    try:
+        day = request.args.get('day')
+        if not day:
+            day = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+
+        recap = app_context.data_manager.get_daily_recap(user_id, day) or {}
+        seen = app_context.data_manager.was_recap_seen(user_id, day)
+        return jsonify({'success': True, 'seen': bool(seen), **recap})
+    except Exception as e:
+        logger.error(f"Daily recap error: {e}")
+        return jsonify({'success': False, 'seen': False, 'day': (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')}), 200
+
+
+@app.route('/api/analytics/daily-recap/seen', methods=['POST'])
+def mark_daily_recap_seen():
+    user_id = get_user_id()
+    if not ensure_data_manager():
+        return jsonify({'success': False, 'error': 'Failed to initialize data manager'}), 500
+
+    try:
+        payload = request.json if isinstance(request.json, dict) else {}
+        day = payload.get('day') or (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        ok = app_context.data_manager.mark_recap_seen(user_id, day)
+        return jsonify({'success': bool(ok), 'day': day})
+    except Exception as e:
+        logger.error(f"Mark recap seen error: {e}")
+        return jsonify({'success': False}), 200
+
+
 @app.route('/api/account', methods=['GET'])
 def get_account_info():
     try:
@@ -1510,7 +1165,6 @@ def get_account_info():
         logger.error(f"/api/account error: {e}")
         return jsonify({'username': DEFAULT_USER_ID, 'authenticated': False}), 200
 
-# Authentication routes
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Login page - authentication disabled, redirect to dashboard"""
@@ -1519,172 +1173,9 @@ def login():
 
 
 
-
-
-
-
-
-# ============================================
-# PIN Authentication Endpoints
-# ============================================
-
-@app.route('/api/pin/status', methods=['GET'])
-def get_pin_status():
-    """Check if PIN is setup and get cooldown status"""
-    try:
-        if not app_context.pin_manager:
-            return jsonify({'error': 'PIN manager not initialized'}), 500
-        
-        is_setup = app_context.pin_manager.is_setup_complete()
-        in_cooldown, seconds_remaining = app_context.pin_manager.is_in_cooldown()
-        
-        response = {
-            'setup_complete': is_setup,
-            'in_cooldown': in_cooldown,
-            'seconds_remaining': seconds_remaining,
-            'session_valid': app_context.pin_manager.is_session_valid() if is_setup else False
-        }
-        
-        if is_setup:
-            response['last_login'] = app_context.pin_manager.get_last_login()
-            response['failed_attempts'] = app_context.pin_manager.get_failed_attempts()
-            response['remembered'] = app_context.pin_manager.is_remembered()
-            response['session_expires'] = app_context.pin_manager.get_session_expiry()
-        
-        return jsonify(response)
-    except Exception as e:
-        logger.error(f"Error checking PIN status: {e}")
-        return jsonify({'error': 'Failed to check PIN status'}), 500
-
-@app.route('/api/pin/setup', methods=['POST'])
-def setup_pin():
-    """Setup new PIN"""
-    try:
-        if not app_context.pin_manager:
-            return jsonify({'error': 'PIN manager not initialized'}), 500
-        
-        data = request.json
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        pin = data.get('pin', '')
-        confirm_pin = data.get('confirm_pin', '')
-        recovery_questions = data.get('recovery_questions', [])
-        
-        success, message = app_context.pin_manager.setup_pin(pin, confirm_pin, recovery_questions)
-        
-        if success:
-            # Create session token
-            session_token = secrets.token_urlsafe(32)
-            session['authenticated'] = True
-            session['session_token'] = session_token
-            session['auth_time'] = datetime.now().isoformat()
-            
-            return jsonify({
-                'success': True,
-                'message': message,
-                'session_token': session_token
-            })
-        else:
-            return jsonify({'error': message}), 400
-    except Exception as e:
-        logger.error(f"Error setting up PIN: {e}")
-        return jsonify({'error': 'Failed to setup PIN'}), 500
-
-@app.route('/api/pin/verify', methods=['POST'])
-def verify_pin():
-    """Verify PIN and login"""
-    try:
-        if not app_context.pin_manager:
-            return jsonify({'error': 'PIN manager not initialized'}), 500
-        
-        data = request.json
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        pin = data.get('pin', '')
-        remember = data.get('remember', False)
-        
-        success, message, attempts_remaining = app_context.pin_manager.verify_pin(pin, remember)
-        
-        if success:
-            # Create session token
-            session_token = secrets.token_urlsafe(32)
-            session['authenticated'] = True
-            session['session_token'] = session_token
-            session['auth_time'] = datetime.now().isoformat()
-            
-            return jsonify({
-                'success': True,
-                'message': message,
-                'session_token': session_token,
-                'remembered': remember
-            })
-        else:
-            return jsonify({
-                'error': message,
-                'attempts_remaining': attempts_remaining
-            }), 401
-    except Exception as e:
-        logger.error(f"Error verifying PIN: {e}")
-        return jsonify({'error': 'Failed to verify PIN'}), 500
-
-@app.route('/api/pin/reset', methods=['POST'])
-def reset_pin():
-    """Reset PIN (forgot PIN recovery)"""
-    try:
-        if not app_context.pin_manager:
-            return jsonify({'error': 'PIN manager not initialized'}), 500
-        
-        data = request.json
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        new_pin = data.get('new_pin', '')
-        confirm_pin = data.get('confirm_pin', '')
-        
-        success, message = app_context.pin_manager.reset_pin(new_pin, confirm_pin)
-        
-        if success:
-            # Create session token
-            session_token = secrets.token_urlsafe(32)
-            session['authenticated'] = True
-            session['session_token'] = session_token
-            session['auth_time'] = datetime.now().isoformat()
-            
-            return jsonify({
-                'success': True,
-                'message': message,
-                'session_token': session_token
-            })
-        else:
-            return jsonify({'error': message}), 400
-    except Exception as e:
-        logger.error(f"Error resetting PIN: {e}")
-        return jsonify({'error': 'Failed to reset PIN'}), 500
-
-@app.route('/api/pin/logout', methods=['POST'])
-def logout():
-    """Logout and clear session"""
-    try:
-        # Clear remember session in PIN manager
-        if app_context.pin_manager:
-            app_context.pin_manager.logout()
-        
-        # Clear Flask session
-        session.clear()
-        
-        return jsonify({'success': True, 'message': 'Logged out successfully'})
-    except Exception as e:
-        logger.error(f"Error during logout: {e}")
-        return jsonify({'error': 'Logout failed'}), 500
-
 # ============================================
 # Task Management Endpoints
 # ============================================
-# NOTE: Task endpoints are now provided by the tasks blueprint in
-# src.routes.task_routes and registered above. The legacy inline
-# route implementations have been removed from this module.
 
 @app.route('/api/settings/autostart', methods=['GET'])
 def get_autostart_status():
@@ -1931,6 +1422,11 @@ def update_settings():
                     logger.error(f"Failed to save settings for user {user_id} after {max_retries} attempts")
         
         if save_success:
+            # Record a settings-change event for daily recap/history (best effort)
+            try:
+                app_context.data_manager.add_settings_change_event(user_id)
+            except Exception:
+                pass
             # If daily reset time was changed, reschedule the reset job
             if daily_reset_time_changed:
                 try:
@@ -1950,6 +1446,74 @@ def update_settings():
         logger.error(f"Error updating settings for user {user_id}: {e}")
         return jsonify({'error': 'Failed to update settings'}), 500
 
+
+@app.route('/api/export', methods=['GET'])
+def export_data():
+    user_id = get_user_id()
+    try:
+        dm = getattr(app_context, 'data_manager', None)
+        if not dm:
+            return jsonify({'error': 'Data manager not initialized'}), 500
+
+        tasks = dm.load_tasks_for_user(user_id)
+        notes = dm.load_notes_for_user(user_id)
+        settings = dm.load_settings(user_id)
+        planner_v2_schedule = dm.load_planner_v2_schedule(user_id)
+
+        days = dm.load_planner_history_days(user_id, limit=30)
+        planner_history = {}
+        for day in days:
+            planner_history[day] = dm.load_planner_history_for_day(user_id, day)
+
+        return jsonify({
+            'exported_at': datetime.now().isoformat(),
+            'user_id': user_id,
+            'tasks': tasks,
+            'notes': notes,
+            'settings': settings,
+            'planner_v2_schedule': planner_v2_schedule,
+            'planner_history': planner_history,
+        })
+    except Exception as e:
+        logger.error(f"Failed to export data for user {user_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to export data'}), 500
+
+
+@app.route('/api/clear', methods=['POST'])
+def clear_data():
+    user_id = get_user_id()
+    try:
+        dm = getattr(app_context, 'data_manager', None)
+        db_path = getattr(dm, 'db_path', None) if dm else None
+        if not db_path:
+            return jsonify({'success': False, 'error': 'Data manager not initialized'}), 500
+
+        def _safe_delete(conn, sql: str, params: tuple) -> None:
+            try:
+                conn.execute(sql, params)
+            except sqlite3.OperationalError:
+                return
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute('PRAGMA foreign_keys = ON')
+            conn.execute('BEGIN IMMEDIATE TRANSACTION')
+
+            _safe_delete(conn, 'DELETE FROM tasks WHERE user_id = ?', (user_id,))
+            _safe_delete(conn, 'DELETE FROM notes WHERE user_id = ?', (user_id,))
+            _safe_delete(conn, 'DELETE FROM planner_v2_schedule WHERE user_id = ?', (user_id,))
+            _safe_delete(conn, 'DELETE FROM planner_task_history WHERE user_id = ?', (user_id,))
+            _safe_delete(conn, 'DELETE FROM strike_today_report_history WHERE user_id = ?', (user_id,))
+            _safe_delete(conn, 'DELETE FROM sessions WHERE user_id = ?', (user_id,))
+            _safe_delete(conn, 'DELETE FROM user_preferences WHERE user_id = ?', (user_id,))
+            _safe_delete(conn, 'DELETE FROM settings WHERE user_id = ?', (user_id,))
+
+            conn.commit()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Failed to clear data for user {user_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Failed to clear data'}), 500
+
 def _validate_time_format(time_str: str) -> bool:
     """Validate time format (HH:MM)"""
     try:
@@ -1962,461 +1526,6 @@ def _validate_time_format(time_str: str) -> bool:
         return 0 <= hour <= 23 and 0 <= minute <= 59
     except (ValueError, IndexError):
         return False
-
-# Monitoring endpoints
-@app.route('/api/monitoring/health', methods=['GET'])
-def get_health_status():
-    """Get system health status"""
-    try:
-        health_status = monitor.get_health_status()
-        return jsonify(health_status)
-    except Exception as e:
-        logger.error(f"Error getting health status: {e}")
-        return jsonify({'error': 'Failed to get health status'}), 500
-
-@app.route('/api/monitoring/metrics', methods=['GET'])
-def get_metrics():
-    """Get system metrics"""
-    try:
-        metrics = monitor.get_metrics_summary()
-        return jsonify(metrics)
-    except Exception as e:
-        logger.error(f"Error getting metrics: {e}")
-        return jsonify({'error': 'Failed to get metrics'}), 500
-
-@app.route('/api/monitoring/export', methods=['POST'])
-def export_metrics():
-    """Export metrics to file in the user data directory"""
-    try:
-        user_id = get_user_id()
-        # Keep exports alongside other user data to avoid permission issues
-        export_dir = os.path.join(get_user_data_dir(), 'metrics')
-        os.makedirs(export_dir, exist_ok=True)
-        export_path = os.path.join(export_dir, f"metrics_export_{user_id}_{int(time.time())}.json")
-        
-        if monitor.export_metrics(export_path):
-            return jsonify({'success': True, 'file_path': export_path})
-        else:
-            return jsonify({'error': 'Failed to export metrics'}), 500
-    except Exception as e:
-        logger.error(f"Error exporting metrics: {e}")
-        return jsonify({'error': 'Failed to export metrics'}), 500
-
-@app.route('/api/monitoring/rate-limit-stats', methods=['GET'])
-def get_rate_limit_stats():
-    """Get rate limiting statistics"""
-    try:
-        stats = security_manager.get_rate_limit_stats()
-        return jsonify(stats)
-    except Exception as e:
-        logger.error(f"Error getting rate limit stats: {e}")
-        return jsonify({'error': 'Failed to get rate limit stats'}), 500
-
-# Password change endpoint removed - no password authentication
-
-# Daily Planner Version 2 Endpoints
-@app.route('/api/planner-v2/schedule', methods=['GET'])
-def get_planner_v2_schedule():
-    """Get scheduled tasks for Daily Planner v2"""
-    logger.info("GET /api/planner-v2/schedule called")
-    user_id = get_user_id()
-    try:
-        # Load all tasks and filter for scheduled ones
-        tasks = app_context.data_manager.load_tasks(user_id)
-        scheduled_tasks = {}
-        
-        for task in tasks:
-            logger.info(f"Checking task: {task.get('title', 'Unknown')} - scheduled_hour: {task.get('scheduled_hour')}, scheduled_date: {task.get('scheduled_date')}")
-            if task.get('scheduled_hour') is not None and task.get('scheduled_date'):
-                scheduled_date = task['scheduled_date']
-                scheduled_hour = task['scheduled_hour']
-                
-                logger.info(f"Found scheduled task: {task.get('title', 'Unknown')} at {scheduled_hour}:{task.get('scheduled_minute', 0)} on {scheduled_date}")
-                
-                if scheduled_date not in scheduled_tasks:
-                    scheduled_tasks[scheduled_date] = {}
-                
-                if scheduled_hour not in scheduled_tasks[scheduled_date]:
-                    scheduled_tasks[scheduled_date][scheduled_hour] = []
-                
-                scheduled_tasks[scheduled_date][scheduled_hour].append(task)
-        
-        logger.info(f"Found {len(scheduled_tasks)} scheduled dates")
-        return jsonify({
-            'success': True,
-            'scheduled_tasks': scheduled_tasks
-        })
-    except Exception as e:
-        logger.error(f"Error loading planner v2 schedule: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/planner-v2/schedule', methods=['POST'])
-def save_planner_v2_schedule():
-    """Save scheduled tasks for Daily Planner v2"""
-    user_id = get_user_id()
-    try:
-        data = request.json
-        scheduled_tasks = data.get('scheduled_tasks', {})
-        
-        # Save scheduled tasks to database
-        success = app_context.data_manager.save_planner_v2_schedule(user_id, scheduled_tasks)
-        
-        if success:
-            return jsonify({'success': True})
-        else:
-            return jsonify({'success': False, 'error': 'Failed to save schedule'}), 500
-            
-    except Exception as e:
-        logger.error(f"Error saving planner v2 schedule: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/planner-v2/tasks', methods=['GET'])
-def get_planner_v2_available_tasks():
-    """Get available tasks for Daily Planner v2"""
-    logger.info("GET /api/planner-v2/tasks called")
-    user_id = get_user_id()
-    try:
-        tasks = app_context.data_manager.load_tasks(user_id)
-        
-        # Filter available tasks (not completed, not struck today, not scheduled)
-        available_tasks = []
-        for task in tasks:
-            # Task is available if:
-            # 1. Not completed
-            # 2. Not struck today
-            # 3. Not scheduled (no scheduled_hour or no scheduled_date)
-            is_completed = task.get('completed', False)
-            is_struck_today = task.get('struck_today', False)
-            is_scheduled = task.get('scheduled_hour') is not None and task.get('scheduled_date') is not None
-            
-            if not is_completed and not is_struck_today and not is_scheduled:
-                available_tasks.append({
-                    'id': task.get('id'),
-                    'title': task.get('title', ''),
-                    'description': task.get('description', ''),
-                    'priority': task.get('priority', 'medium'),
-                    'due_date': task.get('due_date'),
-                    'created_at': task.get('created_at'),
-                    'estimated_duration': task.get('estimated_duration', 30)
-                })
-        
-        logger.info(f"Returning {len(available_tasks)} available tasks (filtered out scheduled tasks)")
-        return jsonify({
-            'success': True,
-            'available_tasks': available_tasks
-        })
-        
-    except Exception as e:
-        logger.error(f"Error loading planner v2 available tasks: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/planner-v2/cleanup-overdue', methods=['POST'])
-def cleanup_overdue_scheduled_tasks():
-    """Unschedule any tasks scheduled for previous days if not completed."""
-    user_id = get_user_id()
-    try:
-        now = datetime.now()
-        today_str = now.strftime('%Y-%m-%d')
-        
-        tasks = app_context.data_manager.load_tasks(user_id)
-        unscheduled = 0
-        for t in tasks:
-            scheduled_date = t.get('scheduled_date')
-            if scheduled_date and scheduled_date < today_str:
-                # Remove scheduling to move back to available
-                t['scheduled_hour'] = None
-                t['scheduled_minute'] = None
-                t['scheduled_date'] = None
-                t['scheduled_duration'] = None
-                unscheduled += 1
-        
-        # Save only if changes were made
-        if unscheduled > 0:
-            if not app_context.data_manager.save_tasks(tasks, user_id):
-                return jsonify({'success': False, 'error': 'Failed to save tasks after cleanup'}), 500
-        
-        return jsonify({'success': True, 'unscheduled': unscheduled})
-    except Exception as e:
-        logger.error(f"Error cleaning up overdue scheduled tasks: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-# Update Management Endpoints
-@app.route('/api/updates/status', methods=['GET'])
-def get_update_status():
-    """Get current update status"""
-    if not app_context.update_manager:
-        return jsonify({'error': 'Update manager not initialized'}), 500
-    
-    return jsonify(app_context.update_manager.get_update_status())
-
-@app.route('/api/updates/check', methods=['POST'])
-def check_for_updates():
-    """Check for available updates"""
-    try:
-        if not app_context.update_manager:
-            # Initialize update manager if not already done
-            app_root = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            app_context.update_manager = UpdateManager(app_dir=app_root, data_dir=get_user_data_dir())
-
-        update_info = app_context.update_manager.check_for_updates()
-        if update_info:
-            return jsonify({'update_available': True, 'update_info': update_info})
-        else:
-            return jsonify({'update_available': False})
-    except Exception as e:
-        print(f"Error checking for updates: {e}")
-        return jsonify({'error': 'Failed to check for updates'}), 500
-
-@app.route('/api/updates/download', methods=['POST'])
-def download_update():
-    """Start downloading the available update in background"""
-    try:
-        if not app_context.update_manager:
-            # Initialize update manager if not already done
-            app_root = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            app_context.update_manager = UpdateManager(app_dir=app_root, data_dir=get_user_data_dir())
-        
-        update_info = request.json or {}
-        if not update_info:
-            return jsonify({'error': 'Update info required'}), 400
-        
-        # Kick off background download
-        app_context.update_manager.start_download(update_info)
-        return jsonify({'started': True}), 202
-    except Exception as e:
-        logger.error(f"Error starting update download: {e}")
-        return jsonify({'error': 'Failed to start download'}), 500
-
-@app.route('/api/updates/install', methods=['POST'])
-def install_update():
-    """Install downloaded update"""
-    if not app_context.update_manager:
-        return jsonify({'error': 'Update manager not initialized'}), 500
-    
-    update_data = request.json or {}
-    update_file = update_data.get('update_file')
-    backup_data = update_data.get('backup_before_update', True)
-    
-    # If not provided, try to use the last downloaded file
-    if not update_file:
-        status = app_context.update_manager.get_download_status()
-        update_file = status.get('update_file')
-        if not update_file:
-            return jsonify({'error': 'Update file required'}), 400
-    
-    # Resolve to absolute path inside updates directory when relative
-    if not os.path.isabs(update_file):
-        update_file = str(app_context.update_manager.update_dir / update_file)
-    
-    success = app_context.update_manager.install_update(update_file, backup_data)
-    if success:
-        return jsonify({'success': True, 'message': 'Update installed successfully. Please restart the application.'})
-    else:
-        return jsonify({'error': 'Failed to install update'}), 500
-
-@app.route('/api/updates/progress', methods=['GET'])
-def get_download_progress():
-    """Get current download/install progress."""
-    if not app_context.update_manager:
-        return jsonify({'error': 'Update manager not initialized'}), 500
-    return jsonify(app_context.update_manager.get_download_status())
-
-@app.route('/api/updates/cancel', methods=['POST'])
-def cancel_update_download():
-    """Cancel current update download if in progress."""
-    if not app_context.update_manager:
-        return jsonify({'error': 'Update manager not initialized'}), 500
-    app_context.update_manager.cancel_download()
-    return jsonify({'success': True, 'status': app_context.update_manager.get_download_status()})
-@app.route('/api/updates/config', methods=['GET'])
-def get_update_config():
-    """Get update configuration"""
-    if not app_context.update_manager:
-        try:
-            # Initialize with app root and user data dir
-            app_root = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            app_context.update_manager = UpdateManager(app_dir=app_root, data_dir=get_user_data_dir())
-        except Exception as e:
-            logger.error(f"Failed to initialize update manager for config: {e}")
-            return jsonify({'error': 'Update manager not initialized'}), 500
-    
-    return jsonify(app_context.update_manager.update_config)
-
-@app.route('/api/updates/config', methods=['PUT'])
-def update_update_config():
-    """Update update configuration"""
-    if not app_context.update_manager:
-        return jsonify({'error': 'Update manager not initialized'}), 500
-    
-    config_data = request.json
-    if not config_data:
-        return jsonify({'error': 'Configuration data required'}), 400
-    
-    # Update configuration
-    app_context.update_manager.update_config.update(config_data)
-    app_context.update_manager._save_update_config(app_context.update_manager.update_config)
-    
-    return jsonify({'success': True, 'message': 'Configuration updated successfully'})
-
-# Kill App Endpoint - REMOVED FOR SECURITY
-# This endpoint was a critical security vulnerability
-# Use proper process management instead
-
-# Backup Management Endpoints
-@app.route('/api/backups', methods=['GET'])
-def get_backups():
-    """Get list of available backups"""
-    try:
-        if not app_context.update_manager:
-            # Initialize update manager if not already done
-            app_root = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            app_context.update_manager = UpdateManager(app_dir=app_root, data_dir=get_user_data_dir())
-
-        backups = app_context.update_manager.get_backup_list()
-        return jsonify({'backups': backups})
-    except Exception as e:
-        print(f"Error getting backups: {e}")
-        return jsonify({'error': 'Failed to get backups'}), 500
-
-def validate_backup_integrity(backup_path):
-    """Validate backup file integrity and detect corruption"""
-    try:
-        if not os.path.exists(backup_path):
-            return False, "Backup file does not exist"
-        
-        # Check file size
-        file_size = os.path.getsize(backup_path)
-        if file_size == 0:
-            return False, "Backup file is empty"
-        
-        if file_size > 100 * 1024 * 1024:  # 100MB limit
-            return False, "Backup file too large (>100MB)"
-        
-        # Check file permissions
-        if not os.access(backup_path, os.R_OK):
-            return False, "Backup file not readable"
-        
-        # Try to read and parse the backup file
-        try:
-            with open(backup_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                
-            # Basic JSON validation if it's a JSON backup
-            if backup_path.endswith('.json'):
-                try:
-                    json.loads(content)
-                except json.JSONDecodeError as e:
-                    return False, f"Invalid JSON in backup: {e}"
-            
-            # Check for suspicious content
-            if len(content) < 10:
-                return False, "Backup content too short"
-            
-            # Check for common corruption patterns
-            if '\x00' in content:
-                return False, "Backup contains null bytes (possible corruption)"
-            
-            return True, "Backup integrity validated"
-            
-        except UnicodeDecodeError:
-            return False, "Backup file encoding error"
-        except Exception as e:
-            return False, f"Error reading backup file: {e}"
-            
-    except Exception as e:
-        return False, f"Backup validation error: {e}"
-
-def create_backup_with_validation():
-    """Create backup with integrity validation"""
-    try:
-        if not app_context.update_manager:
-            # Initialize update manager if not already done
-            app_root = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            app_context.update_manager = UpdateManager(app_dir=app_root, data_dir=get_user_data_dir())
-    
-        backup_data = request.json or {}
-        backup_type = backup_data.get('type', 'manual')
-        
-        # Create backup
-        success = app_context.update_manager.create_backup(backup_type)
-        if not success:
-            return jsonify({'error': 'Failed to create backup'}), 500
-        
-        # Get the latest backup file for validation
-        backup_dir = os.path.join(os.getcwd(), "backups")
-        if os.path.exists(backup_dir):
-            backup_files = [f for f in os.listdir(backup_dir) if f.endswith(('.json', '.zip', '.tar.gz'))]
-            if backup_files:
-                latest_backup = max(backup_files, key=lambda f: os.path.getmtime(os.path.join(backup_dir, f)))
-                backup_path = os.path.join(backup_dir, latest_backup)
-                
-                # Validate backup integrity
-                is_valid, message = validate_backup_integrity(backup_path)
-                if not is_valid:
-                    logger.error(f"Backup validation failed: {message}")
-                    return jsonify({'error': f'Backup created but validation failed: {message}'}), 500
-                
-                logger.info(f"Backup created and validated successfully: {latest_backup}")
-                return jsonify({'success': True, 'message': 'Backup created and validated successfully', 'backup_file': latest_backup})
-        
-        return jsonify({'success': True, 'message': 'Backup created successfully'})
-        
-    except Exception as e:
-        logger.error(f"Error creating backup: {e}")
-        return jsonify({'error': 'Failed to create backup'}), 500
-
-def restore_backup_with_validation():
-    """Restore backup with integrity validation"""
-    try:
-        if not app_context.update_manager:
-            return jsonify({'error': 'Update manager not initialized'}), 500
-        
-        backup_data = request.json
-        backup_name = backup_data.get('backup_name')
-        
-        if not backup_name:
-            return jsonify({'error': 'Backup name is required'}), 400
-        
-        # Validate backup file before restoration
-        backup_dir = os.path.join(os.getcwd(), "backups")
-        backup_path = os.path.join(backup_dir, backup_name)
-        
-        is_valid, message = validate_backup_integrity(backup_path)
-        if not is_valid:
-            logger.error(f"Backup validation failed before restore: {message}")
-            return jsonify({'error': f'Backup validation failed: {message}'}), 400
-        
-        # Create a safety backup before restoration
-        try:
-            safety_backup_name = f"safety_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            safety_success = app_context.update_manager.create_backup(safety_backup_name)
-            if not safety_success:
-                logger.warning("Failed to create safety backup before restore")
-        except Exception as e:
-            logger.warning(f"Failed to create safety backup: {e}")
-        
-        # Restore backup
-        success = app_context.update_manager.restore_backup(backup_name)
-        if success:
-            logger.info(f"Backup restored successfully: {backup_name}")
-            return jsonify({'success': True, 'message': 'Backup restored successfully'})
-        else:
-            logger.error(f"Failed to restore backup: {backup_name}")
-            return jsonify({'error': 'Failed to restore backup'}), 500
-            
-    except Exception as e:
-        logger.error(f"Error restoring backup: {e}")
-        return jsonify({'error': 'Failed to restore backup'}), 500
-
-@app.route('/api/backups/create', methods=['POST'])
-def create_backup():
-    """Create manual backup with validation"""
-    return create_backup_with_validation()
-
-@app.route('/api/backups/restore', methods=['POST'])
-def restore_backup():
-    """Restore from backup with validation"""
-    return restore_backup_with_validation()
 
 @app.route('/api/shutdown', methods=['POST'])
 def shutdown_server():
@@ -2609,7 +1718,7 @@ if __name__ == '__main__':
         def open_browser():
             import time
             time.sleep(1.5)  # Wait for server to start
-            webbrowser.open('http://127.0.0.1:8989')
+            webbrowser.open(f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}")
         
         # Start browser in a separate thread
         browser_thread = threading.Thread(target=open_browser)
@@ -2618,7 +1727,7 @@ if __name__ == '__main__':
         
         # Run the Flask app
         print("Starting Shakshuka...")
-        print("Opening browser at http://127.0.0.1:8989")
+        print(f"Opening browser at http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}")
         print("System tray icon available for app management")
         print("Press Ctrl+C to stop the application")
         print()
@@ -2654,12 +1763,12 @@ if __name__ == '__main__':
         # Custom Flask runner to avoid click.echo issues
         try:
             from werkzeug.serving import run_simple
-            print("Server starting on http://127.0.0.1:8989")
-            run_simple('127.0.0.1', 8989, app, use_reloader=False, use_debugger=False)
+            print(f"Server starting on http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}")
+            run_simple(config.DEFAULT_HOST, config.DEFAULT_PORT, app, use_reloader=False, use_debugger=False)
         except Exception as e:
             print(f"Error starting server: {e}")
             # Fallback to standard Flask run
-            app.run(host='127.0.0.1', port=8989, debug=False, use_reloader=False)
+            app.run(host=config.DEFAULT_HOST, port=config.DEFAULT_PORT, debug=False, use_reloader=False)
             
     except Exception as e:
         print(f"Fatal error starting application: {e}")
@@ -2688,7 +1797,7 @@ def create_system_tray_icon() -> Optional[Any]:
         # System tray menu actions
         def open_dashboard():
             import webbrowser
-            webbrowser.open('http://127.0.0.1:8989')
+            webbrowser.open(f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}")
 
         def open_logs_folder():
             folder = os.path.join(user_data_dir, 'logs')
@@ -2722,7 +1831,7 @@ def create_system_tray_icon() -> Optional[Any]:
             # Call shutdown API endpoint to properly stop the server
             import requests
             try:
-                requests.post('http://127.0.0.1:8989/api/shutdown', timeout=1)
+                requests.post(f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}/api/shutdown", timeout=1)
             except:
                 # Fallback to direct exit if API call fails
                 import os
@@ -2805,50 +1914,24 @@ def create_icon_image() -> Any:
 
 def start_system_tray() -> None:
     """Start the system tray icon"""
-    global system_tray_icon
-
-    # Check availability lazily
-    if not _check_system_tray_available():
-        logger.warning("System tray not available")
-        return
-
     try:
-        system_tray_icon = create_system_tray_icon()
-        if system_tray_icon:
-            # Run in a separate thread to avoid blocking the main Flask thread
-            import threading
-            tray_thread = threading.Thread(target=system_tray_icon.run, daemon=True)
-            tray_thread.start()
-            logger.info("System tray icon started successfully")
-            print("System tray icon created and started")
-        else:
-            logger.warning("Failed to create system tray icon")
-            print("Failed to create system tray icon")
+        dashboard_url = f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}"
+        shutdown_url = f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}/api/shutdown"
+        tray_service.start_system_tray(
+            user_data_dir=user_data_dir,
+            dashboard_url=dashboard_url,
+            shutdown_url=shutdown_url,
+            check_available_func=_check_system_tray_available,
+        )
     except Exception as e:
-        # System tray is optional - don't fail the app
-        error_msg = str(e)
-        if 'Gtk' in error_msg or 'AyatanaAppIndicator3' in error_msg or 'AppIndicator3' in error_msg:
-            logger.warning(f"System tray not available (GTK/AppIndicator not installed): {e}")
-            logger.info("App will continue without system tray icon")
-            print(f"Warning: System tray not available. App will work without tray icon.")
-        elif 'g-io-error' in error_msg.lower() or 'Could not connect' in error_msg or 'D-Bus' in error_msg or 'dbus' in error_msg.lower():
-            logger.warning(f"System tray not available (D-Bus connection error): {e}")
-            logger.info("App will continue without system tray icon")
-            print(f"Warning: System tray not available (D-Bus error). App will work without tray icon.")
-        else:
-            logger.warning(f"Error starting system tray: {e}")
-            print(f"Warning: System tray not available: {e}")
+        logger.warning(f"Error starting system tray: {e}")
 
 def stop_system_tray() -> None:
     """Stop the system tray icon"""
-    global system_tray_icon
-
-    if system_tray_icon and SYSTEM_TRAY_AVAILABLE:
-        try:
-            system_tray_icon.stop()
-            logger.info("System tray icon stopped")
-        except Exception as e:
-            logger.error(f"Error stopping system tray: {e}")
+    try:
+        tray_service.stop_system_tray()
+    except Exception as e:
+        logger.error(f"Error stopping system tray: {e}")
 
 # Shutdown function for graceful exit
 def shutdown_application() -> None:
@@ -2884,8 +1967,7 @@ def shutdown_application() -> None:
 
     # Stop any background threads
     try:
-        if 'scheduler_thread' in globals():
-            scheduler_thread.join(timeout=5)
+        stop_scheduler(timeout=5)
     except:
         pass
 

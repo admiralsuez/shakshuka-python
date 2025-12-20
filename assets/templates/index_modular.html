@@ -1,0 +1,28 @@
+{% extends 'layout.html' %}
+
+{% block pages %}
+{% include 'partials/pages/analytics_page.html' %}
+{% include 'partials/pages/tasks_page.html' %}
+{% include 'partials/pages/planner_page.html' %}
+{% include 'partials/pages/notes_page.html' %}
+{% include 'partials/pages/settings_page.html' %}
+{% endblock %}
+
+{% block modals %}
+{% include 'partials/modals/changelog_modal.html' %}
+{% include 'partials/modals/whats_new_modal.html' %}
+{% include 'partials/modals/task_modal.html' %}
+{% include 'partials/modals/quick_add_modal.html' %}
+{% include 'partials/modals/schedule_modal.html' %}
+{% include 'partials/modals/planner_history_modal.html' %}
+{% include 'partials/modals/strike_modal.html' %}
+{% include 'partials/modals/strike_report_history_modal.html' %}
+{% include 'partials/modals/notes_list_modal.html' %}
+{% include 'partials/modals/logs_modal.html' %}
+{% include 'partials/modals/loading_overlay.html' %}
+{% include 'partials/modals/backup_modal.html' %}
+{% include 'partials/modals/update_modal.html' %}
+{% include 'partials/modals/import_modal.html' %}
+{% include 'partials/modals/daily_recap_modal.html' %}
+{% include 'partials/modals/retry_modal.html' %}
+{% endblock %}

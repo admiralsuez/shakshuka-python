@@ -1,0 +1,57 @@
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar" role="navigation" aria-label="Main navigation">
+                <div class="sidebar-header">
+                <div class="logo" id="app-logo" title="Click to reload Shakshuka">
+                    <div class="logo-icon" aria-hidden="true">
+                        <img src="{{ url_for('static', filename='images/icon.png') }}" alt="Shakshuka logo" />
+                    </div
+                    ><h1>Shakshuka</h1>
+                </div>
+            </div>
+            
+            <div class="nav-menu" role="menubar">
+                <div class="nav-item active" data-page="tasks" title="View and manage all your tasks" role="menuitem" tabindex="0">
+                    <i class="fas fa-tasks" aria-hidden="true"></i>
+                    <span>My Tasks</span>
+                </div>
+                <div class="nav-item" data-page="planner" title="Plan your day with hourly scheduling" role="menuitem" tabindex="0">
+                    <i class="fas fa-calendar-alt" aria-hidden="true"></i>
+                    <span>Daily Planner</span>
+                </div>
+                <div class="nav-item" data-page="notes" title="Notes" role="menuitem" tabindex="0">
+                    <i class="fas fa-sticky-note" aria-hidden="true"></i>
+                    <span>Notes</span>
+                </div>
+                <div class="nav-item" data-page="analytics" title="View your productivity analytics" role="menuitem" tabindex="0">
+                    <i class="fas fa-chart-line" aria-hidden="true"></i>
+                    <span>Analytics</span>
+                </div>
+                <div class="nav-item" data-page="settings" title="Configure app settings and preferences" role="menuitem" tabindex="0">
+                    <i class="fas fa-cog" aria-hidden="true"></i>
+                    <span>Settings</span>
+                </div>
+                <!-- Compact schedule card replacing the sidebar toggle -->
+                <div class="nav-compact-schedule modern" id="nav-compact-schedule" aria-live="polite" title="Current and next scheduled tasks">
+                    <div class="entry current">
+                        <div class="label">Now</div>
+                        <div class="details">
+                            <div class="title" id="nav-current-title">No current task</div>
+                            <div class="time" id="nav-current-time">—</div>
+                        </div>
+                        <div class="badge" id="nav-current-badge">Now</div>
+                    </div>
+                    <div class="entry next">
+                        <div class="label">Next</div>
+                        <div class="details">
+                            <div class="title" id="nav-next-title">None</div>
+                            <div class="time" id="nav-next-time">—</div>
+                        </div>
+                        <div class="badge" id="nav-next-badge">Next</div>
+                    </div>
+                </div>
+                <div class="nav-item kill-app-item" id="kill-app-btn" data-page="kill" title="Stop Shakshuka Server" role="menuitem" tabindex="0">
+                    <i class="fas fa-power-off" aria-hidden="true"></i>
+                    <span>Kill App</span>
+                </div>
+            </div>
+        </nav>

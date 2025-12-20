@@ -10,6 +10,7 @@ import logging
 from werkzeug.serving import run_simple
 
 from src.core import config
+from src.monitoring import monitor
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,12 @@ class ApplicationLauncher:
             self.start_auto_save()
             self.start_scheduler()
             self.start_system_tray()  # Non-critical, continues even if fails
+
+            # Start monitoring explicitly (monitor does not auto-start on import)
+            try:
+                monitor.start()
+            except Exception as e:
+                logger.warning(f"Could not start monitoring: {e}")
             
             # Start server (blocking call)
             self.start_server()
@@ -211,12 +218,20 @@ class ApplicationLauncher:
         except KeyboardInterrupt:
             logger.info("Application stopped by user")
             print("\n\n👋 Shutting down Shakshuka...")
+            try:
+                monitor.stop()
+            except Exception:
+                pass
             return True
             
         except Exception as e:
             logger.critical(f"Fatal error during launch: {e}", exc_info=True)
             print(f"\n❌ Error starting application: {e}")
             print("\nPlease check the logs for more details.")
+            try:
+                monitor.stop()
+            except Exception:
+                pass
             return False
 
 

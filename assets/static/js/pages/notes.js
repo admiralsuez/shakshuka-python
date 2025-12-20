@@ -16,6 +16,109 @@
     let commandMenuEditor = null;
     let selectedNoteIds = new Set(); // for bulk actions in View Notes modal
 
+    const SPLIT_CONTENT_PREFIX = '__SHAKSHUKA_SPLIT_V1__';
+    const SPLIT_CONTENT_PREFIX_B64 = '__SHAKSHUKA_SPLIT_B64_V1__';
+
+    function decodeHtmlEntities(str) {
+        if (typeof str !== 'string' || !str) return '';
+        if (!/[&][a-zA-Z#0-9]+;/.test(str)) return str;
+        try {
+            const textarea = document.createElement('textarea');
+            textarea.innerHTML = str;
+            return textarea.value;
+        } catch (e) {
+            return str;
+        }
+    }
+
+    function base64EncodeUnicode(str) {
+        try {
+            return btoa(unescape(encodeURIComponent(str)));
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function base64DecodeUnicode(str) {
+        try {
+            return decodeURIComponent(escape(atob(str)));
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function decodeSplitContent(raw) {
+        if (typeof raw !== 'string') {
+            return { primary: '', secondary: '', encoded: false };
+        }
+        if (raw.startsWith(SPLIT_CONTENT_PREFIX_B64)) {
+            const b64 = raw.slice(SPLIT_CONTENT_PREFIX_B64.length);
+            const json = base64DecodeUnicode(b64);
+            try {
+                const parsed = JSON.parse(json);
+                const primary = parsed && typeof parsed.primary === 'string' ? parsed.primary : '';
+                const secondary = parsed && typeof parsed.secondary === 'string' ? parsed.secondary : '';
+                return { primary, secondary, encoded: true };
+            } catch (e) {
+                return { primary: raw, secondary: '', encoded: false };
+            }
+        }
+        if (!raw.startsWith(SPLIT_CONTENT_PREFIX)) {
+            return { primary: raw, secondary: '', encoded: false };
+        }
+        try {
+            const payloadRaw = raw.slice(SPLIT_CONTENT_PREFIX.length);
+            const payload = decodeHtmlEntities(payloadRaw);
+            const parsed = JSON.parse(payload);
+            const primary = parsed && typeof parsed.primary === 'string' ? parsed.primary : '';
+            const secondary = parsed && typeof parsed.secondary === 'string' ? parsed.secondary : '';
+            return { primary, secondary, encoded: true };
+        } catch (e) {
+            return { primary: raw, secondary: '', encoded: false };
+        }
+    }
+
+    function getEncodedNoteContent(note) {
+        const primary = note && typeof note.content === 'string' ? note.content : '';
+        const secondary = note && typeof note.content_secondary === 'string' ? note.content_secondary : '';
+        const shouldEncode = !!(note && note.__splitEncoded) || secondary.length > 0;
+        if (!shouldEncode) {
+            return primary;
+        }
+        try {
+            const json = JSON.stringify({ primary, secondary });
+            return SPLIT_CONTENT_PREFIX_B64 + base64EncodeUnicode(json);
+        } catch (e) {
+            return primary;
+        }
+    }
+
+    function ensureNoteHasSplitFields(note) {
+        if (!note || typeof note !== 'object') return;
+        const decoded = decodeSplitContent(note.content);
+        if (decoded.encoded) {
+            note.content = decoded.primary;
+            note.content_secondary = decoded.secondary;
+            note.__splitEncoded = true;
+        } else {
+            if (typeof note.content !== 'string') {
+                note.content = '';
+            }
+            if (typeof note.content_secondary !== 'string') {
+                note.content_secondary = '';
+            }
+        }
+    }
+
+    function autoEnableSplitViewIfActiveNoteHasSecondary() {
+        const note = getActiveNote();
+        if (!note) return;
+        const secondary = typeof note.content_secondary === 'string' ? note.content_secondary : '';
+        if (secondary.trim().length > 0) {
+            splitViewEnabled = true;
+        }
+    }
+
     // Context menu for note tabs (right-click)
     let tabContextMenuEl = null;
     let tabContextNoteId = null;
@@ -50,6 +153,12 @@
                 return;
             }
             notes = parsed.notes;
+            notes.forEach(ensureNoteHasSplitFields);
+            notes.forEach(note => {
+                if (note && note.__saving) {
+                    delete note.__saving;
+                }
+            });
             openNoteIds = Array.isArray(parsed.openNoteIds) && parsed.openNoteIds.length
                 ? parsed.openNoteIds.filter(id => notes.some(n => n.id === id))
                 : notes.map(n => n.id);
@@ -60,12 +169,10 @@
                 activeNoteId = openNoteIds[0] || (notes[0] && notes[0].id);
             }
             splitViewEnabled = !!parsed.splitViewEnabled;
-            // Secondary note ID is optional; fall back to active if missing/invalid.
-            if (parsed.secondaryNoteId && notes.some(n => n.id === parsed.secondaryNoteId)) {
-                secondaryNoteId = parsed.secondaryNoteId;
-            } else {
-                secondaryNoteId = null;
-            }
+            // Deprecated: split view is now a second pane of the SAME note.
+            secondaryNoteId = null;
+            autoEnableSplitViewIfActiveNoteHasSecondary();
+            ensureUniqueNoteIds();
             debugLog('Loaded notes from localStorage', { count: notes.length });
         } catch (e) {
             console.error('Failed to load notes from localStorage', e);
@@ -78,7 +185,13 @@
     function saveAllNotesToLocalStorage() {
         try {
             // Persist all notes, including empty ones, for now.
-            const persistedNotes = notes.slice();
+            const persistedNotes = notes.map(note => {
+                const copy = Object.assign({}, note);
+                if (copy.__saving) {
+                    delete copy.__saving;
+                }
+                return copy;
+            });
 
             // Ensure openNoteIds and activeNoteId only reference existing notes.
             let persistedOpenIds = Array.isArray(openNoteIds)
@@ -98,7 +211,7 @@
                 notes: persistedNotes,
                 activeNoteId: persistedActiveId,
                 splitViewEnabled,
-                secondaryNoteId,
+                secondaryNoteId: null,
                 openNoteIds: persistedOpenIds
             };
             window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -122,16 +235,95 @@
                 throw new Error('Failed to load notes');
             }
             const serverNotes = await response.json();
+            let cachedParsed = null;
             if (!Array.isArray(serverNotes) || !serverNotes.length) {
-                debugLog('No notes from server, creating default');
+                // If the server returns an empty list but the browser has a
+                // cached notes payload, prefer the local cache to avoid
+                // accidentally clobbering user notes during transient backend
+                // issues or DB path changes.
+                const cached = window.localStorage.getItem(STORAGE_KEY);
+                if (cached) {
+                    debugLog('No notes from server; loading from localStorage cache');
+                    loadNotesFromLocalStorage();
+                    return;
+                }
+
+                debugLog('No notes from server and no local cache, creating default');
                 const welcome = await createNoteOnServer('Welcome', '');
                 notes = welcome ? [welcome] : [createNoteObject('Welcome')];
             } else {
                 notes = serverNotes;
+
+                notes.forEach(ensureNoteHasSplitFields);
+
+                // Defensive: if we ever end up with duplicate IDs (bad cache/older builds),
+                // fix them so two distinct notes cannot overwrite each other.
+                ensureUniqueNoteIds();
+
+                try {
+                    const cachedRaw = window.localStorage.getItem(STORAGE_KEY);
+                    if (cachedRaw) {
+                        cachedParsed = JSON.parse(cachedRaw);
+                        const cachedNotes = cachedParsed && Array.isArray(cachedParsed.notes) ? cachedParsed.notes : [];
+                        if (cachedNotes.length) {
+                            const cachedById = new Map(cachedNotes.map(n => [n.id, n]));
+                            for (const note of notes) {
+                                const cachedNote = cachedById.get(note.id);
+                                const serverContentEmpty = (!note.content && !note.content_secondary);
+                                const cachedHasContent = cachedNote && ((typeof cachedNote.content === 'string' && cachedNote.content.length > 0) || (typeof cachedNote.content_secondary === 'string' && cachedNote.content_secondary.length > 0));
+                                if (serverContentEmpty && cachedHasContent) {
+                                    const serverUpdated = Date.parse(note.updated_at || '') || 0;
+                                    const cachedUpdated = Date.parse(cachedNote.updated_at || '') || 0;
+                                    if (cachedUpdated > serverUpdated) {
+                                        note.content = typeof cachedNote.content === 'string' ? cachedNote.content : '';
+                                        note.content_secondary = typeof cachedNote.content_secondary === 'string' ? cachedNote.content_secondary : '';
+                                        if (typeof note.content_secondary === 'string' && note.content_secondary.length > 0) {
+                                            note.__splitEncoded = true;
+                                        }
+                                        saveNoteToServer(note);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore cache merge issues
+                }
             }
-            activeNoteId = notes[0].id;
-            openNoteIds = [activeNoteId];
-            splitViewEnabled = false;
+            const ids = notes.map(n => n && n.id).filter(Boolean);
+            let desiredOpenIds = [];
+            let desiredActiveId = null;
+            let desiredSplit = false;
+            try {
+                if (!cachedParsed) {
+                    const cachedRaw = window.localStorage.getItem(STORAGE_KEY);
+                    if (cachedRaw) {
+                        cachedParsed = JSON.parse(cachedRaw);
+                    }
+                }
+            } catch (e) {
+                cachedParsed = null;
+            }
+            if (cachedParsed) {
+                desiredSplit = !!cachedParsed.splitViewEnabled;
+                if (Array.isArray(cachedParsed.openNoteIds) && cachedParsed.openNoteIds.length) {
+                    desiredOpenIds = cachedParsed.openNoteIds.filter(id => typeof id === 'string' && ids.includes(id));
+                }
+                if (cachedParsed.activeNoteId && ids.includes(cachedParsed.activeNoteId)) {
+                    desiredActiveId = cachedParsed.activeNoteId;
+                }
+            }
+
+            if (!desiredOpenIds.length && ids.length) {
+                desiredOpenIds = ids.slice();
+            }
+            if (desiredActiveId && !desiredOpenIds.includes(desiredActiveId)) {
+                desiredOpenIds.unshift(desiredActiveId);
+            }
+            openNoteIds = desiredOpenIds;
+            activeNoteId = desiredActiveId || openNoteIds[0] || ids[0] || null;
+            splitViewEnabled = desiredSplit;
+            autoEnableSplitViewIfActiveNoteHasSecondary();
             secondaryNoteId = null;
             debugLog('Loaded notes from server', { count: notes.length });
             saveAllNotesToLocalStorage();
@@ -152,10 +344,36 @@
         }
         note.__saving = true;
 
+        const replaceNoteIdReferences = (oldId, newId) => {
+            if (!oldId || !newId || oldId === newId) return;
+            try {
+                if (Array.isArray(openNoteIds) && openNoteIds.length) {
+                    openNoteIds = openNoteIds.map(id => id === oldId ? newId : id);
+                }
+                if (activeNoteId === oldId) {
+                    activeNoteId = newId;
+                }
+                if (secondaryNoteId === oldId) {
+                    secondaryNoteId = newId;
+                }
+
+                const primary = document.getElementById('notes-editor-primary');
+                const secondary = document.getElementById('notes-editor-secondary');
+                if (primary && primary.dataset && primary.dataset.noteId === oldId) {
+                    primary.dataset.noteId = newId;
+                }
+                if (secondary && secondary.dataset && secondary.dataset.noteId === oldId) {
+                    secondary.dataset.noteId = newId;
+                }
+            } catch (e) {
+                // no-op
+            }
+        };
+
         try {
             const payload = {
                 title: note.title,
-                content: note.content
+                content: getEncodedNoteContent(note)
             };
             const oldId = note.id;
 
@@ -163,16 +381,26 @@
             // POST create instead of first attempting PUT (which 404s).
             let response;
             if (typeof oldId === 'string' && oldId.startsWith('note-')) {
-                const created = await createNoteOnServer(note.title, note.content);
+                const created = await createNoteOnServer(note.title, getEncodedNoteContent(note));
                 if (created && created.id) {
                     note.id = created.id;
                     note.created_at = created.created_at;
                     note.updated_at = created.updated_at;
 
-                    // Update references in openNoteIds/activeNoteId
-                    openNoteIds = openNoteIds.map(id => id === oldId ? note.id : id);
-                    if (activeNoteId === oldId) {
-                        activeNoteId = note.id;
+                    replaceNoteIdReferences(oldId, note.id);
+
+                    if (splitViewEnabled && secondaryNoteId === activeNoteId) {
+                        let candidateId = null;
+                        if (Array.isArray(openNoteIds) && openNoteIds.length) {
+                            candidateId = openNoteIds.find(openId => openId !== activeNoteId && notes.some(n => n.id === openId)) || null;
+                        }
+                        if (!candidateId) {
+                            const anyOther = notes.find(n => n.id !== activeNoteId);
+                            candidateId = anyOther ? anyOther.id : null;
+                        }
+                        if (candidateId) {
+                            secondaryNoteId = candidateId;
+                        }
                     }
                     // Replace in notes array if an entry with the old id still exists
                     const idx = notes.findIndex(n => n.id === oldId);
@@ -193,16 +421,26 @@
             if (response && response.status === 404) {
                 // Note does not exist on the server yet (e.g. initial local-only note).
                 // Create it and update local IDs so future saves work.
-                const created = await createNoteOnServer(note.title, note.content);
+                const created = await createNoteOnServer(note.title, getEncodedNoteContent(note));
                 if (created && created.id) {
                     note.id = created.id;
                     note.created_at = created.created_at;
                     note.updated_at = created.updated_at;
 
-                    // Update references in openNoteIds/activeNoteId
-                    openNoteIds = openNoteIds.map(id => id === oldId ? note.id : id);
-                    if (activeNoteId === oldId) {
-                        activeNoteId = note.id;
+                    replaceNoteIdReferences(oldId, note.id);
+
+                    if (splitViewEnabled && secondaryNoteId === activeNoteId) {
+                        let candidateId = null;
+                        if (Array.isArray(openNoteIds) && openNoteIds.length) {
+                            candidateId = openNoteIds.find(openId => openId !== activeNoteId && notes.some(n => n.id === openId)) || null;
+                        }
+                        if (!candidateId) {
+                            const anyOther = notes.find(n => n.id !== activeNoteId);
+                            candidateId = anyOther ? anyOther.id : null;
+                        }
+                        if (candidateId) {
+                            secondaryNoteId = candidateId;
+                        }
                     }
                     // Replace in notes array if an entry with the old id still exists
                     const idx = notes.findIndex(n => n.id === oldId);
@@ -258,16 +496,76 @@
         }, SAVED_NOTIFICATION_DELAY);
     }
 
+    function makeLocalNoteId() {
+        try {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                return 'note-' + window.crypto.randomUUID();
+            }
+        } catch (e) {
+            // ignore
+        }
+        return 'note-' + Date.now() + '-' + Math.floor(Math.random() * 1000000000);
+    }
+
     function createNoteObject(title) {
-        const id = 'note-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
-        const now = new Date().toISOString();
+        const id = makeLocalNoteId();
+        const now = new Date().toLocaleString();
         return {
             id,
             title: title || 'Untitled',
             content: '',
+            content_secondary: '',
             created_at: now,
             updated_at: now
         };
+    }
+
+    function ensureUniqueNoteIds() {
+        if (!Array.isArray(notes) || !notes.length) {
+            return;
+        }
+
+        const seen = new Set();
+        let changed = false;
+
+        for (const note of notes) {
+            if (!note || typeof note !== 'object') {
+                continue;
+            }
+            const id = note.id;
+            if (typeof id !== 'string' || !id || seen.has(id)) {
+                note.id = makeLocalNoteId();
+                changed = true;
+            }
+            seen.add(note.id);
+        }
+
+        const ids = notes.map(n => n && n.id).filter(Boolean);
+        if (!Array.isArray(openNoteIds)) {
+            openNoteIds = [];
+        }
+        openNoteIds = openNoteIds.filter(id => typeof id === 'string' && ids.includes(id));
+        openNoteIds = Array.from(new Set(openNoteIds));
+        if (!openNoteIds.length && ids.length) {
+            openNoteIds = ids.slice();
+            changed = true;
+        }
+
+        if (!activeNoteId || !ids.includes(activeNoteId)) {
+            activeNoteId = openNoteIds[0] || ids[0] || null;
+            changed = true;
+        }
+        if (secondaryNoteId && !ids.includes(secondaryNoteId)) {
+            secondaryNoteId = null;
+            changed = true;
+        }
+        if (secondaryNoteId && secondaryNoteId === activeNoteId) {
+            secondaryNoteId = null;
+            changed = true;
+        }
+        if (changed) {
+            saveAllNotesToLocalStorage();
+        }
     }
 
     function getActiveNote() {
@@ -279,6 +577,160 @@
         // Trust the ID and let getActiveNote() fall back if needed
         activeNoteId = id;
         render();
+    }
+
+    function ensureSplitPaneChoiceModal() {
+        let modal = document.getElementById('notes-split-pane-choice-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'notes-split-pane-choice-modal';
+        modal.className = 'modal';
+        modal.style.display = 'none';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 520px;">
+                <div class="modal-header">
+                    <h2>Replace split pane</h2>
+                    <button class="modal-close" type="button" data-action="cancel">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p id="notes-split-pane-choice-text" style="color: var(--text-secondary); margin: 0;"></p>
+                </div>
+                <div class="modal-footer" style="display:flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button id="notes-split-pane-choice-left-btn" class="btn-secondary" type="button" data-action="left">Primary (Left)</button>
+                    <button id="notes-split-pane-choice-right-btn" class="btn-primary" type="button" data-action="right">Secondary (Right)</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    function promptSplitPaneSide(context) {
+        return new Promise((resolve) => {
+            const modal = ensureSplitPaneChoiceModal();
+            if (!modal) {
+                resolve(null);
+                return;
+            }
+
+            const targetTitle = context && context.targetTitle ? String(context.targetTitle) : 'this note';
+            const leftTitle = context && context.leftTitle ? String(context.leftTitle) : 'Untitled';
+            const rightTitle = context && context.rightTitle ? String(context.rightTitle) : 'Untitled';
+
+            const textEl = modal.querySelector('#notes-split-pane-choice-text');
+            if (textEl) {
+                textEl.textContent = `Open "${targetTitle}" in which editor? Primary: "${leftTitle}" | Secondary: "${rightTitle}"`;
+            }
+
+            const cleanup = () => {
+                modal.style.display = 'none';
+                modal.classList.remove('active');
+                modal.removeEventListener('click', onClick);
+            };
+
+            const onClick = (e) => {
+                const btn = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+                if (!btn) return;
+                const action = btn.getAttribute('data-action');
+                if (action === 'left') {
+                    cleanup();
+                    resolve('left');
+                } else if (action === 'right') {
+                    cleanup();
+                    resolve('right');
+                } else if (action === 'cancel') {
+                    cleanup();
+                    resolve(null);
+                }
+            };
+
+            modal.addEventListener('click', onClick);
+            modal.style.display = 'flex';
+            modal.classList.add('active');
+        });
+    }
+
+    function flushEditorsToNotes() {
+        const primaryEl = document.getElementById('notes-editor-primary');
+        const secondaryEl = document.getElementById('notes-editor-secondary');
+        if (primaryEl) {
+            try { handleEditorInput(primaryEl); } catch (e) {}
+        }
+        if (secondaryEl) {
+            try { handleEditorInput(secondaryEl); } catch (e) {}
+        }
+    }
+
+    async function openNoteInSplit(noteId) {
+        if (!noteId) return false;
+        const target = notes.find(n => n.id === noteId);
+        if (!target) return false;
+
+        if (!Array.isArray(openNoteIds)) {
+            openNoteIds = [];
+        }
+        if (!openNoteIds.includes(noteId)) {
+            openNoteIds.push(noteId);
+        }
+
+        const primaryEl = document.getElementById('notes-editor-primary');
+        const secondaryEl = document.getElementById('notes-editor-secondary');
+        const secondaryHasContent = !!(secondaryEl && typeof secondaryEl.value === 'string' && secondaryEl.value.trim().length > 0);
+
+        let side = 'right';
+        if (splitViewEnabled && secondaryHasContent) {
+            const currentLeftId = activeNoteId;
+            const currentRightId = (secondaryNoteId && secondaryNoteId !== activeNoteId) ? secondaryNoteId : null;
+            const leftNote = notes.find(n => n.id === currentLeftId) || null;
+            const rightNote = currentRightId ? (notes.find(n => n.id === currentRightId) || null) : null;
+            const leftTitle = leftNote && leftNote.title ? leftNote.title : 'Untitled';
+            const rightTitle = rightNote
+                ? (rightNote.title || 'Untitled')
+                : (leftTitle + ' (secondary pane)');
+
+            side = await promptSplitPaneSide({
+                targetTitle: target.title || 'Untitled',
+                leftTitle,
+                rightTitle
+            });
+            if (!side) {
+                return false;
+            }
+        }
+
+        flushEditorsToNotes();
+
+        const currentLeftId = activeNoteId;
+        const currentRightId = (secondaryNoteId && secondaryNoteId !== activeNoteId) ? secondaryNoteId : null;
+
+        splitViewEnabled = true;
+
+        if (side === 'left') {
+            if (noteId === currentRightId) {
+                activeNoteId = noteId;
+                secondaryNoteId = currentLeftId && currentLeftId !== noteId ? currentLeftId : null;
+            } else {
+                activeNoteId = noteId;
+                if (currentRightId && currentRightId !== activeNoteId) {
+                    secondaryNoteId = currentRightId;
+                } else {
+                    secondaryNoteId = null;
+                }
+            }
+        } else {
+            if (noteId === currentLeftId) {
+                secondaryNoteId = null;
+            } else {
+                secondaryNoteId = noteId;
+            }
+        }
+
+        if (typeof saveNotes === 'function') {
+            saveNotes();
+        }
+        render();
+        return true;
     }
 
     function ensureSecondaryEditorVisibility() {
@@ -374,17 +826,25 @@
         // the note that was actually visible when the user typed, even if
         // activeNoteId changes slightly later (e.g. when clicking the + tab).
         primary.dataset.noteId = primaryNote.id;
+        primary.title = primaryNote.title || 'Untitled';
+        primary.setAttribute('aria-label', 'Notes editor (primary): ' + (primaryNote.title || 'Untitled'));
 
-        // Secondary editor can show a different note when split view is enabled.
-        let secondaryNote = primaryNote;
-        if (splitViewEnabled && secondaryNoteId && secondaryNoteId !== activeNoteId) {
-            const candidate = notes.find(n => n.id === secondaryNoteId);
-            if (candidate) {
-                secondaryNote = candidate;
-            }
+        let secondaryNote = null;
+        if (splitViewEnabled && secondaryNoteId && secondaryNoteId !== primaryNote.id) {
+            secondaryNote = notes.find(n => n.id === secondaryNoteId) || null;
         }
-        secondary.value = secondaryNote.content || '';
-        secondary.dataset.noteId = secondaryNote.id;
+
+        if (secondaryNote) {
+            secondary.value = secondaryNote.content || '';
+            secondary.dataset.noteId = secondaryNote.id;
+            secondary.title = secondaryNote.title || 'Untitled';
+            secondary.setAttribute('aria-label', 'Notes editor (secondary): ' + (secondaryNote.title || 'Untitled'));
+        } else {
+            secondary.value = primaryNote.content_secondary || '';
+            secondary.dataset.noteId = primaryNote.id;
+            secondary.title = primaryNote.title || 'Untitled';
+            secondary.setAttribute('aria-label', 'Notes editor (secondary): ' + (primaryNote.title || 'Untitled'));
+        }
 
         ensureSecondaryEditorVisibility();
     }
@@ -453,7 +913,7 @@
         const trimmed = newTitle.trim();
         if (!trimmed) return;
         note.title = trimmed;
-        note.updated_at = new Date().toISOString();
+        note.updated_at = new Date().toLocaleString();
         renderTabs();
         saveNoteToServer(note);
         scheduleSavedNotification();
@@ -463,13 +923,14 @@
         if (!editor) return;
 
         let targetNote = null;
+        let boundId = null;
 
         // Prefer the note ID that was bound to this editor when it was last
         // rendered. This avoids races where activeNoteId changes (e.g. when
         // clicking + to open a new tab) while keystrokes are still being
         // processed for the previously visible note.
         if (editor.dataset && editor.dataset.noteId) {
-            const boundId = editor.dataset.noteId;
+            boundId = editor.dataset.noteId;
             targetNote = notes.find(n => n.id === boundId) || null;
         }
 
@@ -488,16 +949,56 @@
         // ephemeral scratch note, even if the user later clears its content.
         targetNote.__touched = true;
 
-        targetNote.content = editor.value;
-        targetNote.updated_at = new Date().toISOString();
+        if (editor.id === 'notes-editor-secondary') {
+            const derivedSecondaryId = (boundId && boundId !== activeNoteId)
+                ? boundId
+                : (splitViewEnabled && secondaryNoteId && secondaryNoteId !== activeNoteId ? secondaryNoteId : null);
+
+            // If the right pane is currently showing a different note, always
+            // write to that note's primary content and NEVER to the active
+            // note's content_secondary.
+            if (derivedSecondaryId && derivedSecondaryId !== activeNoteId) {
+                const rightNote = notes.find(n => n.id === derivedSecondaryId) || targetNote;
+                if (!rightNote) return;
+                rightNote.__touched = true;
+                rightNote.content = editor.value;
+                rightNote.updated_at = new Date().toLocaleString();
+                saveNoteToServer(rightNote);
+                scheduleSavedNotification();
+                return;
+            }
+
+            // Otherwise this is "same note" split (secondary pane belongs to
+            // the active note).
+            const active = getActiveNote();
+            if (!active) return;
+            active.__touched = true;
+            active.content_secondary = editor.value;
+            active.__splitEncoded = true;
+            active.updated_at = new Date().toLocaleString();
+            saveNoteToServer(active);
+            scheduleSavedNotification();
+            return;
+        } else {
+            targetNote.content = editor.value;
+        }
+        targetNote.updated_at = new Date().toLocaleString();
         saveNoteToServer(targetNote);
         scheduleSavedNotification();
     }
 
     function toggleSplitView() {
         splitViewEnabled = !splitViewEnabled;
+
         ensureSecondaryEditorVisibility();
         saveNotes();
+        renderEditors();
+
+        if (splitViewEnabled && window.showNotification) {
+            const primaryNote = getActiveNote();
+            const leftTitle = primaryNote && primaryNote.title ? primaryNote.title : 'Untitled';
+            window.showNotification(`Split view: ${leftTitle}`, 'info');
+        }
     }
 
     function getFocusedEditor() {
@@ -540,7 +1041,7 @@
                     const lineEnd = value.indexOf('\n', start);
                     const endPos = lineEnd === -1 ? value.length : lineEnd;
                     const line = value.substring(lineStart, endPos);
-                    const stripped = line.replace(/^([#]+\s|[-*]\s|\d+\.\s|\[ \]\s)/, '');
+                    const stripped = line.replace(/^([#]+\s|[-*]\s|\d+\.\s?|\[ \]\s)/, '');
                     const newLine = prefix + stripped;
                     editor.value = value.substring(0, lineStart) + newLine + value.substring(endPos);
                     const newCursor = lineStart + newLine.length;
@@ -686,7 +1187,7 @@
         const endPos = lineEnd === -1 ? value.length : lineEnd;
         const line = value.substring(lineStart, endPos);
 
-        const stripped = line.replace(/^([#]+\s|[-*]\s|\d+\.\s|\[ \]\s)/, '');
+        const stripped = line.replace(/^([#]+\s|[-*]\s|\d+\.\s?|\[ \]\s)/, '');
         const newLine = prefix + stripped;
         editor.value = value.substring(0, lineStart) + newLine + value.substring(endPos);
         const newCursor = lineStart + newLine.length;
@@ -829,19 +1330,7 @@
                     return;
                 }
                 if (item.action === 'split') {
-                    // Ensure this note is in the open tabs list
-                    if (!Array.isArray(openNoteIds)) {
-                        openNoteIds = [];
-                    }
-                    if (!openNoteIds.includes(id)) {
-                        openNoteIds.push(id);
-                    }
-                    secondaryNoteId = id;
-                    splitViewEnabled = true;
-                    if (typeof saveNotes === 'function') {
-                        saveNotes();
-                    }
-                    render();
+                    openNoteInSplit(id).catch(() => {});
                 } else if (item.action === 'rename') {
                     renameActiveNote(id);
                 } else if (item.action === 'close') {
@@ -1162,21 +1651,15 @@
             openInSplitBtn.title = 'Open in split view';
             openInSplitBtn.addEventListener('click', function (ev) {
                 ev.stopPropagation();
-                // Ensure this note is in the open tabs list
-                if (!Array.isArray(openNoteIds)) {
-                    openNoteIds = [];
-                }
-                if (!openNoteIds.includes(note.id)) {
-                    openNoteIds.push(note.id);
-                }
-                // Set as the secondary note and enable split view
-                secondaryNoteId = note.id;
-                splitViewEnabled = true;
-                if (typeof saveNotes === 'function') {
-                    saveNotes();
-                }
-                render();
-                closeNotesListModal();
+                openNoteInSplit(note.id)
+                    .then((changed) => {
+                        if (changed) {
+                            closeNotesListModal();
+                        }
+                    })
+                    .catch(() => {
+                        closeNotesListModal();
+                    });
             });
 
             li.appendChild(selectCheckbox);

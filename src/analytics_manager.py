@@ -55,7 +55,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     count = cur.fetchone()[0]
     if count == 0:
         today = date.today().isoformat()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now().isoformat()
         conn.execute(
             "INSERT INTO analytics (id, today_date, today_strikes, total_strikes, created_at, updated_at) "
             "VALUES (1, ?, 0, 0, ?, ?)",
@@ -100,7 +100,7 @@ def _maybe_migrate_from_json(conn: sqlite3.Connection) -> None:
     except Exception:
         total_strikes = int(row["total_strikes"] or 0)
 
-    now = datetime.utcnow().isoformat()
+    now = datetime.now().isoformat()
     conn.execute(
         "UPDATE analytics SET today_date = ?, today_strikes = ?, total_strikes = ?, updated_at = ? WHERE id = 1",
         (today, today_strikes, total_strikes, now),
@@ -157,7 +157,7 @@ def increment_strike_counter() -> None:
         _maybe_migrate_from_json(conn)
 
         today = date.today().isoformat()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now().isoformat()
 
         cur = conn.execute(
             "SELECT today_date, today_strikes, total_strikes FROM analytics WHERE id = 1"

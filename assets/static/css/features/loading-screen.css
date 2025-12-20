@@ -1,0 +1,161 @@
+/* Loading Screen Styles */
+.loading-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Use theme background with a light default so it follows selected theme */
+    background: var(--background-color, #FFF5E6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    transition: opacity 0.5s ease-out;
+}
+
+.loading-folder {
+    text-align: center;
+    color: var(--text-color, #5C2D00);
+}
+
+.loading-folder-layout {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 2rem;
+}
+
+.loading-folder-left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.loading-folder-right {
+    text-align: left;
+}
+
+/* Folder-style loader inspired by Codrops Folder style 8 (Nandi) */
+.loading-folder__icon {
+    position: relative;
+    width: 6rem;
+    height: 4rem;
+    margin: 0 auto 1.5rem auto;
+    transform-origin: center bottom;
+    animation: loader-bounce 1.8s ease-in-out infinite;
+}
+
+.loading-folder__back,
+.loading-folder__front,
+.loading-folder__tab {
+    position: absolute;
+    left: 0;
+    right: 0;
+    margin: 0 auto;
+    border-radius: 6px;
+}
+
+.loading-folder__back {
+    top: 0.4rem;
+    width: 100%;
+    height: 2.6rem;
+    background: linear-gradient(135deg, #ffe0c2, #ffcf99);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+}
+
+.loading-folder__tab {
+    top: 0;
+    width: 55%;
+    height: 0.9rem;
+    background: linear-gradient(135deg, #ffd1a1, #ffb873);
+    border-radius: 6px 6px 0 0;
+    transform-origin: left center;
+}
+
+.loading-folder__front {
+    bottom: 0;
+    width: 100%;
+    height: 2.6rem;
+    background: linear-gradient(135deg, #ffb873, #ff8c42);
+    transform-origin: center bottom;
+    animation: loader-flap 1.8s ease-in-out infinite;
+}
+
+.loading-folder__paper {
+    position: absolute;
+    left: 12%;
+    right: 12%;
+    height: 1.5rem;
+    background: #ffffff;
+    border-radius: 4px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.08);
+    transform-origin: bottom center;
+}
+
+.loading-folder__paper--1 {
+    bottom: 1.8rem;
+    animation: loader-paper-1 1.8s ease-in-out infinite;
+}
+
+.loading-folder__paper--2 {
+    bottom: 2.3rem;
+    animation: loader-paper-2 1.8s ease-in-out infinite;
+}
+
+.loading-text {
+    font-size: 1rem;
+    color: var(--text-secondary, #8B4513);
+    margin: 0.4rem 0 0;
+    font-weight: 500;
+}
+
+.loading-folder__tasks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-family: "Courier New", Consolas, monospace;
+    font-size: 0.9rem;
+    color: var(--text-color, #333);
+    /* Fixed width column so folder stays centered as lines appear */
+    width: 260px;
+    white-space: nowrap;
+    /* Prevent tall task lists from pushing the loader off-center */
+    max-height: 7.2rem; /* ~8 lines */
+    overflow: hidden;
+}
+
+.loading-folder__task {
+    opacity: 0;
+    transform: translateY(4px);
+    animation: loader-task-in 0.35s ease-out forwards;
+}
+
+.loading-screen.fade-out {
+    opacity: 0;
+    pointer-events: none;
+}
+
+@keyframes loader-bounce {
+    0%, 100% { transform: translateY(0); }
+    40% { transform: translateY(-4px); }
+}
+
+@keyframes loader-flap {
+    0%, 100% { transform: rotateX(0deg); }
+    40% { transform: rotateX(-14deg); }
+}
+
+@keyframes loader-paper-1 {
+    0%, 100% { transform: translateY(0) scaleY(1); opacity: 0.9; }
+    40% { transform: translateY(-4px) scaleY(1.02); opacity: 1; }
+}
+
+@keyframes loader-paper-2 {
+    0%, 100% { transform: translateY(0) scaleY(1); opacity: 0.7; }
+    40% { transform: translateY(-6px) scaleY(1.04); opacity: 0.95; }
+}
+
+@keyframes loader-task-in {
+    0% { opacity: 0; transform: translateY(4px); }
+    100% { opacity: 1; transform: translateY(0); }
+}

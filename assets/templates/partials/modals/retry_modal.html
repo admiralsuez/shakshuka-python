@@ -1,0 +1,22 @@
+<!-- Retry Task Modal -->
+<div class="modal" id="retry-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Retry Task</h3>
+            <button class="modal-close" id="close-retry-modal">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <p id="retry-task-title" style="margin-bottom: 1rem; font-weight: 500;"></p>
+            <div class="form-group">
+                <label for="retry-date">Select new due date:</label>
+                <input type="date" id="retry-date" class="form-control" required>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-secondary" id="cancel-retry">Cancel</button>
+            <button type="button" class="btn-primary" id="confirm-retry">Retry Task</button>
+        </div>
+    </div>
+</div>

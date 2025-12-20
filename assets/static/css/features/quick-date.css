@@ -1,0 +1,21 @@
+/* Quick Date Buttons */
+.btn-quick-date {
+    background: var(--surface-color, #FFFFFF);
+    border: 1px solid var(--border-color, #E0E0E0);
+    border-radius: 4px;
+    color: var(--text-primary, #333333);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-quick-date:hover {
+    background: var(--accent-color, #FF8C42);
+    color: white;
+    border-color: var(--accent-color, #FF8C42);
+    transform: translateY(-1px);
+}
+
+.btn-quick-date i {
+    margin-right: 4px;
+}

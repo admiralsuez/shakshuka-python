@@ -9,3 +9,5 @@ Services are high-level modules that encapsulate specific functionality:
 """
 
 __all__ = ['scheduler', 'validators', 'sanitizers', 'security']
+
+__all__ += ['autosave', 'tray']

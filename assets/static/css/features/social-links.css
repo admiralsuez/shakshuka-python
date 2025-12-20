@@ -1,0 +1,41 @@
+/* Social Links */
+.social-links {
+    display: flex;
+    gap: calc(1rem * var(--dpi-scale));
+    margin-top: calc(1rem * var(--dpi-scale));
+    justify-content: center;
+}
+
+.social-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: calc(2.5rem * var(--dpi-scale));
+    height: calc(2.5rem * var(--dpi-scale));
+    border-radius: 50%;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    font-size: calc(1.2rem * var(--dpi-scale));
+}
+
+.social-link.whatsapp {
+    background: #25D366;
+    color: white;
+}
+
+.social-link.whatsapp:hover {
+    background: #128C7E;
+    transform: translateY(-2px);
+    box-shadow: 0 calc(4px * var(--dpi-scale)) calc(8px * var(--dpi-scale)) rgba(37, 211, 102, 0.3);
+}
+
+.social-link.github {
+    background: #333;
+    color: white;
+}
+
+.social-link.github:hover {
+    background: #24292e;
+    transform: translateY(-2px);
+    box-shadow: 0 calc(4px * var(--dpi-scale)) calc(8px * var(--dpi-scale)) rgba(51, 51, 51, 0.3);
+}

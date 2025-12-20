@@ -1,9 +1,16 @@
 """
 Application Context - Global application state management
 """
+
+import secrets
 import threading
-from typing import Optional, Dict, Any
-from datetime import datetime
+from typing import Dict, Optional
+
+from cachetools import TTLCache
+
+from src.constants import CSRF_TOKEN_EXPIRY_SECONDS
+from src.security_manager import security_manager
+from tools.autostart import WindowsAutostart
 
 class AppContext:
     """
@@ -26,68 +33,135 @@ class AppContext:
             return
             
         self._initialized = True
-        self.data_manager = None
-        self.user_manager = None
-        self.update_manager = None
-        self.autostart = None
+
+        self._data_manager = None
+        self._autostart_manager = WindowsAutostart("Shakshuka")
+        self._update_manager = None
+        self._pin_manager = None
+
+        self._session_secrets: Dict[str, str] = {}
+        self._csrf_tokens = TTLCache(maxsize=10000, ttl=CSRF_TOKEN_EXPIRY_SECONDS)
+
+        self._lock = threading.RLock()
+        self._auto_save_lock = threading.RLock()
+
+        self._auto_save_enabled = True
+        self._auto_save_thread = None
+        self._auto_save_running = False
+        self._auto_save_stop_event = threading.Event()
+        self._last_save_time = 0
+        self._save_in_progress = False
+        self._last_saved_tasks_signature = None
+
         self.system_tray = None
-        self.auto_save_thread = None
-        self.scheduler_thread = None
-        self.csrf_tokens: Dict[str, float] = {}
-        self.server_thread = None
-        self.server_running = False
-        self.shutdown_event = threading.Event()
-        self.app_version = "1.5.0"
-        self.build_number = "33"
         
-    def initialize_data_manager(self, data_manager):
-        """Initialize the data manager"""
-        self.data_manager = data_manager
-        
-    def initialize_user_manager(self, user_manager):
-        """Initialize the user manager"""
-        self.user_manager = user_manager
-        
-    def initialize_update_manager(self, update_manager):
-        """Initialize the update manager"""
-        self.update_manager = update_manager
-        
-    def initialize_autostart(self, autostart):
-        """Initialize the autostart manager"""
-        self.autostart = autostart
-        
-    def set_system_tray(self, tray):
-        """Set the system tray icon"""
-        self.system_tray = tray
-        
-    def set_auto_save_thread(self, thread):
-        """Set the auto-save thread"""
-        self.auto_save_thread = thread
-        
-    def set_scheduler_thread(self, thread):
-        """Set the scheduler thread"""
-        self.scheduler_thread = thread
-        
-    def is_server_running(self) -> bool:
-        """Check if server is running"""
-        return self.server_running
-        
-    def start_server(self):
-        """Mark server as running"""
-        self.server_running = True
-        
-    def stop_server(self):
-        """Mark server as stopped"""
-        self.server_running = False
-        self.shutdown_event.set()
-        
-    def cleanup(self):
-        """Cleanup resources"""
-        self.stop_server()
-        if self.auto_save_thread and self.auto_save_thread.is_alive():
-            self.auto_save_thread.join(timeout=2)
-        if self.scheduler_thread and self.scheduler_thread.is_alive():
-            self.scheduler_thread.join(timeout=2)
+
+    @property
+    def data_manager(self):
+        return self._data_manager
+
+    @data_manager.setter
+    def data_manager(self, value):
+        self._data_manager = value
+
+    @property
+    def autostart_manager(self):
+        return self._autostart_manager
+
+    @property
+    def update_manager(self):
+        return self._update_manager
+
+    @update_manager.setter
+    def update_manager(self, value):
+        self._update_manager = value
+
+    @property
+    def pin_manager(self):
+        return self._pin_manager
+
+    @pin_manager.setter
+    def pin_manager(self, value):
+        self._pin_manager = value
+
+    @property
+    def auto_save_enabled(self):
+        return self._auto_save_enabled
+
+    @auto_save_enabled.setter
+    def auto_save_enabled(self, value):
+        self._auto_save_enabled = value
+
+    @property
+    def auto_save_thread(self):
+        return self._auto_save_thread
+
+    @auto_save_thread.setter
+    def auto_save_thread(self, value):
+        self._auto_save_thread = value
+
+    def generate_session_secret(self, user_id):
+        secret = security_manager.generate_session_secret(user_id)
+        self._session_secrets[user_id] = secret
+        return secret
+
+    def validate_session_secret(self, user_id, secret):
+        return self._session_secrets.get(user_id) == secret
+
+    def generate_csrf_token(self):
+        token = secrets.token_urlsafe(32)
+        self._csrf_tokens[token] = True
+        return token
+
+    def validate_csrf_token(self, token):
+        if not token or len(token) < 10:
+            return False
+        return token in self._csrf_tokens
+
+    @property
+    def csrf_tokens(self):
+        return self._csrf_tokens
+
+    def is_auto_save_running(self):
+        with self._auto_save_lock:
+            return self._auto_save_running
+
+    def set_auto_save_running(self, running):
+        with self._auto_save_lock:
+            self._auto_save_running = running
+
+    def is_save_in_progress(self):
+        with self._auto_save_lock:
+            return self._save_in_progress
+
+    def set_save_in_progress(self, in_progress):
+        with self._auto_save_lock:
+            self._save_in_progress = in_progress
+
+    def get_last_save_time(self):
+        with self._auto_save_lock:
+            return self._last_save_time
+
+    def set_last_save_time(self, save_time):
+        with self._auto_save_lock:
+            self._last_save_time = save_time
+
+    def get_last_saved_tasks_signature(self):
+        with self._auto_save_lock:
+            return self._last_saved_tasks_signature
+
+    def set_last_saved_tasks_signature(self, signature):
+        with self._auto_save_lock:
+            self._last_saved_tasks_signature = signature
+
+    def stop_auto_save_event(self):
+        self._auto_save_stop_event.set()
+
+    def wait_for_auto_save_stop(self, timeout=None):
+        return self._auto_save_stop_event.wait(timeout)
+
+    def clear_auto_save_stop_event(self):
+        self._auto_save_stop_event.clear()
 
 
 # Global singleton instance

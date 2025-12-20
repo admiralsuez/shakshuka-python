@@ -12,6 +12,7 @@ class DailyPlannerV2 {
         // Throttle/merge network fetches to cut redundant GETs
         this._loadScheduledPromise = null;
         this._lastScheduleFetch = 0;
+        this._historyHandlersAttached = false;
         
         Utils.debugLog('DailyPlannerV2 constructor - selectedDate:', this.selectedDate.toDateString());
         Utils.debugLog('DailyPlannerV2 constructor - getDateKey result:', this.getDateKey(this.selectedDate));
@@ -49,6 +50,8 @@ class DailyPlannerV2 {
             }
         });
 
+        this.attachPlannerHistoryHandlers();
+
         document.getElementById('next-day')?.addEventListener('click', () => {
             this.selectedDate.setDate(this.selectedDate.getDate() + 1);
             this.updateDateDisplay();
@@ -80,6 +83,202 @@ class DailyPlannerV2 {
         });
 
         // Drag and drop setup is handled in generateHoursGrid and renderAvailableTasks
+    }
+
+    attachPlannerHistoryHandlers() {
+        if (this._historyHandlersAttached) return;
+
+        const openBtn = document.getElementById('planner-history-btn');
+        const closeBtn = document.getElementById('close-planner-history-modal');
+        const modal = document.getElementById('planner-history-modal');
+
+        if (openBtn) {
+            openBtn.addEventListener('click', () => this.openPlannerHistoryModal());
+        }
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.closePlannerHistoryModal());
+        }
+        if (modal) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    this.closePlannerHistoryModal();
+                }
+            });
+        }
+
+        this._historyHandlersAttached = true;
+    }
+
+    closePlannerHistoryModal() {
+        const modal = document.getElementById('planner-history-modal');
+        if (!modal) return;
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+    }
+
+    async openPlannerHistoryModal() {
+        const modal = document.getElementById('planner-history-modal');
+        const select = document.getElementById('planner-history-date');
+        const content = document.getElementById('planner-history-content');
+
+        if (!modal || !select || !content) return;
+
+        modal.classList.add('active');
+        modal.style.display = 'flex';
+
+        content.innerHTML = `
+            <div class="loading-changelog">
+                <div class="loading-spinner"></div>
+                <p>Loading history...</p>
+            </div>
+        `;
+
+        try {
+            const resp = await apiCall('/api/planner-v2/history?limit=7');
+            const data = await resp.json();
+            if (!data || !data.success) {
+                throw new Error((data && data.error) || 'Failed to load history');
+            }
+
+            const days = Array.isArray(data.days) ? data.days : [];
+            select.innerHTML = '';
+
+            if (!days.length) {
+                // Fallback: show the last 7 calendar days even if there are no stored snapshots yet.
+                // This keeps the dropdown usable and the content panel can display an empty message per day.
+                const fallbackDays = [];
+                const base = new Date();
+                base.setHours(0, 0, 0, 0);
+                for (let i = 0; i < 7; i++) {
+                    const d = new Date(base);
+                    d.setDate(base.getDate() - i);
+                    fallbackDays.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+                }
+
+                fallbackDays.forEach(day => {
+                    const opt = document.createElement('option');
+                    opt.value = day;
+                    opt.textContent = day;
+                    select.appendChild(opt);
+                });
+
+                const loadSelected = async () => {
+                    const day = select.value;
+                    await this.loadPlannerHistoryForDay(day);
+                };
+
+                select.onchange = () => {
+                    loadSelected();
+                };
+
+                await loadSelected();
+                return;
+            }
+
+            days.forEach(day => {
+                const opt = document.createElement('option');
+                opt.value = day;
+                opt.textContent = day;
+                select.appendChild(opt);
+            });
+
+            const loadSelected = async () => {
+                const day = select.value;
+                await this.loadPlannerHistoryForDay(day);
+            };
+
+            select.onchange = () => {
+                loadSelected();
+            };
+
+            await loadSelected();
+        } catch (e) {
+            console.error('Failed to load planner history:', e);
+            content.innerHTML = '<p style="color: var(--text-secondary);">Unable to load history.</p>';
+        }
+    }
+
+    formatHistoryTime(hour, minute) {
+        if (hour === null || hour === undefined) return 'Unscheduled';
+        const h = parseInt(hour, 10);
+        const m = parseInt(minute || 0, 10);
+        if (Number.isNaN(h) || Number.isNaN(m)) return 'Unscheduled';
+        const ampm = h < 12 ? 'AM' : 'PM';
+        const displayHour = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+        const mm = String(m).padStart(2, '0');
+        return `${displayHour}:${mm} ${ampm}`;
+    }
+
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    async loadPlannerHistoryForDay(day) {
+        const content = document.getElementById('planner-history-content');
+        if (!content) return;
+
+        content.innerHTML = `
+            <div class="loading-changelog">
+                <div class="loading-spinner"></div>
+                <p>Loading ${day}...</p>
+            </div>
+        `;
+
+        try {
+            const resp = await apiCall(`/api/planner-v2/history/${encodeURIComponent(day)}`);
+            const data = await resp.json();
+            if (!data || !data.success) {
+                throw new Error((data && data.error) || 'Failed to load day');
+            }
+
+            const entries = Array.isArray(data.entries) ? data.entries : [];
+            if (!entries.length) {
+                content.innerHTML = '<p style="color: var(--text-secondary);">No tasks logged for this day.</p>';
+                return;
+            }
+
+            const rowsHtml = entries.map(item => {
+                const strikes = parseInt(item.strikes_for_day || 0, 10) || 0;
+                let status = 'Not struck';
+                if (item.strike_mode === 'forever' || item.completed) {
+                    status = 'Forever';
+                } else if (strikes >= 2) {
+                    status = 'Struck twice';
+                } else if (strikes === 1 || item.strike_mode === 'today') {
+                    status = 'Struck once';
+                }
+                const timeLabel = this.formatHistoryTime(item.scheduled_hour, item.scheduled_minute);
+                const duration = item.scheduled_duration ? `${item.scheduled_duration}m` : '';
+                return `
+                    <div class="planner-history-row">
+                        <div class="planner-history-time">${this.escapeHtml(timeLabel)}</div>
+                        <div class="planner-history-title">${this.escapeHtml(item.title || '')}</div>
+                        <div class="planner-history-duration">${this.escapeHtml(duration)}</div>
+                        <div class="planner-history-status">${this.escapeHtml(status)}</div>
+                    </div>
+                `;
+            }).join('');
+
+            content.innerHTML = `
+                <div class="planner-history-list">
+                    <div class="planner-history-row planner-history-row--header">
+                        <div class="planner-history-time">Time</div>
+                        <div class="planner-history-title">Task</div>
+                        <div class="planner-history-duration">Dur.</div>
+                        <div class="planner-history-status">Strike</div>
+                    </div>
+                    ${rowsHtml}
+                </div>
+            `;
+        } catch (e) {
+            console.error('Failed to load planner history day:', e);
+            content.innerHTML = '<p style="color: var(--text-secondary);">Unable to load this day.</p>';
+        }
     }
 
     generateHoursGrid() {

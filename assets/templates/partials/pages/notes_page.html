@@ -1,0 +1,29 @@
+            <!-- Settings Page -->
+            <div id="notes-page" class="page">
+                <div class="page-header">
+                    <div class="notes-header-inner">
+                        <h2>Notes</h2>
+                        <div class="notes-header-actions">
+                            <button class="btn-primary btn-icon" id="notes-view-list-btn" title="View all notes">
+                                <i class="fas fa-folder"></i>
+                            </button>
+                            <button class="btn-primary btn-icon" id="notes-split-toggle-btn" title="Toggle split view">
+                                <i class="fas fa-arrows-alt-h"></i>
+                            </button>
+                            <button class="btn-primary" id="notes-add-selection-task-btn" title="Make selected text a task">
+                                Make selection a task
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="notes-container">
+                    <div class="notes-tabs-bar filter-tabs">
+                        <div class="notes-tabs-scroll" id="notes-tabs"></div>
+                        <button class="notes-tab notes-tab--new btn-primary btn-icon" id="notes-tab-new" type="button" title="New note tab">+</button>
+                    </div>
+                    <div class="notes-editors" id="notes-editors">
+                        <textarea id="notes-editor-primary" class="notes-editor" spellcheck="false" placeholder="enter your thoughts here, you can use the buttons on top to view notes, split view and add selection to tasklist directly"></textarea>
+                        <textarea id="notes-editor-secondary" class="notes-editor notes-editor--secondary" spellcheck="false"></textarea>
+                    </div>
+                </div>
+            </div>

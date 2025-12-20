@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en" style="background-color: var(--background-color, #FFF5E6);">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shakshuka - Modern Task Manager</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
+    <link rel="shortcut icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/auth/pin-auth.css') }}?v=6.2">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fontawesome.css') }}?v=6.2">
+</head>
+<body style="background-color: var(--background-color, #FFF5E6);">
+    {% include 'partials/loading_screen.html' %}
+
+    <div class="app-container" id="app-container" style="display: none;">
+        {% include 'partials/sidebar.html' %}
+
+        <!-- Main Content Area -->
+        <main class="main-content" role="main" aria-label="Main content">
+            {% block pages %}{% endblock %}
+        </main>
+    </div>
+
+    {% block modals %}{% endblock %}
+
+    {% block scripts %}
+    {% include 'partials/scripts.html' %}
+    {% endblock %}
+</body>
+</html>
