@@ -2528,71 +2528,39 @@ class SQLiteDataManager:
                 return {}
 
             with self._get_connection() as conn:
+                # Optimized: Single query with subqueries instead of N+1 pattern
                 cur = conn.execute(
                     '''
-                    SELECT COUNT(DISTINCT task_id) AS c
-                    FROM strike_events
-                    WHERE user_id = ? AND day = ?
+                    SELECT 
+                        (SELECT COUNT(DISTINCT task_id) 
+                         FROM strike_events 
+                         WHERE user_id = ? AND day = ?) AS struck,
+                        (SELECT COUNT(DISTINCT task_id) 
+                         FROM strike_events 
+                         WHERE user_id = ? AND day = ? AND strike_type = 'forever') AS completed_forever,
+                        (SELECT COUNT(*) 
+                         FROM tasks 
+                         WHERE user_id = ? AND SUBSTR(created_at, 1, 10) = ?) AS tasks_added,
+                        (SELECT COUNT(*) 
+                         FROM settings_change_events 
+                         WHERE user_id = ? AND day = ?) AS settings_changed,
+                        (SELECT COUNT(*) 
+                         FROM notes 
+                         WHERE user_id = ? AND SUBSTR(created_at, 1, 10) = ?) AS notes_added,
+                        (SELECT COUNT(DISTINCT task_id) 
+                         FROM planner_task_history 
+                         WHERE user_id = ? AND day = ?) AS planned_tasks
                     ''',
-                    (user_id, day)
+                    (user_id, day, user_id, day, user_id, day, user_id, day, user_id, day, user_id, day)
                 )
                 row = cur.fetchone()
-                struck = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
-
-                cur = conn.execute(
-                    '''
-                    SELECT COUNT(DISTINCT task_id) AS c
-                    FROM strike_events
-                    WHERE user_id = ? AND day = ? AND strike_type = 'forever'
-                    ''',
-                    (user_id, day)
-                )
-                row = cur.fetchone()
-                completed_forever = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
-
-                cur = conn.execute(
-                    '''
-                    SELECT COUNT(*) AS c
-                    FROM tasks
-                    WHERE user_id = ? AND SUBSTR(created_at, 1, 10) = ?
-                    ''',
-                    (user_id, day)
-                )
-                row = cur.fetchone()
-                tasks_added = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
-
-                cur = conn.execute(
-                    '''
-                    SELECT COUNT(*) AS c
-                    FROM settings_change_events
-                    WHERE user_id = ? AND day = ?
-                    ''',
-                    (user_id, day)
-                )
-                row = cur.fetchone()
-                settings_changed = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
-
-                cur = conn.execute(
-                    '''
-                    SELECT COUNT(*) AS c
-                    FROM notes
-                    WHERE user_id = ? AND SUBSTR(created_at, 1, 10) = ?
-                    ''',
-                    (user_id, day)
-                )
-                row = cur.fetchone()
-                notes_added = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
-
-                cur = conn.execute(
-                    '''
-                    SELECT COUNT(DISTINCT task_id) AS c
-                    FROM planner_task_history
-                    WHERE user_id = ? AND day = ?
-                    ''',
-                    (user_id, day)
-                )
-                row = cur.fetchone()
-                planned_tasks = int((row['c'] if row and 'c' in row.keys() else 0) or 0)
+                
+                struck = int(row['struck'] or 0)
+                completed_forever = int(row['completed_forever'] or 0)
+                tasks_added = int(row['tasks_added'] or 0)
+                settings_changed = int(row['settings_changed'] or 0)
+                notes_added = int(row['notes_added'] or 0)
+                planned_tasks = int(row['planned_tasks'] or 0)
 
                 streak_days = self._calculate_streak_days_from_tasks(conn, user_id, day)
 
@@ -2605,6 +2573,7 @@ class SQLiteDataManager:
                     'tasks_planned': planned_tasks,
                     'notes_added': notes_added,
                     'streak_days': streak_days,
+                    'tasks_retried': 0  # Will be populated when retry tracking is implemented
                 }
         except Exception as e:
             self.logger.error(f"Error building daily recap for {day}: {e}")

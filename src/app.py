@@ -1151,6 +1151,97 @@ def mark_daily_recap_seen():
         return jsonify({'success': False}), 200
 
 
+@app.route('/api/analytics/summary', methods=['GET'])
+def get_analytics_summary():
+    """Consolidated analytics endpoint - returns all dashboard data in one call.
+    
+    This reduces multiple API calls to a single request, improving performance.
+    Returns: tasks stats, strikes, streak, completed_forever, settings_changes, tasks_added, tasks_retried
+    """
+    user_id = get_user_id()
+    if not ensure_data_manager():
+        return jsonify({'success': False, 'error': 'Failed to initialize data manager'}), 500
+    
+    try:
+        from src.analytics_manager import get_analytics_counters
+        
+        # Get analytics counters (today_strikes, total_strikes)
+        analytics = get_analytics_counters()
+        
+        # Get tasks for stats calculation
+        tasks = app_context.data_manager.load_tasks_for_user(user_id) or []
+        
+        # Calculate task stats
+        total_tasks = len(tasks)
+        active_tasks = len([t for t in tasks if not t.get('completed') and not t.get('struck_forever') and not t.get('struck_today')])
+        expired_tasks = len([t for t in tasks if t.get('due_date') and not t.get('completed') and not t.get('struck_forever') and t.get('due_date') < datetime.now().strftime('%Y-%m-%d')])
+        completed_tasks = len([t for t in tasks if t.get('completed') or t.get('struck_forever')])
+        
+        # Get streak
+        streak_data = app_context.data_manager.get_strike_streak(user_id) or {'current_streak': 0, 'best_streak': 0}
+        
+        # Get completed forever count
+        completed_forever = len([t for t in tasks if t.get('struck_forever')])
+        
+        # Get additional metrics from database
+        try:
+            conn = app_context.data_manager._get_pooled_connection()
+            cur = conn.cursor()
+            
+            # Settings changes count
+            cur.execute('SELECT COUNT(*) FROM settings_change_events WHERE user_id = ?', (user_id,))
+            settings_changes = cur.fetchone()[0]
+            
+            # Tasks added count
+            cur.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ?', (user_id,))
+            tasks_added = cur.fetchone()[0]
+            
+            # Tasks retried count (will be 0 until retry tracking is implemented)
+            tasks_retried = 0
+            
+            app_context.data_manager._return_connection(conn)
+        except Exception as e:
+            logger.warning(f"Error fetching additional metrics: {e}")
+            settings_changes = 0
+            tasks_added = total_tasks
+            tasks_retried = 0
+        
+        return jsonify({
+            'success': True,
+            'tasks': {
+                'total': total_tasks,
+                'active': active_tasks,
+                'expired': expired_tasks,
+                'completed': completed_tasks
+            },
+            'strikes': {
+                'today': analytics.get('today_strikes', 0),
+                'total': analytics.get('total_strikes', 0)
+            },
+            'streak': {
+                'current': streak_data.get('current_streak', 0),
+                'best': streak_data.get('best_streak', 0)
+            },
+            'completed_forever': completed_forever,
+            'settings_changes': settings_changes,
+            'tasks_added': tasks_added,
+            'tasks_retried': tasks_retried
+        })
+        
+    except Exception as e:
+        logger.error(f"Analytics summary error: {e}")
+        return jsonify({
+            'success': False,
+            'tasks': {'total': 0, 'active': 0, 'expired': 0, 'completed': 0},
+            'strikes': {'today': 0, 'total': 0},
+            'streak': {'current': 0, 'best': 0},
+            'completed_forever': 0,
+            'settings_changes': 0,
+            'tasks_added': 0,
+            'tasks_retried': 0
+        }), 200
+
+
 @app.route('/api/account', methods=['GET'])
 def get_account_info():
     try:

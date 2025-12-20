@@ -1,4 +1,4 @@
-// Analytics dashboard updater
+// Analytics dashboard updater - OPTIMIZED with consolidated endpoint
 async function updateDashboardStats() {
     const tasks = (typeof AppState !== 'undefined' && typeof AppState.getTasks === 'function')
         ? (AppState.getTasks() || [])
@@ -25,71 +25,88 @@ async function updateDashboardStats() {
         return d === todayStr;
     }).length;
 
-    const struckTodayFromState = tasks.filter(t => Boolean(t && t.struck_today)).length;
-
-    const completedForever = tasks.filter(t => (t.completed || t.struck_forever)).length;
-    const total = tasks.length;
     const overdue = tasks.filter(t => {
         if (!t || !t.due_date) return false;
         const d = new Date(t.due_date);
         return d < startOfToday && !(t.completed || t.struck_forever);
     }).length;
 
-    // productivity = completed forever / total
-    const productivity = total > 0 ? Math.round((completedForever / total) * 100) : 0;
-
-    // tasks added = total
-    const settingsChanges = parseInt(localStorage.getItem('settings_changes_count') || '0', 10);
-
     const setText = (id, val) => {
         const el = document.getElementById(id);
         if (el) el.textContent = val;
     };
 
-    // Local/task-derived metrics
+    // Local metrics
     setText('completed-today', completedToday);
     setText('expired-tasks', overdue);
-    setText('productivity-score', productivity + '%');
 
-    // Fetch streak and strikes from backend API for consistency with recap modal
-    let strikesToday = struckTodayFromState;
-    let streakDays = 0;
+    // Fetch all analytics from consolidated endpoint (single API call instead of multiple)
     try {
-        if (typeof apiCall === 'function') {
-            // Get today's strikes
+        if (typeof fetchWithFallback === 'function') {
+            const summary = await fetchWithFallback('/api/analytics/summary', {
+                fallbackValue: {
+                    success: false,
+                    tasks: { total: tasks.length, active: 0, expired: overdue, completed: 0 },
+                    strikes: { today: 0, total: 0 },
+                    streak: { current: 0, best: 0 },
+                    completed_forever: 0,
+                    settings_changes: 0,
+                    tasks_added: tasks.length,
+                    tasks_retried: 0
+                },
+                cacheTTL: 5000,
+                showError: false
+            });
+
+            if (summary && summary.success) {
+                // Update all dashboard stats from consolidated response
+                setText('striked-today', summary.strikes.today);
+                setText('streak-days', summary.streak.current);
+                setText('tasks-added', summary.tasks_added);
+                setText('completed-forever', summary.completed_forever);
+                setText('settings-changes', summary.settings_changes);
+                setText('tasks-retried', summary.tasks_retried);
+                
+                // Calculate productivity
+                const productivity = summary.tasks.total > 0 
+                    ? Math.round((summary.completed_forever / summary.tasks.total) * 100) 
+                    : 0;
+                setText('productivity-score', productivity + '%');
+            }
+        } else {
+            // Fallback to old method if ErrorHandler not loaded yet
             const analyticsResp = await apiCall('/api/analytics');
             const a = await analyticsResp.json();
             if (a && a.success) {
-                strikesToday = (a.today_strikes ?? strikesToday);
+                setText('striked-today', a.today_strikes || 0);
             }
-
-            // Get streak from daily-recap endpoint (uses same calculation as recap modal)
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            const yy = yesterday.getFullYear();
-            const mm = String(yesterday.getMonth() + 1).padStart(2, '0');
-            const dd = String(yesterday.getDate()).padStart(2, '0');
-            const yesterdayStr = `${yy}-${mm}-${dd}`;
             
-            const recapResp = await apiCall(`/api/analytics/daily-recap?day=${encodeURIComponent(yesterdayStr)}`);
-            const recap = await recapResp.json();
-            if (recap && recap.success) {
-                streakDays = recap.streak_days ?? 0;
-            }
+            const completedForever = tasks.filter(t => (t.completed || t.struck_forever)).length;
+            const total = tasks.length;
+            const productivity = total > 0 ? Math.round((completedForever / total) * 100) : 0;
+            
+            setText('tasks-added', total);
+            setText('completed-forever', completedForever);
+            setText('productivity-score', productivity + '%');
+            setText('streak-days', 0);
+            setText('settings-changes', 0);
+            setText('tasks-retried', 0);
         }
     } catch (e) {
-        // ignore; fallback already set
+        console.warn('Dashboard stats update failed, using fallback values:', e);
+        // Use local fallback values
+        const completedForever = tasks.filter(t => (t.completed || t.struck_forever)).length;
+        const total = tasks.length;
+        const productivity = total > 0 ? Math.round((completedForever / total) * 100) : 0;
+        
+        setText('striked-today', 0);
+        setText('streak-days', 0);
+        setText('tasks-added', total);
+        setText('completed-forever', completedForever);
+        setText('productivity-score', productivity + '%');
+        setText('settings-changes', 0);
+        setText('tasks-retried', 0);
     }
-    setText('striked-today', strikesToday);
-    setText('streak-days', streakDays);
-
-    // New widgets
-    setText('tasks-added', total);
-    setText('completed-forever', completedForever);
-    setText('settings-changes', settingsChanges);
-    
-    // Tasks retried (will be fetched from backend when retry tracking is implemented)
-    setText('tasks-retried', 0);
 }
 
 async function autoSave() {

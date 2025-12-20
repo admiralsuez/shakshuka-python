@@ -183,7 +183,8 @@ async function strikeTaskToday() {
         return;
     }
 
-    try {
+    // Use criticalOperation wrapper for proper error handling
+    const operation = async () => {
         console.log('Attempting to strike task:', currentStrikeTaskId, 'with report:', report);
 
         const response = await fetch(`/api/tasks/${currentStrikeTaskId}/strike`, {
@@ -199,53 +200,71 @@ async function strikeTaskToday() {
 
         console.log('Strike response status:', response.status);
 
-        if (response.ok) {
-            const updatedTask = await response.json().catch(() => null);
-            closeStrikeModal();
-            // Optimistically update AppState immediately
-            try {
-                if (updatedTask && window.AppState && AppState.updateTask) {
-                    await AppState.updateTask(currentStrikeTaskId, updatedTask).catch(async () => {
-                        if (AppState.addTask) {
-                            await AppState.addTask(updatedTask);
-                        }
-                    });
-                }
-            } catch (e) { /* noop */ }
-            // Full reload as safety
-            await loadTasks();
-            updateDashboardStats();
-            try {
-                if (window.DailyPlannerV2 && typeof window.DailyPlannerV2.refresh === 'function') {
-                    window.DailyPlannerV2.refresh();
-                }
-            } catch (e) { /* noop */ }
-            // If currently on tasks page, re-render immediately
-            try {
-                if (AppState.get && AppState.get('currentPage') === 'tasks') {
-                    renderTasks();
-                }
-            } catch (e) { /* noop */ }
-            showNotification('Task struck for today! 📝', 'success');
-            addLog('success', `Task ${currentStrikeTaskId} struck for today: ${report}`);
-        } else {
-            const errorData = await response.json();
-            console.error('Strike error response:', errorData);
-
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
             // Handle specific error for maximum strikes reached
             if (errorData.error && errorData.error.includes('Maximum strikes reached')) {
                 showNotification('Maximum strikes reached for today', 'error');
                 closeStrikeModal();
-                // Refresh tasks to update UI
                 await loadTasks();
-            } else {
-                throw new Error(errorData.error || 'Failed to strike task');
+                return;
             }
+            throw new Error(errorData.error || 'Failed to strike task');
         }
-    } catch (error) {
-        console.error('Error striking task:', error);
-        addLog('error', `Failed to strike task ${currentStrikeTaskId}: ${error.message}`);
-        showNotification(`Error striking task: ${error.message}`, 'error');
+
+        const updatedTask = await response.json().catch(() => null);
+        closeStrikeModal();
+        
+        // Optimistically update AppState immediately
+        try {
+            if (updatedTask && window.AppState && AppState.updateTask) {
+                await AppState.updateTask(currentStrikeTaskId, updatedTask).catch(async () => {
+                    if (AppState.addTask) {
+                        await AppState.addTask(updatedTask);
+                    }
+                });
+            }
+        } catch (e) { /* noop */ }
+        
+        // Full reload as safety
+        await loadTasks();
+        updateDashboardStats();
+        
+        try {
+            if (window.DailyPlannerV2 && typeof window.DailyPlannerV2.refresh === 'function') {
+                window.DailyPlannerV2.refresh();
+            }
+        } catch (e) { /* noop */ }
+        
+        // If currently on tasks page, re-render immediately
+        try {
+            if (AppState.get && AppState.get('currentPage') === 'tasks') {
+                renderTasks();
+            }
+        } catch (e) { /* noop */ }
+        
+        addLog('success', `Task ${currentStrikeTaskId} struck for today: ${report}`);
+        return updatedTask;
+    };
+
+    if (typeof criticalOperation === 'function') {
+        await criticalOperation(operation, {
+            operationName: 'Strike Task Today',
+            successMessage: 'Task struck for today! 📝',
+            onError: (error) => {
+                addLog('error', `Failed to strike task ${currentStrikeTaskId}: ${error.message}`);
+            }
+        });
+    } else {
+        // Fallback if ErrorHandler not loaded
+        try {
+            await operation();
+            showNotification('Task struck for today! 📝', 'success');
+        } catch (error) {
+            console.error('Error striking task:', error);
+            addLog('error', `Failed to strike task ${currentStrikeTaskId}: ${error.message}`);
+            showNotification(`Error striking task: ${error.message}`, 'error');
+        }
     }
 }
 
@@ -257,7 +276,8 @@ async function strikeTaskForever() {
         return;
     }
 
-    try {
+    // Use criticalOperation wrapper for proper error handling
+    const operation = async () => {
         const response = await fetch(`/api/tasks/${currentStrikeTaskId}/strike`, {
             method: 'POST',
             headers: {
@@ -269,39 +289,61 @@ async function strikeTaskForever() {
             })
         });
 
-        if (response.ok) {
-            const updatedTask = await response.json().catch(() => null);
-            closeStrikeModal();
-            try {
-                if (updatedTask && window.AppState && AppState.updateTask) {
-                    await AppState.updateTask(currentStrikeTaskId, updatedTask).catch(async () => {
-                        if (AppState.addTask) {
-                            await AppState.addTask(updatedTask);
-                        }
-                    });
-                }
-            } catch (e) { /* noop */ }
-            await loadTasks();
-            updateDashboardStats();
-            try {
-                if (window.DailyPlannerV2 && typeof window.DailyPlannerV2.refresh === 'function') {
-                    window.DailyPlannerV2.refresh();
-                }
-            } catch (e) { /* noop */ }
-            try {
-                if (AppState.get && AppState.get('currentPage') === 'tasks') {
-                    renderTasks();
-                }
-            } catch (e) { /* noop */ }
-            showNotification('Task completed forever! 🎉', 'success');
-            addLog('success', `Task ${currentStrikeTaskId} struck forever: ${report}`);
-        } else {
-            throw new Error('Failed to strike task');
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Failed to strike task forever');
         }
-    } catch (error) {
-        console.error('Error striking task:', error);
-        addLog('error', `Failed to strike task ${currentStrikeTaskId}: ${error.message}`);
-        showNotification('Error striking task', 'error');
+
+        const updatedTask = await response.json().catch(() => null);
+        closeStrikeModal();
+        
+        try {
+            if (updatedTask && window.AppState && AppState.updateTask) {
+                await AppState.updateTask(currentStrikeTaskId, updatedTask).catch(async () => {
+                    if (AppState.addTask) {
+                        await AppState.addTask(updatedTask);
+                    }
+                });
+            }
+        } catch (e) { /* noop */ }
+        
+        await loadTasks();
+        updateDashboardStats();
+        
+        try {
+            if (window.DailyPlannerV2 && typeof window.DailyPlannerV2.refresh === 'function') {
+                window.DailyPlannerV2.refresh();
+            }
+        } catch (e) { /* noop */ }
+        
+        try {
+            if (AppState.get && AppState.get('currentPage') === 'tasks') {
+                renderTasks();
+            }
+        } catch (e) { /* noop */ }
+        
+        addLog('success', `Task ${currentStrikeTaskId} struck forever: ${report}`);
+        return updatedTask;
+    };
+
+    if (typeof criticalOperation === 'function') {
+        await criticalOperation(operation, {
+            operationName: 'Complete Task Forever',
+            successMessage: 'Task completed forever! 🎉',
+            onError: (error) => {
+                addLog('error', `Failed to strike task ${currentStrikeTaskId}: ${error.message}`);
+            }
+        });
+    } else {
+        // Fallback if ErrorHandler not loaded
+        try {
+            await operation();
+            showNotification('Task completed forever! 🎉', 'success');
+        } catch (error) {
+            console.error('Error striking task:', error);
+            addLog('error', `Failed to strike task ${currentStrikeTaskId}: ${error.message}`);
+            showNotification('Error striking task', 'error');
+        }
     }
 }
 
