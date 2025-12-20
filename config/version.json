@@ -1,7 +1,7 @@
 {
-  "version": "15.9",
-  "build": "106",
-  "release_date": "2025-12-21T01:41:40.137259",
+  "version": "16.0",
+  "build": "107",
+  "release_date": "2025-12-21T01:48:34.881788",
   "update_channel": "stable",
   "build_notes": "Notes Workspace & Task UX: new Notes page with tabs and split view, slash formatting menu, and make-selection-a-task integration."
 }

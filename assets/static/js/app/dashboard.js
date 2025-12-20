@@ -42,58 +42,54 @@ async function updateDashboardStats() {
 
     // Fetch all analytics from consolidated endpoint (single API call instead of multiple)
     try {
+        // Try consolidated endpoint first (with or without ErrorHandler)
+        let summary = null;
+        
         if (typeof fetchWithFallback === 'function') {
-            const summary = await fetchWithFallback('/api/analytics/summary', {
-                fallbackValue: {
-                    success: false,
-                    tasks: { total: tasks.length, active: 0, expired: overdue, completed: 0 },
-                    strikes: { today: 0, total: 0 },
-                    streak: { current: 0, best: 0 },
-                    completed_forever: 0,
-                    settings_changes: 0,
-                    tasks_added: tasks.length,
-                    tasks_retried: 0
-                },
+            summary = await fetchWithFallback('/api/analytics/summary', {
+                fallbackValue: null,
                 cacheTTL: 5000,
                 showError: false
             });
-
-            if (summary && summary.success) {
-                // Update all dashboard stats from consolidated response
-                setText('striked-today', summary.strikes.today);
-                setText('streak-days', summary.streak.current);
-                setText('tasks-added', summary.tasks_added);
-                setText('completed-forever', summary.completed_forever);
-                setText('settings-changes', summary.settings_changes);
-                setText('tasks-retried', summary.tasks_retried);
-                
-                // Calculate productivity
-                const productivity = summary.tasks.total > 0 
-                    ? Math.round((summary.completed_forever / summary.tasks.total) * 100) 
-                    : 0;
-                setText('productivity-score', productivity + '%');
-            }
+        } else if (typeof apiCall === 'function') {
+            const response = await apiCall('/api/analytics/summary');
+            summary = await response.json().catch(() => null);
         } else {
-            // Fallback to old method if ErrorHandler not loaded yet
-            const analyticsResp = await apiCall('/api/analytics');
-            const a = await analyticsResp.json();
-            if (a && a.success) {
-                setText('striked-today', a.today_strikes || 0);
-            }
+            const response = await fetch('/api/analytics/summary', { credentials: 'include' });
+            summary = await response.json().catch(() => null);
+        }
+
+        if (summary && summary.success) {
+            // Update all dashboard stats from consolidated response
+            setText('striked-today', summary.strikes.today);
+            setText('streak-days', summary.streak.current);
+            setText('tasks-added', summary.tasks_added);
+            setText('completed-forever', summary.completed_forever);
+            setText('settings-changes', summary.settings_changes);
+            setText('tasks-retried', summary.tasks_retried);
             
+            // Calculate productivity
+            const productivity = summary.tasks.total > 0 
+                ? Math.round((summary.completed_forever / summary.tasks.total) * 100) 
+                : 0;
+            setText('productivity-score', productivity + '%');
+        } else {
+            // Fallback: calculate from local task data
+            console.warn('Consolidated endpoint failed, using local calculations');
             const completedForever = tasks.filter(t => (t.completed || t.struck_forever)).length;
             const total = tasks.length;
             const productivity = total > 0 ? Math.round((completedForever / total) * 100) : 0;
             
+            setText('striked-today', 0);
+            setText('streak-days', 0);
             setText('tasks-added', total);
             setText('completed-forever', completedForever);
             setText('productivity-score', productivity + '%');
-            setText('streak-days', 0);
             setText('settings-changes', 0);
             setText('tasks-retried', 0);
         }
     } catch (e) {
-        console.warn('Dashboard stats update failed, using fallback values:', e);
+        console.error('Dashboard stats update failed:', e);
         // Use local fallback values
         const completedForever = tasks.filter(t => (t.completed || t.struck_forever)).length;
         const total = tasks.length;
