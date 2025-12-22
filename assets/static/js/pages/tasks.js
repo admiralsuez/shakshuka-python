@@ -63,6 +63,177 @@ async function loadTasks() {
     }
 }
 
+if (!window.MiniAnalyticsTicker) {
+    window.MiniAnalyticsTicker = {
+        _timer: null,
+        _index: 0,
+        _summary: null,
+        _summaryFetchedAt: 0,
+        _intervalMs: 5000,
+
+        async _fetchSummary() {
+            const now = Date.now();
+            if (this._summary && (now - this._summaryFetchedAt) < 4500) return this._summary;
+            try {
+                const resp = await apiCall('/api/analytics/summary');
+                const data = await resp.json().catch(() => null);
+                if (data && data.success) {
+                    this._summary = data;
+                    this._summaryFetchedAt = now;
+                    return data;
+                }
+            } catch (e) {
+                // no-op
+            }
+            return this._summary;
+        },
+
+        _getTasks() {
+            try {
+                if (typeof AppState !== 'undefined' && typeof AppState.getTasks === 'function') {
+                    return AppState.getTasks() || [];
+                }
+                return (AppState && AppState.get && AppState.get('tasks')) || [];
+            } catch (e) {
+                return [];
+            }
+        },
+
+        _todayStr(now) {
+            const yy = now.getFullYear();
+            const mm = String(now.getMonth() + 1).padStart(2, '0');
+            const dd = String(now.getDate()).padStart(2, '0');
+            return `${yy}-${mm}-${dd}`;
+        },
+
+        async _getItems() {
+            const tasks = this._getTasks();
+            const now = new Date();
+            const todayStr = this._todayStr(now);
+            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+            const completedToday = tasks.filter(t => {
+                if (!t || !t.completed || !t.completed_at) return false;
+                const s = String(t.completed_at);
+                const d = s.includes('T') ? s.split('T')[0] : s;
+                return d === todayStr;
+            }).length;
+
+            const expiredTasks = tasks.filter(t => {
+                if (!t || !t.due_date) return false;
+                const d = new Date(t.due_date);
+                return d < startOfToday && !(t.completed || t.struck_forever);
+            }).length;
+
+            const summary = await this._fetchSummary();
+            const strikesToday = (summary && summary.success && summary.strikes) ? (summary.strikes.today ?? 0) : 0;
+            const dayStreak = (summary && summary.success && summary.streak) ? (summary.streak.current ?? 0) : 0;
+            const tasksAdded = (summary && summary.success) ? (summary.tasks_added ?? tasks.length) : tasks.length;
+            const completedForever = (summary && summary.success) ? (summary.completed_forever ?? 0) : tasks.filter(t => t && t.struck_forever).length;
+            const settingsChanges = (summary && summary.success) ? (summary.settings_changes ?? 0) : 0;
+            const tasksRetried = (summary && summary.success) ? (summary.tasks_retried ?? 0) : 0;
+
+            const total = (summary && summary.success && summary.tasks) ? (summary.tasks.total ?? tasks.length) : tasks.length;
+            const productivity = total > 0 ? Math.round((completedForever / total) * 100) : 0;
+
+            return [
+                { label: 'Completed Today', value: completedToday },
+                { label: 'Expired Tasks', value: expiredTasks },
+                { label: 'Day Streak', value: dayStreak },
+                { label: 'Productivity', value: productivity + '%' },
+                { label: 'Striked Today', value: strikesToday },
+                { label: 'Tasks Added', value: tasksAdded },
+                { label: 'Completed Forever', value: completedForever },
+                { label: 'Settings Changes', value: settingsChanges },
+                { label: 'Tasks Retried', value: tasksRetried },
+            ];
+        },
+
+        _getIntervalSecondsFromSettings() {
+            try {
+                const s = (AppState && AppState.get) ? (AppState.get('currentSettings') || {}) : {};
+                const v = s.mini_analytics_interval;
+                const n = parseInt(v, 10);
+                return Number.isFinite(n) ? n : 5;
+            } catch (e) {
+                return 5;
+            }
+        },
+
+        applyIntervalFromSettings() {
+            const seconds = this._getIntervalSecondsFromSettings();
+            if (seconds === 0) {
+                this.stop();
+                this._intervalMs = 0;
+                this._index = 0;
+                this._renderForcedStrikedToday();
+                return;
+            }
+
+            const ms = Math.max(1000, seconds * 1000);
+            const changed = ms !== this._intervalMs;
+            this._intervalMs = ms;
+            if (changed && this._timer) {
+                this.stop();
+                this.start();
+            }
+        },
+
+        async _renderForcedStrikedToday() {
+            const container = document.querySelector('.mini-analytics');
+            if (!container) return;
+            const labelEl = container.querySelector('.mini-label');
+            const numberEl = container.querySelector('.mini-number');
+            if (!labelEl || !numberEl) return;
+
+            let strikesToday = 0;
+            try {
+                const summary = await this._fetchSummary();
+                strikesToday = (summary && summary.success && summary.strikes) ? (summary.strikes.today ?? 0) : 0;
+            } catch (e) {
+                strikesToday = 0;
+            }
+
+            labelEl.textContent = 'Striked Today:';
+            numberEl.textContent = String(strikesToday);
+            container.title = 'Striked Today';
+        },
+
+        async tick() {
+            const container = document.querySelector('.mini-analytics');
+            if (!container) return;
+            const labelEl = container.querySelector('.mini-label');
+            const numberEl = container.querySelector('.mini-number');
+            if (!labelEl || !numberEl) return;
+
+            const items = await this._getItems();
+            if (!items || !items.length) return;
+
+            const idx = this._index % items.length;
+            const item = items[idx];
+            labelEl.textContent = `${item.label}:`;
+            numberEl.textContent = String(item.value);
+            container.title = item.label;
+            this._index = (idx + 1) % items.length;
+        },
+
+        start() {
+            if (this._timer) return;
+            this.applyIntervalFromSettings();
+            if (this._intervalMs === 0) return;
+
+            this._index = 0;
+            this.tick();
+            this._timer = setInterval(() => this.tick(), this._intervalMs);
+        },
+
+        stop() {
+            if (this._timer) clearInterval(this._timer);
+            this._timer = null;
+        }
+    };
+}
+
 async function saveTask() {
     const taskData = getTaskFormData();
     if (!taskData) return;
@@ -754,7 +925,11 @@ async function updateTaskStats() {
     // Also check if mini-analytics container exists
     const miniAnalytics = document.querySelector('.mini-analytics');
     if (miniAnalytics) {
-        // no-op
+        try {
+            if (window.MiniAnalyticsTicker && typeof window.MiniAnalyticsTicker.start === 'function') {
+                window.MiniAnalyticsTicker.start();
+            }
+        } catch (e) { /* no-op */ }
     }
 }
 

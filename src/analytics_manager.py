@@ -139,10 +139,29 @@ def get_analytics_counters() -> Dict[str, Any]:
             today = date.today().isoformat()
             return {"today_date": today, "today_strikes": 0, "total_strikes": 0}
 
+        today = date.today().isoformat()
+        stored_today = str(row["today_date"] or today)
+        today_strikes = int(row["today_strikes"] or 0)
+        total_strikes = int(row["total_strikes"] or 0)
+
+        # Roll over on read so UI shows 0 for a new day even before the first strike.
+        if stored_today != today:
+            stored_today = today
+            today_strikes = 0
+            now = datetime.now().isoformat()
+            try:
+                conn.execute(
+                    "UPDATE analytics SET today_date = ?, today_strikes = ?, updated_at = ? WHERE id = 1",
+                    (stored_today, today_strikes, now),
+                )
+                conn.commit()
+            except Exception:
+                pass
+
         return {
-            "today_date": row["today_date"],
-            "today_strikes": int(row["today_strikes"] or 0),
-            "total_strikes": int(row["total_strikes"] or 0),
+            "today_date": stored_today,
+            "today_strikes": today_strikes,
+            "total_strikes": total_strikes,
         }
 
 

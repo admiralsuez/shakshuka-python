@@ -1,53 +1,64 @@
-## Version 16.7 - Release
-Release Date: 2025-12-22T20:59:31.139393
+# Build Report - Shakshuka v16.1-b108
 
-Highlights
+## Build Information
+- **Version:** 16.1
+- **Build Number:** 108
+- **Build Date:** 2025-12-22 03:02:25
+- **Build Status:** ✅ SUCCESS
+- **Platform:** Windows (x86_64)
 
----
-## Version 16.6 - Release
-Release Date: 2025-12-22T14:27:17.988389
+## Build Artifacts
 
-Highlights
+### 1. Standalone Executable
+- **Filename:** `Shakshuka.exe`
+- **Size:** 27.74 MB
+- **Type:** PyInstaller Single-File Executable
+- **Status:** ✅ Created
 
----
-## Version 16.5 - Release
-Release Date: 2025-12-22T12:43:48.273244
+### 2. Installer Package
+- **Filename:** `Shakshuka-Setup-v16.1.exe`
+- **Size:** 30.21 MB
+- **Type:** Inno Setup Installer
+- **Status:** ✅ Created
 
-Highlights
+## Build Configuration
+- **Python Version:** 3.13.3
+- **Build Script:** `scripts/build.py`
+- **Installer Script:** `scripts/installer.iss`
+- **PyInstaller:** Single-file, console mode
+- **Architecture:** 64-bit (x86_64)
 
----
-## Version 16.4 - Release
-Release Date: 2025-12-22T12:42:36.527902
+## Features Included
+- Flask web server (port 8989)
+- SQLite database backend
+- System tray integration
+- Auto-save functionality
+- Task management system
+- User authentication (optional)
+- Settings persistence
+- Auto-update capability
+- Monitoring and analytics
 
-Highlights
+## File Locations
+- **Executable:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka.exe`
+- **Installer:** `C:\Users\vibin\OneDrive\Desktop\shakshuka-python-linux_stage1\Shakshuka-Setup-v16.1.exe`
+- **Source Distribution:** `scripts/dist/`
 
----
-## Version 16.3 - Release
-Release Date: 2025-12-22T12:03:23.608010
+## Installation Methods
 
-Highlights
+### Method 1: Standalone Executable
+1. Run `Shakshuka.exe` directly
+2. No installation required
+3. Portable - can run from any location
 
----
-## Version 16.2 - Refreshed Badge Feature
-Release Date: 2025-12-22T03:07:00.000000
+### Method 2: Professional Installer
+1. Run `Shakshuka-Setup-v16.1-b108.exe`
+2. Follow installation wizard
+3. Installs to `Program Files`
+4. Creates Start Menu shortcuts
+5. Adds uninstaller
 
-Highlights
-
-- **Refreshed Badge**: Added "Refreshed" badge that appears on tasks between 8am-12pm when they have been refreshed from yesterday's daily reset.
-- **Refreshed Badge**: Badge displays with blue styling and appears in task-actions area to the left of strike button for optimal visibility.
-- **Refreshed Badge**: Optimized positioning to avoid conflicts with task-due-pill and other task action elements.
-- **Database**: Added `refreshed_at` column to tasks table with proper migration (version 012).
-- **Backend**: Updated task validation to include `refreshed_at` field in date validation.
-- **Backend**: Enhanced daily reset job to properly set `refreshed_at` timestamps on tasks.
-
-Technical Notes
-- Database migration 012 adds `refreshed_at` TEXT column to tasks table.
-- Badge logic in `refreshed-badge-helper.js` checks both time window (8am-12pm) and if task was refreshed today.
-- Badge positioned in `app.js` task-actions div with proper spacing relative to due pills.
-- CSS styling in `refreshed-badge.css` with responsive design and dark theme support.
-- Test functionality temporarily added and then removed after verification.
-
----
+## Changelog
 ## Version 16.1 - Release
 Release Date: 2025-12-22T03:01:33.833898
 
@@ -4356,3 +4367,19 @@ When making changes to the application, always:
 ---
 
 *This changelog is automatically maintained and should be updated with every significant change to ensure users and developers are informed about application evolution.*
+
+
+## Next Steps
+1. Test the standalone executable
+2. Test the installer package
+3. Verify all features work correctly
+4. Check for any errors in logs
+5. Update documentation if needed
+
+## Build System
+- **Auto-Increment:** Build number automatically incremented
+- **Version File:** `config/version.json`
+- **Build Reports:** Saved to `build_reports/`
+
+---
+*Report generated automatically by build.py*

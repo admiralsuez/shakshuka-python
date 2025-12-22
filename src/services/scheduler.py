@@ -71,16 +71,25 @@ def _validate_and_normalize_reset_time(reset_time_str: str) -> str:
         if not (0 <= hour <= 23):
             logger.warning(f"Invalid hour in reset time: {hour}, using default")
             return "08:00"
-        
+
         if not (0 <= minute <= 59):
             logger.warning(f"Invalid minute in reset time: {minute}, using default")
             return "08:00"
-        
+
         return f"{hour:02d}:{minute:02d}"
         
     except (ValueError, AttributeError) as e:
         logger.warning(f"Invalid reset time format '{reset_time_str}': {e}, using default")
         return "08:00"
+
+
+def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except Exception:
+        return None
 
 
 def reset_daily_strikes_job():
@@ -181,6 +190,15 @@ def reset_daily_strikes_job():
             success = data_manager.save_tasks_for_user(user_id, tasks)
             if success:
                 logger.info(f"Daily reset done: {reset_count} strikes cleared, {unscheduled} tasks unscheduled")
+
+                # Persist last_daily_reset_at so missed reset detection is reliable even when
+                # the user changes daily_reset_time later.
+                try:
+                    settings = data_manager.load_settings(user_id) or {}
+                    settings['last_daily_reset_at'] = datetime.now().isoformat()
+                    data_manager.save_settings(user_id, settings)
+                except Exception as e:
+                    logger.warning(f"Failed to persist last_daily_reset_at: {e}")
             else:
                 logger.error("Failed to save tasks after daily reset")
         else:
@@ -225,36 +243,37 @@ def check_and_run_missed_reset(reset_time_str: str, verbose: bool = True):
             data_manager = _get_data_manager()
             if not data_manager:
                 return
+
+            # If we've already run a reset after today's reset time, don't run again.
+            # This remains correct even if daily_reset_time changes later, because we compare
+            # to the newly computed today_reset_time.
+            try:
+                settings = data_manager.load_settings(user_id) or {}
+            except Exception:
+                settings = {}
+
+            last_reset_dt = _parse_iso_datetime(settings.get('last_daily_reset_at'))
+            if last_reset_dt is not None and last_reset_dt >= today_reset_time:
+                if verbose:
+                    logger.debug(
+                        f"👍 Missed reset check: last_daily_reset_at={settings.get('last_daily_reset_at')} is >= today's reset time; no reset needed"
+                    )
+                return
             
             tasks = data_manager.load_tasks_for_user(user_id)
             if not tasks:
                 return
-            
-            stale_struck_today = 0
-            missing_strike_date = 0
-            for task in tasks:
-                if not task.get('struck_today'):
-                    continue
 
-                struck_date = task.get('struck_date')
-                if not struck_date:
-                    missing_strike_date += 1
-                    continue
-
-                if struck_date != today_str_local:
-                    stale_struck_today += 1
-
-            needs_reset = stale_struck_today > 0
+            # With last_daily_reset_at in place, the safe behavior is:
+            # - if any task is still struck_today after reset time, we missed the reset.
+            # This avoids relying on struck_date (which is date-only and can be missing).
+            struck_count = sum(1 for t in tasks if t.get('struck_today'))
+            needs_reset = struck_count > 0
             if needs_reset:
                 logger.info(f"⏰ Missed reset detected! Current time {now.strftime('%H:%M')} is past reset time {reset_time_str}. Running reset now...")
                 reset_daily_strikes_job()
             elif verbose:
-                if missing_strike_date > 0:
-                    logger.warning(
-                        f"⚠️ Found {missing_strike_date} tasks with struck_today=True but missing struck_date; skipping missed reset for safety"
-                    )
-                else:
-                    logger.debug("👍 No tasks flagged for today; reset not needed")
+                logger.debug("👍 No tasks flagged for today; reset not needed")
         elif verbose:
             logger.info(f"⏳ Reset time {reset_time_str} is still upcoming today (current: {now.strftime('%H:%M')})")
             

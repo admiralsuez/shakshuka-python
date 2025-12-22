@@ -62,7 +62,12 @@ async function updateDashboardStats() {
         if (summary && summary.success) {
             // Update all dashboard stats from consolidated response
             setText('striked-today', summary.strikes.today);
-            setText('streak-days', summary.streak.current);
+            setText('streak-days', (summary.completion_streak && typeof summary.completion_streak.current !== 'undefined')
+                ? summary.completion_streak.current
+                : (summary.streak ? summary.streak.current : 0));
+            setText('strike-streak-days', (summary.strike_streak && typeof summary.strike_streak.current !== 'undefined')
+                ? summary.strike_streak.current
+                : 0);
             setText('tasks-added', summary.tasks_added);
             setText('completed-forever', summary.completed_forever);
             setText('settings-changes', summary.settings_changes);
@@ -82,6 +87,7 @@ async function updateDashboardStats() {
             
             setText('striked-today', 0);
             setText('streak-days', 0);
+            setText('strike-streak-days', 0);
             setText('tasks-added', total);
             setText('completed-forever', completedForever);
             setText('productivity-score', productivity + '%');
@@ -97,6 +103,7 @@ async function updateDashboardStats() {
         
         setText('striked-today', 0);
         setText('streak-days', 0);
+        setText('strike-streak-days', 0);
         setText('tasks-added', total);
         setText('completed-forever', completedForever);
         setText('productivity-score', productivity + '%');

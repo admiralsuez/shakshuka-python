@@ -205,6 +205,26 @@ class SQLiteDataManager:
                 
                 # Run database migrations (must run before creating indexes that depend on migrated columns)
                 self._run_migrations()
+
+                # Ensure columns exist even if migration version bookkeeping is stale
+                try:
+                    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'")
+                    if cursor.fetchone():
+                        col_cursor = conn.execute("PRAGMA table_info(user_preferences)")
+                        columns = [row[1] for row in col_cursor.fetchall()]
+                        if 'last_daily_reset_at' not in columns:
+                            conn.execute('ALTER TABLE user_preferences ADD COLUMN last_daily_reset_at TEXT')
+
+                    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
+                    if cursor.fetchone():
+                        col_cursor = conn.execute("PRAGMA table_info(settings)")
+                        columns = [row[1] for row in col_cursor.fetchall()]
+                        if 'last_daily_reset_at' not in columns:
+                            conn.execute('ALTER TABLE settings ADD COLUMN last_daily_reset_at TEXT')
+
+                    conn.commit()
+                except Exception as e:
+                    self.logger.warning(f"Could not ensure last_daily_reset_at columns during init: {e}")
                 
                 # Create indexes that depend on migrated columns (after migrations)
                 try:
@@ -220,6 +240,35 @@ class SQLiteDataManager:
                 
         except Exception as e:
             self.logger.error(f"Error initializing database: {e}")
+            raise
+
+    def _migration_013_last_daily_reset_at(self, conn) -> List[Dict[str, Any]]:
+        migrations_applied = []
+        try:
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'")
+            if cursor.fetchone():
+                col_cursor = conn.execute("PRAGMA table_info(user_preferences)")
+                columns = [row[1] for row in col_cursor.fetchall()]
+                if 'last_daily_reset_at' not in columns:
+                    conn.execute('ALTER TABLE user_preferences ADD COLUMN last_daily_reset_at TEXT')
+                    self.logger.info("Added last_daily_reset_at column to user_preferences table")
+
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
+            if cursor.fetchone():
+                col_cursor = conn.execute("PRAGMA table_info(settings)")
+                columns = [row[1] for row in col_cursor.fetchall()]
+                if 'last_daily_reset_at' not in columns:
+                    conn.execute('ALTER TABLE settings ADD COLUMN last_daily_reset_at TEXT')
+                    self.logger.info("Added last_daily_reset_at column to settings table")
+
+            migrations_applied.append({
+                'version': 13,
+                'description': 'Added last_daily_reset_at column to settings tables',
+                'sql': 'ALTER TABLE user_preferences/settings ADD COLUMN last_daily_reset_at TEXT'
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 013 failed: {e}")
             raise
     
     def _run_migrations(self):
@@ -290,6 +339,14 @@ class SQLiteDataManager:
                     if migration_version < 11:
                         migrations_applied.extend(self._migration_011_analytics_history(conn))
                     
+                    # Migration 12: Add refreshed_at column for daily reset badge
+                    if migration_version < 12:
+                        migrations_applied.extend(self._migration_012_refreshed_at(conn))
+
+                    # Migration 13: Add last_daily_reset_at to user_preferences/settings for robust missed reset detection
+                    if migration_version < 13:
+                        migrations_applied.extend(self._migration_013_last_daily_reset_at(conn))
+                    
                     # Update migration version
                     if migrations_applied:
                         new_version = max([m['version'] for m in migrations_applied])
@@ -341,7 +398,7 @@ class SQLiteDataManager:
     
     def _update_migration_version(self, conn, version: int):
         """Update migration version in database"""
-        conn.execute('INSERT INTO migration_version (version, description) VALUES (?, ?)', 
+        conn.execute('INSERT OR REPLACE INTO migration_version (version, description) VALUES (?, ?)', 
                     (version, f"Migration {version} applied"))
     
     def _create_migration_backup(self, conn) -> bool:
@@ -834,6 +891,31 @@ class SQLiteDataManager:
             self.logger.error(f"Migration 011 failed: {e}")
             raise
     
+    def _migration_012_refreshed_at(self, conn) -> List[Dict[str, Any]]:
+        """Migration 012: Add refreshed_at column to tasks table for daily reset badge"""
+        migrations_applied = []
+        try:
+            # Check if column already exists
+            cursor = conn.execute("PRAGMA table_info(tasks)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'refreshed_at' not in columns:
+                conn.execute('ALTER TABLE tasks ADD COLUMN refreshed_at TEXT')
+                self.logger.info("Added refreshed_at column to tasks table")
+                
+                migrations_applied.append({
+                    'version': 12,
+                    'description': 'Added refreshed_at column to tasks table',
+                    'sql': 'ALTER TABLE tasks ADD COLUMN refreshed_at TEXT'
+                })
+            else:
+                self.logger.info("refreshed_at column already exists, skipping migration 012")
+            
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 012 failed: {e}")
+            raise
+    
     def _get_connection(self):
         """Get a database connection with proper configuration"""
         conn = sqlite3.connect(self.db_path)
@@ -945,6 +1027,7 @@ class SQLiteDataManager:
             task.get('strike_report'),
             task.get('strike_count', 0),
             json.dumps(task.get('daily_strikes', {})),
+            task.get('refreshed_at'),
             task.get('created_at', datetime.now().isoformat()),
             task.get('updated_at', datetime.now().isoformat())
         )
@@ -981,6 +1064,7 @@ class SQLiteDataManager:
             'strike_report': row['strike_report'] if 'strike_report' in row.keys() else None,
             'strike_count': row['strike_count'] if 'strike_count' in row.keys() else 0,
             'daily_strikes': daily_strikes,
+            'refreshed_at': row['refreshed_at'] if 'refreshed_at' in row.keys() else None,
             'created_at': row['created_at'],
             'updated_at': row['updated_at']
         }
@@ -1071,8 +1155,8 @@ class SQLiteDataManager:
                                     id, user_id, title, description, project, priority, status,
                                     completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                     scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                                    daily_strikes, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    daily_strikes, refreshed_at, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_rows)
                             
                             # Verify insertion was successful
@@ -1104,8 +1188,8 @@ class SQLiteDataManager:
                                             id, user_id, title, description, project, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                             scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                                            daily_strikes, created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            daily_strikes, refreshed_at, created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     ''', backup_rows)
                                     conn.commit()
                                     self.logger.info(f"Backup restored for user {user_id}")
@@ -1160,8 +1244,8 @@ class SQLiteDataManager:
                                     id, user_id, title, description, project, priority, status,
                                     completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                     scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                                    daily_strikes, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    daily_strikes, refreshed_at, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_row)
                             
                             # Verify insertion
@@ -1242,8 +1326,8 @@ class SQLiteDataManager:
                         id, user_id, title, description, project, priority, status,
                         completed, completed_at, due_date, estimated_duration, scheduled_hour,
                         scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today,
-                        struck_date, strike_report, strike_count, daily_strikes, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        struck_date, strike_report, strike_count, daily_strikes, refreshed_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', task_rows)
                 
                 conn.commit()
@@ -1302,7 +1386,7 @@ class SQLiteDataManager:
                                     status = ?, completed = ?, completed_at = ?, due_date = ?, estimated_duration = ?,
                                     scheduled_hour = ?, scheduled_minute = ?, scheduled_date = ?, scheduled_duration = ?,
                                     struck_forever = ?, struck_today = ?, struck_date = ?,
-                                    strike_report = ?, strike_count = ?, daily_strikes = ?, updated_at = ?
+                                    strike_report = ?, strike_count = ?, daily_strikes = ?, refreshed_at = ?, updated_at = ?
                                 WHERE id = ? AND user_id = ?
                             ''', (
                                 merged_task.get('title', ''),
@@ -1324,6 +1408,7 @@ class SQLiteDataManager:
                                 merged_task.get('strike_report'),
                                 merged_task.get('strike_count', 0),
                                 json.dumps(merged_task.get('daily_strikes', {})),
+                                merged_task.get('refreshed_at'),
                                 datetime.now().isoformat(),
                                 task_id,
                                 user_id
@@ -1474,127 +1559,87 @@ class SQLiteDataManager:
                             # Check if user preferences table exists (newer migration)
                             cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'")
                             if cursor.fetchone():
-                                # Determine available columns so we can include
-                                # quick_project_from_title when it exists.
                                 col_cursor = conn.execute("PRAGMA table_info(user_preferences)")
                                 cols = [row[1] for row in col_cursor.fetchall()]
                                 has_qp_column = 'quick_project_from_title' in cols
                                 has_casual_column = 'casual_dates' in cols
+                                has_last_reset_column = 'last_daily_reset_at' in cols
+                                has_mini_analytics_column = 'mini_analytics_interval' in cols
 
-                                if has_qp_column and has_casual_column:
-                                    cursor = conn.execute('''
-                                        SELECT theme, dpi_scale, autosave_interval, notifications, 
-                                               daily_reset_time, timezone, language, quick_project_from_title,
-                                               casual_dates, created_at, updated_at
-                                        FROM user_preferences WHERE user_id = ?
-                                    ''', (user_id,))
-                                elif has_qp_column and not has_casual_column:
-                                    cursor = conn.execute('''
-                                        SELECT theme, dpi_scale, autosave_interval, notifications, 
-                                               daily_reset_time, timezone, language, quick_project_from_title,
-                                               created_at, updated_at
-                                        FROM user_preferences WHERE user_id = ?
-                                    ''', (user_id,))
-                                elif not has_qp_column and has_casual_column:
-                                    cursor = conn.execute('''
-                                        SELECT theme, dpi_scale, autosave_interval, notifications, 
-                                               daily_reset_time, timezone, language, casual_dates,
-                                               created_at, updated_at
-                                        FROM user_preferences WHERE user_id = ?
-                                    ''', (user_id,))
-                                else:
-                                    cursor = conn.execute('''
-                                        SELECT theme, dpi_scale, autosave_interval, notifications, 
-                                               daily_reset_time, timezone, language, created_at, updated_at
-                                        FROM user_preferences WHERE user_id = ?
-                                    ''', (user_id,))
+                                select_cols = [
+                                    'theme',
+                                    'dpi_scale',
+                                    'autosave_interval',
+                                    'notifications',
+                                    'daily_reset_time',
+                                ]
+                                if has_last_reset_column:
+                                    select_cols.append('last_daily_reset_at')
+                                select_cols.extend(['timezone', 'language'])
+                                if has_mini_analytics_column:
+                                    select_cols.append('mini_analytics_interval')
+                                if has_qp_column:
+                                    select_cols.append('quick_project_from_title')
+                                if has_casual_column:
+                                    select_cols.append('casual_dates')
+                                select_cols.extend(['created_at', 'updated_at'])
+
+                                cursor = conn.execute(
+                                    f"SELECT {', '.join(select_cols)} FROM user_preferences WHERE user_id = ?",
+                                    (user_id,)
+                                )
 
                                 result = cursor.fetchone()
-
                                 if result:
-                                    if has_qp_column and has_casual_column:
-                                        # theme, dpi_scale, autosave_interval, notifications,
-                                        # daily_reset_time, timezone, language, quick_project_from_title,
-                                        # casual_dates, created_at, updated_at
-                                        settings = {
-                                            'theme': result[0] or 'orange',
-                                            'dpi_scale': result[1] or 100,
-                                            'autosave_interval': result[2] or 30,
-                                            'notifications': bool(result[3]) if result[3] is not None else True,
-                                            'daily_reset_time': result[4] or '06:00',
-                                            'timezone': result[5] or 'UTC',
-                                            'language': result[6] or 'en',
-                                            'quick_project_from_title': bool(result[7]) if result[7] is not None else False,
-                                            'casual_dates': bool(result[8]) if result[8] is not None else False,
-                                            'created_at': result[9],
-                                            'updated_at': result[10]
-                                        }
-                                    elif has_qp_column and not has_casual_column:
-                                        # Newer schema with quick_project_from_title but without casual_dates
-                                        settings = {
-                                            'theme': result[0] or 'orange',
-                                            'dpi_scale': result[1] or 100,
-                                            'autosave_interval': result[2] or 30,
-                                            'notifications': bool(result[3]) if result[3] is not None else True,
-                                            'daily_reset_time': result[4] or '06:00',
-                                            'timezone': result[5] or 'UTC',
-                                            'language': result[6] or 'en',
-                                            'quick_project_from_title': bool(result[7]) if result[7] is not None else False,
-                                            'casual_dates': False,
-                                            'created_at': result[8],
-                                            'updated_at': result[9]
-                                        }
-                                    elif not has_qp_column and has_casual_column:
-                                        # Schema with casual_dates but without quick_project_from_title
-                                        settings = {
-                                            'theme': result[0] or 'orange',
-                                            'dpi_scale': result[1] or 100,
-                                            'autosave_interval': result[2] or 30,
-                                            'notifications': bool(result[3]) if result[3] is not None else True,
-                                            'daily_reset_time': result[4] or '06:00',
-                                            'timezone': result[5] or 'UTC',
-                                            'language': result[6] or 'en',
-                                            'quick_project_from_title': False,
-                                            'casual_dates': bool(result[7]) if result[7] is not None else False,
-                                            'created_at': result[8],
-                                            'updated_at': result[9]
-                                        }
-                                    else:
-                                        # Legacy shape without quick_project_from_title or casual_dates
-                                        settings = {
-                                            'theme': result[0] or 'orange',
-                                            'dpi_scale': result[1] or 100,
-                                            'autosave_interval': result[2] or 30,
-                                            'notifications': bool(result[3]) if result[3] is not None else True,
-                                            'daily_reset_time': result[4] or '06:00',
-                                            'timezone': result[5] or 'UTC',
-                                            'language': result[6] or 'en',
-                                            'quick_project_from_title': False,
-                                            'casual_dates': False,
-                                            'created_at': result[7] if len(result) > 7 else None,
-                                            'updated_at': result[8] if len(result) > 8 else None
-                                        }
+                                    raw = dict(zip(select_cols, result))
+                                    settings = {
+                                        'theme': raw.get('theme') or 'orange',
+                                        'dpi_scale': raw.get('dpi_scale') or 100,
+                                        'autosave_interval': raw.get('autosave_interval') or 30,
+                                        'notifications': bool(raw.get('notifications')) if raw.get('notifications') is not None else True,
+                                        'daily_reset_time': raw.get('daily_reset_time') or '06:00',
+                                        'last_daily_reset_at': raw.get('last_daily_reset_at'),
+                                        'timezone': raw.get('timezone') or 'UTC',
+                                        'language': raw.get('language') or 'en',
+                                        'mini_analytics_interval': raw.get('mini_analytics_interval') if raw.get('mini_analytics_interval') is not None else 5,
+                                        'quick_project_from_title': bool(raw.get('quick_project_from_title')) if raw.get('quick_project_from_title') is not None else False,
+                                        'casual_dates': bool(raw.get('casual_dates')) if raw.get('casual_dates') is not None else False,
+                                        'created_at': raw.get('created_at'),
+                                        'updated_at': raw.get('updated_at'),
+                                    }
 
-                                    # Validate settings data
                                     validated_settings = self._validate_settings(settings)
                                     conn.commit()
                                     self.logger.info(f"Successfully loaded settings for user {user_id}")
                                     return validated_settings
                             else:
                                 # Fallback to old settings table
-                                cursor = conn.execute('''
-                                    SELECT theme, dpi_scale, autosave_interval, notifications, daily_reset_time
-                                    FROM settings WHERE user_id = ?
-                                ''', (user_id,))
+                                col_cursor = conn.execute("PRAGMA table_info(settings)")
+                                cols = [row[1] for row in col_cursor.fetchall()]
+                                has_last_reset_column = 'last_daily_reset_at' in cols
+                                has_mini_analytics_column = 'mini_analytics_interval' in cols
+
+                                select_cols = ['theme', 'dpi_scale', 'autosave_interval', 'notifications', 'daily_reset_time']
+                                if has_last_reset_column:
+                                    select_cols.append('last_daily_reset_at')
+                                if has_mini_analytics_column:
+                                    select_cols.append('mini_analytics_interval')
+                                cursor = conn.execute(
+                                    f"SELECT {', '.join(select_cols)} FROM settings WHERE user_id = ?",
+                                    (user_id,),
+                                )
                                 result = cursor.fetchone()
                                 
                                 if result:
+                                    raw = dict(zip(select_cols, result))
                                     settings = {
-                                        'theme': result[0] or 'orange',
-                                        'dpi_scale': result[1] or 100,
-                                        'autosave_interval': result[2] or 30,
-                                        'notifications': bool(result[3]) if result[3] is not None else True,
-                                        'daily_reset_time': result[4] or '06:00',
+                                        'theme': raw.get('theme') or 'orange',
+                                        'dpi_scale': raw.get('dpi_scale') or 100,
+                                        'autosave_interval': raw.get('autosave_interval') or 30,
+                                        'notifications': bool(raw.get('notifications')) if raw.get('notifications') is not None else True,
+                                        'daily_reset_time': raw.get('daily_reset_time') or '06:00',
+                                        'last_daily_reset_at': raw.get('last_daily_reset_at') if has_last_reset_column else None,
+                                        'mini_analytics_interval': raw.get('mini_analytics_interval') if has_mini_analytics_column and raw.get('mini_analytics_interval') is not None else 5,
                                         'timezone': 'UTC',  # Default for old data
                                         'language': 'en'    # Default for old data
                                     }
@@ -1636,8 +1681,10 @@ class SQLiteDataManager:
             'autosave_interval': 30,
             'notifications': True,
             'daily_reset_time': '06:00',
+            'last_daily_reset_at': None,
             'timezone': 'UTC',
             'language': 'en',
+            'mini_analytics_interval': 5,
             # Feature flag: when true, first word before the first comma in a new task
             # title becomes the project name. Defaults to False for backwards compatibility.
             'quick_project_from_title': False,
@@ -1683,6 +1730,18 @@ class SQLiteDataManager:
         if not isinstance(daily_reset_time, str) or not self._validate_time_format(daily_reset_time):
             daily_reset_time = '06:00'
         validated['daily_reset_time'] = daily_reset_time
+
+        last_daily_reset_at = settings.get('last_daily_reset_at')
+        if last_daily_reset_at is None:
+            validated['last_daily_reset_at'] = None
+        elif isinstance(last_daily_reset_at, str):
+            try:
+                datetime.fromisoformat(last_daily_reset_at.replace('Z', '+00:00'))
+                validated['last_daily_reset_at'] = last_daily_reset_at
+            except Exception:
+                validated['last_daily_reset_at'] = None
+        else:
+            validated['last_daily_reset_at'] = None
         
         # Timezone validation
         timezone = settings.get('timezone', 'UTC')
@@ -1695,6 +1754,16 @@ class SQLiteDataManager:
         if not isinstance(language, str) or len(language) > 10:
             language = 'en'
         validated['language'] = language
+
+        # Mini analytics rotation interval validation
+        mai = settings.get('mini_analytics_interval', 5)
+        try:
+            mai = int(mai)
+        except Exception:
+            mai = 5
+        if mai not in [0, 5, 10, 20, 30, 60]:
+            mai = 5
+        validated['mini_analytics_interval'] = mai
         
         # Quick project-from-title flag
         qp = settings.get('quick_project_from_title', False)
@@ -1783,6 +1852,10 @@ class SQLiteDataManager:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN quick_project_from_title INTEGER DEFAULT 0")
                                     if 'casual_dates' not in cols:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN casual_dates INTEGER DEFAULT 0")
+                                    if 'last_daily_reset_at' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN last_daily_reset_at TEXT")
+                                    if 'mini_analytics_interval' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN mini_analytics_interval INTEGER DEFAULT 5")
                                 except Exception as schema_e:
                                     # Log but do not fail save if ALTER fails; feature will just fall back to default
                                     self.logger.warning(f"Could not ensure quick_project_from_title/casual_dates columns on user_preferences: {schema_e}")
@@ -1791,8 +1864,8 @@ class SQLiteDataManager:
                                 conn.execute('''
                                     INSERT OR REPLACE INTO user_preferences (
                                         user_id, theme, dpi_scale, autosave_interval, notifications,
-                                        daily_reset_time, timezone, language, quick_project_from_title, casual_dates, updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        daily_reset_time, last_daily_reset_at, timezone, language, mini_analytics_interval, quick_project_from_title, casual_dates, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ''', (
                                     user_id,
                                     validated_settings['theme'],
@@ -1800,19 +1873,28 @@ class SQLiteDataManager:
                                     validated_settings['autosave_interval'],
                                     validated_settings['notifications'],
                                     validated_settings['daily_reset_time'],
+                                    validated_settings.get('last_daily_reset_at'),
                                     validated_settings['timezone'],
                                     validated_settings['language'],
+                                    validated_settings.get('mini_analytics_interval', 5),
                                     1 if validated_settings.get('quick_project_from_title', False) else 0,
                                     1 if validated_settings.get('casual_dates', False) else 0,
                                     datetime.now().isoformat()
                                 ))
                             else:
                                 # Fallback to old settings table
+                                try:
+                                    col_cursor = conn.execute("PRAGMA table_info(settings)")
+                                    cols = [row[1] for row in col_cursor.fetchall()]
+                                    if 'mini_analytics_interval' not in cols:
+                                        conn.execute("ALTER TABLE settings ADD COLUMN mini_analytics_interval INTEGER DEFAULT 5")
+                                except Exception:
+                                    pass
                                 conn.execute('''
                                     INSERT OR REPLACE INTO settings (
                                         user_id, theme, dpi_scale, autosave_interval, notifications, 
-                                        daily_reset_time, updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                        daily_reset_time, last_daily_reset_at, mini_analytics_interval, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ''', (
                                     user_id,
                                     validated_settings['theme'],
@@ -1820,6 +1902,8 @@ class SQLiteDataManager:
                                     validated_settings['autosave_interval'],
                                     validated_settings['notifications'],
                                     validated_settings['daily_reset_time'],
+                                    validated_settings.get('last_daily_reset_at'),
+                                    validated_settings.get('mini_analytics_interval', 5),
                                     datetime.now().isoformat()
                                 ))
                             

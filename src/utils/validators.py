@@ -68,7 +68,7 @@ def validate_task_data(task_data: Dict[str, Any]) -> Tuple[bool, str]:
                 return False, f"{field} must be a non-negative integer"
 
     # Date validation (ISO 8601 strings, allow trailing 'Z')
-    date_fields = ["due_date", "completed_at", "struck_date"]
+    date_fields = ["due_date", "completed_at", "struck_date", "refreshed_at"]
     for field in date_fields:
         if field in task_data and task_data[field] is not None:
             value = task_data[field]

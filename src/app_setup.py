@@ -51,13 +51,16 @@ def configure_logging(user_data_dir: str) -> Optional[str]:
         logs_dir = os.path.join(user_data_dir, 'logs')
         os.makedirs(logs_dir, exist_ok=True)
 
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        existing_txt_logs = [f for f in os.listdir(logs_dir) if f.lower().endswith('.txt')]
+        timestamp = datetime.now().strftime('%Y-%m-%d - %H-%M-%S')
+        existing_log_files = [
+            f for f in os.listdir(logs_dir)
+            if f.lower().endswith('.log') or f.lower().endswith('.txt')
+        ]
 
         next_index = 1
-        if existing_txt_logs:
-            pattern = re.compile(rf"^{re.escape(timestamp)}-log#(\d+)\.txt$", re.IGNORECASE)
-            for name in existing_txt_logs:
+        if existing_log_files:
+            pattern = re.compile(rf"^{re.escape(timestamp)} - log #(\d+)\.(?:log|txt)$", re.IGNORECASE)
+            for name in existing_log_files:
                 m = pattern.match(name)
                 if m:
                     try:
@@ -67,7 +70,7 @@ def configure_logging(user_data_dir: str) -> Optional[str]:
                     except ValueError:
                         continue
 
-        log_filename = f"{timestamp}-log#{next_index}.txt"
+        log_filename = f"{timestamp} - log #{next_index}.log"
         log_file = os.path.join(logs_dir, log_filename)
 
         logging.basicConfig(
@@ -80,10 +83,14 @@ def configure_logging(user_data_dir: str) -> Optional[str]:
         )
 
         try:
-            txt_paths = [os.path.join(logs_dir, f) for f in os.listdir(logs_dir) if f.lower().endswith('.txt')]
-            if len(txt_paths) >= 10:
-                txt_paths.sort(key=lambda p: os.path.getmtime(p))
-                for old_path in txt_paths[:5]:
+            log_paths = [
+                os.path.join(logs_dir, f)
+                for f in os.listdir(logs_dir)
+                if f.lower().endswith('.log') or f.lower().endswith('.txt')
+            ]
+            if len(log_paths) > 7:
+                log_paths.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+                for old_path in log_paths[7:]:
                     try:
                         os.remove(old_path)
                     except Exception:

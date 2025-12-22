@@ -115,6 +115,14 @@ class ErrorHandler {
             showError = false
         } = options;
 
+        // Only pass valid RequestInit options to fetch().
+        // Some runtimes may behave unexpectedly when extra helper-only keys are included.
+        const fetchOptions = { ...options };
+        delete fetchOptions.fallbackValue;
+        delete fetchOptions.cacheTTL;
+        delete fetchOptions.cacheKey;
+        delete fetchOptions.showError;
+
         // Check cache first
         if (cacheTTL > 0) {
             const cached = this.getFromCache(cacheKey);
@@ -124,7 +132,7 @@ class ErrorHandler {
         }
 
         try {
-            const response = await fetch(url, options);
+            const response = await fetch(url, fetchOptions);
             
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);

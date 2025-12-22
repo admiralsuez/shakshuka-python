@@ -806,27 +806,40 @@ def scheduler_worker(stop_event: threading.Event):
 def check_and_run_missed_reset(reset_time_str, verbose=True):
     """Check if today's reset was missed and run it if needed (uses local time)."""
     try:
+        # DEBUG: Log when checker runs
+        logger.info(f"[DEBUG] Startup missed reset checker running with reset_time: {reset_time_str}")
+        
         # Validate and normalize reset time
         reset_time_str = _validate_and_normalize_reset_time(reset_time_str)
         reset_hour, reset_minute = map(int, reset_time_str.split(':'))
         
         # Use local time so it matches how the scheduler runs
         now = datetime.now()
+        logger.info(f"[DEBUG] Current time: {now.strftime('%H:%M')}, Reset time: {reset_time_str}")
         
         # Create datetime for today's reset time (local)
         today_reset_time = now.replace(hour=reset_hour, minute=reset_minute, second=0, microsecond=0)
         
         # If current time is past today's reset time and any task is still flagged struck_today, run reset
         if now > today_reset_time:
+            logger.info(f"[DEBUG] Current time is past reset time, checking for struck tasks...")
             user_id = get_user_id()
+            logger.info(f"[DEBUG] User ID: {user_id}")
+            logger.info(f"[DEBUG] Data manager available: {app_context.data_manager is not None}")
+            
             if not user_id or not app_context.data_manager:
+                logger.warning(f"[DEBUG] Skipping missed reset - user_id: {user_id}, data_manager: {app_context.data_manager is not None}")
                 return
             
             tasks = app_context.data_manager.load_tasks_for_user(user_id)
+            logger.info(f"[DEBUG] Loaded {len(tasks)} tasks")
             if not tasks:
                 return
             
             needs_reset = any(task.get('struck_today') for task in tasks)
+            struck_count = sum(1 for task in tasks if task.get('struck_today'))
+            logger.info(f"[DEBUG] Tasks with struck_today=True: {struck_count}")
+            
             if needs_reset:
                 logger.info(f"⏰ Missed reset detected! Current time {now.strftime('%H:%M')} is past reset time {reset_time_str}. Running reset now...")
                 reset_daily_strikes_job()
@@ -900,6 +913,8 @@ def reset_daily_strikes_job():
         
         # 1) Clear today's strike flags and ALL scheduling for struck-today tasks
         reset_count = 0
+        reset_timestamp = datetime.now().isoformat()
+        
         for task in tasks:
             if task.get('struck_today'):
                 # Check if task was struck forever
@@ -909,6 +924,9 @@ def reset_daily_strikes_job():
                 task['struck_today'] = False
                 task['struck_date'] = None
                 task['strike_report'] = None
+                
+                # Mark task as refreshed with timestamp
+                task['refreshed_at'] = reset_timestamp
                 reset_count += 1
                 
                 # ALWAYS clear scheduling during reset - all tasks should return to pool
@@ -1170,6 +1188,10 @@ def get_analytics_summary():
         
         # Get tasks for stats calculation
         tasks = app_context.data_manager.load_tasks_for_user(user_id) or []
+        try:
+            tasks = [t for t in tasks if isinstance(t, dict)]
+        except Exception:
+            tasks = []
         
         # Calculate task stats
         total_tasks = len(tasks)
@@ -1177,8 +1199,108 @@ def get_analytics_summary():
         expired_tasks = len([t for t in tasks if t.get('due_date') and not t.get('completed') and not t.get('struck_forever') and t.get('due_date') < datetime.now().strftime('%Y-%m-%d')])
         completed_tasks = len([t for t in tasks if t.get('completed') or t.get('struck_forever')])
         
-        # Get streak
-        streak_data = app_context.data_manager.get_strike_streak(user_id) or {'current_streak': 0, 'best_streak': 0}
+        def _longest_consecutive_run(days_sorted):
+            if not days_sorted:
+                return 0
+            run = 1
+            best = 1
+            for i in range(1, len(days_sorted)):
+                if (days_sorted[i] - days_sorted[i - 1]).days == 1:
+                    run += 1
+                else:
+                    if run > best:
+                        best = run
+                    run = 1
+            if run > best:
+                best = run
+            return best
+
+        # Completion streak: consecutive days with at least one completion.
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        completion_current = 0
+        completion_best = 0
+        try:
+            conn = app_context.data_manager._get_pooled_connection()
+            completion_current = app_context.data_manager._calculate_streak_days_from_tasks(conn, user_id, today_str)
+            app_context.data_manager._return_connection(conn)
+        except Exception as e:
+            logger.warning(f"Error calculating completion streak: {e}")
+            completion_current = 0
+
+        try:
+            completion_days = set()
+            for t in tasks:
+                if not t:
+                    continue
+                if not (t.get('completed') or t.get('struck_forever')):
+                    continue
+                completed_at = t.get('completed_at')
+                if not completed_at:
+                    continue
+                s = str(completed_at)
+                d = s.split('T')[0] if 'T' in s else s
+                try:
+                    completion_days.add(datetime.strptime(d, '%Y-%m-%d').date())
+                except Exception:
+                    continue
+            completion_best = _longest_consecutive_run(sorted(completion_days))
+        except Exception:
+            completion_best = 0
+
+        # Strike streak: consecutive days with at least one strike event.
+        strike_current = 0
+        strike_best = 0
+        conn = None
+        try:
+            conn = app_context.data_manager._get_pooled_connection()
+            cur = conn.cursor()
+            cur.execute(
+                '''
+                SELECT DISTINCT day
+                FROM strike_events
+                WHERE user_id = ?
+                ''',
+                (user_id,),
+            )
+            rows = cur.fetchall() or []
+            days_set = set()
+            for r in rows:
+                if not r:
+                    continue
+                day_val = r[0]
+                if not day_val:
+                    continue
+                try:
+                    days_set.add(datetime.strptime(str(day_val), '%Y-%m-%d').date())
+                except Exception:
+                    continue
+
+            if days_set:
+                strike_best = _longest_consecutive_run(sorted(days_set))
+                today_dt = datetime.now().date()
+                if today_dt in days_set:
+                    anchor = today_dt
+                elif (today_dt - timedelta(days=1)) in days_set:
+                    anchor = today_dt - timedelta(days=1)
+                else:
+                    anchor = None
+
+                if anchor is not None:
+                    s = 0
+                    while (anchor - timedelta(days=s)) in days_set:
+                        s += 1
+                    strike_current = s
+
+        except Exception as e:
+            logger.warning(f"Error calculating strike streak: {e}")
+            strike_current = 0
+            strike_best = 0
+        finally:
+            try:
+                if conn is not None:
+                    app_context.data_manager._return_connection(conn)
+            except Exception:
+                pass
         
         # Get completed forever count
         completed_forever = len([t for t in tasks if t.get('struck_forever')])
@@ -1218,9 +1340,18 @@ def get_analytics_summary():
                 'today': analytics.get('today_strikes', 0),
                 'total': analytics.get('total_strikes', 0)
             },
+            # Backward compatibility
             'streak': {
-                'current': streak_data.get('current_streak', 0),
-                'best': streak_data.get('best_streak', 0)
+                'current': completion_current,
+                'best': completion_best
+            },
+            'completion_streak': {
+                'current': completion_current,
+                'best': completion_best
+            },
+            'strike_streak': {
+                'current': strike_current,
+                'best': strike_best
             },
             'completed_forever': completed_forever,
             'settings_changes': settings_changes,
@@ -1228,13 +1359,15 @@ def get_analytics_summary():
             'tasks_retried': tasks_retried
         })
         
-    except Exception as e:
-        logger.error(f"Analytics summary error: {e}")
+    except Exception:
+        logger.exception("Analytics summary error")
         return jsonify({
             'success': False,
             'tasks': {'total': 0, 'active': 0, 'expired': 0, 'completed': 0},
             'strikes': {'today': 0, 'total': 0},
             'streak': {'current': 0, 'best': 0},
+            'completion_streak': {'current': 0, 'best': 0},
+            'strike_streak': {'current': 0, 'best': 0},
             'completed_forever': 0,
             'settings_changes': 0,
             'tasks_added': 0,
@@ -1307,7 +1440,8 @@ def get_settings():
                         'notifications': True,
                         'daily_reset_time': '06:00',
                         'timezone': 'UTC',
-                        'language': 'en'
+                        'language': 'en',
+                        'mini_analytics_interval': 5,
                     }
                     logger.warning(f"Using default settings for user {user_id} after {max_retries} failed attempts")
         
@@ -1319,7 +1453,8 @@ def get_settings():
                 'notifications': True,
                 'daily_reset_time': '06:00',
                 'timezone': 'UTC',
-                'language': 'en'
+                'language': 'en',
+                'mini_analytics_interval': 5,
             }
         
         # Add autostart status (thread-safe)
@@ -1338,6 +1473,7 @@ def get_settings():
             'daily_reset_time': settings.get('daily_reset_time', '06:00'),
             'timezone': settings.get('timezone', 'UTC'),
             'language': settings.get('language', 'en'),
+            'mini_analytics_interval': settings.get('mini_analytics_interval', 5),
             'autostart_enabled': bool(settings.get('autostart_enabled', False)),
             'quick_project_from_title': bool(settings.get('quick_project_from_title', False)),
             'casual_dates': bool(settings.get('casual_dates', False)),
@@ -1432,6 +1568,15 @@ def update_settings():
             interval = settings_data['autosave_interval']
             if isinstance(interval, int) and 5 <= interval <= 300:
                 validated_updates['autosave_interval'] = interval
+
+        if 'mini_analytics_interval' in settings_data:
+            mai = settings_data['mini_analytics_interval']
+            try:
+                mai = int(mai)
+            except Exception:
+                mai = None
+            if mai in [0, 5, 10, 20, 30, 60]:
+                validated_updates['mini_analytics_interval'] = mai
         
         # Notifications validation
         if 'notifications' in settings_data:

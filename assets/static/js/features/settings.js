@@ -35,6 +35,7 @@ const Settings = {
             // Update UI elements
             const autostartToggle = document.getElementById('autostart-toggle');
             const autosaveInterval = document.getElementById('autosave-interval');
+            const miniAnalyticsInterval = document.getElementById('mini-analytics-interval');
             const themeSelector = document.getElementById('theme-selector');
             const finishSelector = document.getElementById('finish-selector');
             const intensitySelector = document.getElementById('intensity-selector');
@@ -52,6 +53,7 @@ const Settings = {
                     : (settings.autostart || false);
             }
             if (autosaveInterval) autosaveInterval.value = settings.autosave_interval || 30;
+            if (miniAnalyticsInterval) miniAnalyticsInterval.value = (settings.mini_analytics_interval ?? 5);
             if (themeSelector) themeSelector.value = settings.theme || 'light';
             if (finishSelector) finishSelector.value = settings.finish || 'glossy';
             if (intensitySelector) intensitySelector.value = settings.intensity || '5';
@@ -110,6 +112,46 @@ const Settings = {
             if (typeof window._bindResetTimeHandlers === 'function') {
                 console.log('[DEBUG] Re-binding reset time handlers after init (error path)');
                 setTimeout(() => window._bindResetTimeHandlers(), 100);
+            }
+        }
+    },
+
+    async updateMiniAnalyticsInterval() {
+        const el = document.getElementById('mini-analytics-interval');
+        const valRaw = el ? el.value : '5';
+        let interval = 5;
+        try {
+            interval = parseInt(valRaw, 10);
+        } catch (e) {
+            interval = 5;
+        }
+
+        try {
+            const response = await apiCall('/api/settings', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ mini_analytics_interval: interval })
+            });
+
+            if (response.ok) {
+                const settings = AppState.get('currentSettings') || {};
+                settings.mini_analytics_interval = interval;
+                AppState.set('currentSettings', settings);
+                window.incrementSettingsChangeCount?.();
+                try {
+                    if (window.MiniAnalyticsTicker && typeof window.MiniAnalyticsTicker.applyIntervalFromSettings === 'function') {
+                        window.MiniAnalyticsTicker.applyIntervalFromSettings();
+                    }
+                } catch (e) { /* no-op */ }
+            } else {
+                throw new Error('Failed to update mini analytics interval');
+            }
+        } catch (error) {
+            Utils.Logger.error('Error updating mini analytics interval:', error);
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating mini analytics interval', 'error');
             }
         }
     },
@@ -845,6 +887,7 @@ window.updateAutostart = () => Settings.updateAutostart();
 window.updateQuickProjectFromTitle = () => Settings.updateQuickProjectFromTitle();
 window.updateCasualDates = () => Settings.updateCasualDates();
 window.updateAutosaveInterval = () => Settings.updateAutosaveInterval();
+window.updateMiniAnalyticsInterval = () => Settings.updateMiniAnalyticsInterval();
 window.applyThemeAndDPI = () => Settings.applyThemeAndDPI();
 window.updateTheme = () => Settings.updateTheme();
 window.updateFinish = () => Settings.updateFinish();

@@ -339,6 +339,12 @@ function setupDailyReset() {
 async function resetDailyStrikes() {
     // This function resets daily strike flags and performs schedule cleanup
     console.log('Resetting daily strikes');
+    
+    // Show reset overlay animation
+    if (typeof DailyResetOverlay !== 'undefined' && DailyResetOverlay.show) {
+        DailyResetOverlay.showForDuration(2000);
+    }
+    
     try {
         const resp = await apiCall('/api/tasks/reset-daily-strikes', { method: 'POST' });
         const data = await resp.json();
@@ -559,6 +565,7 @@ function setupEventListeners() {
     // Settings
     safeAddEventListener('autostart-toggle', 'change', updateAutostart);
     safeAddEventListener('autosave-interval', 'change', updateAutosaveInterval);
+    safeAddEventListener('mini-analytics-interval', 'change', updateMiniAnalyticsInterval);
     safeAddEventListener('quick-project-from-title', 'change', updateQuickProjectFromTitle);
     safeAddEventListener('casual-dates-toggle', 'change', updateCasualDates);
     safeAddEventListener('daily-reset-time', 'change', updateDailyResetTime);
@@ -1118,7 +1125,10 @@ function _renderTasksNow(filter, projectFilterArg) {
                             </div>
                             
                             <div class="task-content-main">
-                                <h3 class="task-title-main ${task.struck_today ? 'struck-today' : ''}">${sanitizeHTML(task.title)}</h3>
+                                <h3 class="task-title-main ${task.struck_today ? 'struck-today' : ''}">
+                                    ${sanitizeHTML(task.title)}
+                                    ${typeof RefreshedBadgeHelper !== 'undefined' ? RefreshedBadgeHelper.getBadgeHTML(task) : ''}
+                                </h3>
                                 ${task.description ? `<p class="task-description-main">${sanitizeHTML(task.description)}</p>` : ''}
                             </div>
                             
@@ -1148,7 +1158,7 @@ function _renderTasksNow(filter, projectFilterArg) {
             <div class="task-content">
                 <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">
                     ${sanitizeHTML(task.title)}
-                    ${hasDescription ? `<button class=\"task-title-more\" onclick=\"openTaskDetailsModal('${task.id}')\" title=\"View details\"><i class=\"fas fa-chevron-right\"></i></button>` : ''}
+                    ${hasDescription ? `<button class="task-title-more" onclick="openTaskDetailsModal('${task.id}')" title="View details"><i class="fas fa-chevron-right"></i></button>` : ''}
                 </h3>
                 ${task.strike_report ? `<p class="strike-report"><em>Last strike: ${sanitizeHTML(task.strike_report)}</em></p>` : ''}
             </div>
@@ -1161,6 +1171,7 @@ function _renderTasksNow(filter, projectFilterArg) {
                         <i class="fas fa-undo"></i>
                     </button>
                 ` : ''}
+                ${typeof RefreshedBadgeHelper !== 'undefined' ? RefreshedBadgeHelper.getBadgeHTML(task) : ''}
                 ${(() => {
                     const isTaskExpired = window.TaskHelpers && typeof window.TaskHelpers.isExpired === 'function' ? window.TaskHelpers.isExpired(task) : false;
                     if (isTaskExpired && !task.completed) {
