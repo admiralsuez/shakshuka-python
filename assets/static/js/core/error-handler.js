@@ -115,8 +115,6 @@ class ErrorHandler {
             showError = false
         } = options;
 
-        // Only pass valid RequestInit options to fetch().
-        // Some runtimes may behave unexpectedly when extra helper-only keys are included.
         const fetchOptions = { ...options };
         delete fetchOptions.fallbackValue;
         delete fetchOptions.cacheTTL;

@@ -145,12 +145,13 @@ class ApplicationLauncher:
             from src.app import app
             self.app = app
             
-            url = f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}"
+            bind_url = f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}"
+            ui_url = f"http://127.0.0.1:{config.DEFAULT_PORT}"
             
             print("\n" + "="*60)
             print("🍳 Shakshuka Task Manager")
             print("="*60)
-            print(f"Server: {url}")
+            print(f"Server: {ui_url}")
             print(f"Status: Starting...")
             print("="*60)
             print("\n💡 Tips:")
@@ -160,10 +161,10 @@ class ApplicationLauncher:
             print("\n")
             
             # Open browser
-            self.open_browser_delayed(url)
+            self.open_browser_delayed(ui_url)
             
             # Start server
-            logger.info(f"Starting server on {url}")
+            logger.info(f"Starting server on {bind_url}")
             run_simple(
                 config.DEFAULT_HOST,
                 config.DEFAULT_PORT,

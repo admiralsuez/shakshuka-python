@@ -42,6 +42,8 @@ class AppContext:
         self._session_secrets: Dict[str, str] = {}
         self._csrf_tokens = TTLCache(maxsize=10000, ttl=CSRF_TOKEN_EXPIRY_SECONDS)
 
+        self._mobile_pairing_codes = TTLCache(maxsize=1000, ttl=300)
+
         self._lock = threading.RLock()
         self._auto_save_lock = threading.RLock()
 

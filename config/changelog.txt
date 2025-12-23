@@ -1,3 +1,9 @@
+## Version 16.8 - Release
+Release Date: 2025-12-24T01:21:39.457142
+
+Highlights
+
+---
 ## Version 16.7 - Release
 Release Date: 2025-12-22T20:59:31.139393
 

@@ -18,7 +18,7 @@ class AppConfig:
     """
 
     # Network
-    DEFAULT_HOST: str = os.getenv("SHAKSHUKA_HOST", "127.0.0.1")
+    DEFAULT_HOST: str = os.getenv("SHAKSHUKA_HOST", "0.0.0.0")
     DEFAULT_PORT: int = int(os.getenv("SHAKSHUKA_PORT", "8989"))
 
     # Flask debug flag (app still explicitly sets debug=True in dev)

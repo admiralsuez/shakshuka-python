@@ -30,8 +30,9 @@ def _shutdown_running_instance() -> int:
         from src.core.config import config
 
         host = config.DEFAULT_HOST
+        connect_host = '127.0.0.1'
         port = int(config.DEFAULT_PORT)
-        url = f"http://{host}:{port}/api/shutdown"
+        url = f"http://{connect_host}:{port}/api/shutdown"
         req = urllib.request.Request(
             url,
             data=b"{}",
@@ -55,7 +56,7 @@ def _shutdown_running_instance() -> int:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(0.4)
             try:
-                s.connect((host, port))
+                s.connect((connect_host, port))
                 return True
             except OSError:
                 return False

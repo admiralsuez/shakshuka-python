@@ -270,6 +270,54 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.error(f"Migration 013 failed: {e}")
             raise
+
+    def _migration_014_mobile_inbox(self, conn) -> List[Dict[str, Any]]:
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            conn.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS mobile_devices (
+                    user_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    device_name TEXT,
+                    token_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_seen_at TEXT,
+                    PRIMARY KEY (user_id, device_id),
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_mobile_devices_user_token ON mobile_devices (user_id, token_hash)')
+
+            conn.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS mobile_inbox (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    device_id TEXT,
+                    device_name TEXT,
+                    payload_json TEXT,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    processed_at TEXT,
+                    result_json TEXT,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_mobile_inbox_user_status_created ON mobile_inbox (user_id, status, created_at)')
+
+            migrations_applied.append({
+                'version': 14,
+                'description': 'Created mobile_devices and mobile_inbox tables',
+                'sql': 'CREATE TABLE mobile_devices/mobile_inbox'
+            })
+
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 014 failed: {e}")
+            raise
     
     def _run_migrations(self):
         """Run database migrations with comprehensive error handling and rollback"""
@@ -346,6 +394,9 @@ class SQLiteDataManager:
                     # Migration 13: Add last_daily_reset_at to user_preferences/settings for robust missed reset detection
                     if migration_version < 13:
                         migrations_applied.extend(self._migration_013_last_daily_reset_at(conn))
+
+                    if migration_version < 14:
+                        migrations_applied.extend(self._migration_014_mobile_inbox(conn))
                     
                     # Update migration version
                     if migrations_applied:

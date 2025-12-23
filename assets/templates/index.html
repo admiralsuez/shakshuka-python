@@ -36,6 +36,46 @@
         </div>
     </div>
 
+    <div class="modal" id="pair-phone-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Pair Phone</h3>
+                <button class="modal-close" id="close-pair-phone-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="pair-phone-status" style="margin-bottom: 10px;">Loading…</div>
+                <div id="pair-phone-code" style="font-size: 28px; font-weight: 700; letter-spacing: 6px; margin-bottom: 10px;"></div>
+                <div id="pair-phone-qr" style="display:flex; justify-content:center; margin-bottom: 10px;"></div>
+                <div id="pair-phone-url" style="word-break: break-all;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="pair-phone-refresh-btn">Refresh</button>
+                <button type="button" class="btn-secondary" id="pair-phone-close-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="mobile-inbox-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Incoming Tasks</h3>
+                <button class="modal-close" id="close-mobile-inbox-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="mobile-inbox-subtitle" style="margin-bottom: 10px;"></div>
+                <div class="import-preview" id="mobile-inbox-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="mobile-inbox-reject-btn">Reject</button>
+                <button type="button" class="btn-primary" id="mobile-inbox-approve-btn">Add selected tasks</button>
+            </div>
+        </div>
+    </div>
+
     <div class="app-container" id="app-container" style="display: none;">
         <!-- Sidebar Navigation -->
         <nav class="sidebar" role="navigation" aria-label="Main navigation">
@@ -362,6 +402,11 @@
                                     <option value="300">5 minutes</option>
                                 </select>
                             </label>
+                        </div>
+                        <div class="setting-item">
+                            <button class="btn-secondary" id="pair-phone-btn">
+                                Pair Phone
+                            </button>
                         </div>
                         <div class="setting-item">
                             <label class="setting-label">

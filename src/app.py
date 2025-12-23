@@ -48,6 +48,7 @@ from src.routes.monitoring_routes import monitoring_bp, init_monitoring_routes
 from src.routes.updates_routes import updates_bp, init_updates_routes
 from src.routes.backups_routes import backups_bp, init_backups_routes
 from src.routes.github_update_routes import github_update_bp, init_github_update_routes
+from src.routes.mobile_routes import mobile_bp, init_mobile_routes
 from src.services import scheduler as scheduler_service
 from src.services import autosave as autosave_service
 from src.services import tray as tray_service
@@ -547,6 +548,9 @@ app.register_blueprint(notes_bp)
 
 init_pin_routes(app_context=app_context)
 app.register_blueprint(pin_bp)
+
+init_mobile_routes(app_context=app_context, get_user_id_func=get_user_id, ensure_data_manager_func=ensure_data_manager)
+app.register_blueprint(mobile_bp)
 
 init_planner_routes(app_context=app_context, get_user_id_func=get_user_id)
 app.register_blueprint(planner_bp)
