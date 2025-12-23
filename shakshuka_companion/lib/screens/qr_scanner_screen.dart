@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/api_service.dart';
@@ -36,19 +38,39 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
 
     final value = barcode!.rawValue!;
 
-    // Expected format: shakshuka://pair?url=http://192.168.x.x:8989
-    // Or just: http://192.168.x.x:8989
     setState(() {
       _isProcessing = true;
       _error = null;
     });
 
-    String serverUrl;
-    if (value.startsWith('shakshuka://pair?url=')) {
+    String? serverUrl;
+    String? scannedCode;
+
+    // Try JSON format first: {"url":"http://...","code":"123456"}
+    if (value.startsWith('{')) {
+      try {
+        final json = Map<String, dynamic>.from(
+          const JsonDecoder().convert(value) as Map,
+        );
+        serverUrl = json['url'] as String?;
+        scannedCode = json['code']?.toString();
+      } catch (_) {
+        // Not valid JSON, try other formats
+      }
+    }
+
+    // Try shakshuka:// format
+    if (serverUrl == null && value.startsWith('shakshuka://pair?url=')) {
       serverUrl = value.substring('shakshuka://pair?url='.length);
-    } else if (value.startsWith('http://') || value.startsWith('https://')) {
+    }
+
+    // Try plain URL format
+    if (serverUrl == null &&
+        (value.startsWith('http://') || value.startsWith('https://'))) {
       serverUrl = value;
-    } else {
+    }
+
+    if (serverUrl == null || serverUrl.isEmpty) {
       setState(() {
         _error = 'Invalid QR code format';
         _isProcessing = false;
@@ -64,6 +86,10 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     setState(() {
       _scannedUrl = serverUrl;
       _isProcessing = false;
+      // Pre-fill code if it was in the QR
+      if (scannedCode != null && scannedCode.isNotEmpty) {
+        _codeController.text = scannedCode;
+      }
     });
 
     _controller.stop();
