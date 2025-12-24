@@ -55,6 +55,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
 Name: "autostart"; Description: "Start Shakshuka automatically when Windows starts"; GroupDescription: "Startup Options:"
+Name: "firewall"; Description: "Add Windows Firewall rule for phone pairing"; GroupDescription: "Network Options:"; Flags: unchecked
 
 [Files]
 ; Main executable
@@ -124,6 +125,16 @@ begin
       ForceDirectories(ExpandConstant('{userappdata}\Shakshuka\data\backups'));
       ForceDirectories(ExpandConstant('{userappdata}\Shakshuka\logs'));
     end;
+    
+    // Add firewall rule if selected
+    if IsTaskSelected('firewall') then
+    begin
+      // Add inbound rule for Shakshuka (allow incoming connections for phone pairing)
+      Exec('netsh', 'advfirewall firewall add rule name="Shakshuka Phone Pairing" dir=in action=allow program="' + ExpandConstant('{app}\{#MyAppExeName}') + '" enable=yes', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      
+      // Add outbound rule (allow Shakshuka to communicate)
+      Exec('netsh', 'advfirewall firewall add rule name="Shakshuka Outbound" dir=out action=allow program="' + ExpandConstant('{app}\{#MyAppExeName}') + '" enable=yes', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    end;
   end;
 end;
 
@@ -183,6 +194,10 @@ begin
   begin
     // Stop Shakshuka if running
     Exec('taskkill', '/F /IM Shakshuka.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    
+    // Remove firewall rules if they exist
+    Exec('netsh', 'advfirewall firewall delete rule name="Shakshuka Phone Pairing"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec('netsh', 'advfirewall firewall delete rule name="Shakshuka Outbound"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     
     // Ask if user wants to keep data
     if MsgBox('Do you want to keep your Shakshuka data (tasks, settings, etc.)?', mbConfirmation, MB_YESNO) = IDNO then
