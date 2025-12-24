@@ -72,6 +72,11 @@ async function updateDashboardStats() {
             setText('completed-forever', summary.completed_forever);
             setText('settings-changes', summary.settings_changes);
             setText('tasks-retried', summary.tasks_retried);
+            setText('tasks-deleted', summary.tasks_deleted || 0);
+            setText('tasks-edited', summary.tasks_edited || 0);
+            setText('tasks-with-dates', summary.tasks_with_dates || 0);
+            setText('tasks-with-time', summary.tasks_with_time || 0);
+            setText('tasks-planned', summary.tasks_planned || 0);
             
             // Calculate productivity
             const productivity = summary.tasks.total > 0 
@@ -93,6 +98,11 @@ async function updateDashboardStats() {
             setText('productivity-score', productivity + '%');
             setText('settings-changes', 0);
             setText('tasks-retried', 0);
+            setText('tasks-deleted', 0);
+            setText('tasks-edited', 0);
+            setText('tasks-with-dates', tasks.filter(t => t && t.due_date).length);
+            setText('tasks-with-time', tasks.filter(t => t && (t.estimated_duration || t.duration)).length);
+            setText('tasks-planned', tasks.filter(t => t && t.planned_date).length);
         }
     } catch (e) {
         console.error('Dashboard stats update failed:', e);
@@ -109,6 +119,11 @@ async function updateDashboardStats() {
         setText('productivity-score', productivity + '%');
         setText('settings-changes', 0);
         setText('tasks-retried', 0);
+        setText('tasks-deleted', 0);
+        setText('tasks-edited', 0);
+        setText('tasks-with-dates', tasks.filter(t => t && t.due_date).length);
+        setText('tasks-with-time', tasks.filter(t => t && (t.estimated_duration || t.duration)).length);
+        setText('tasks-planned', tasks.filter(t => t && t.planned_date).length);
     }
 }
 

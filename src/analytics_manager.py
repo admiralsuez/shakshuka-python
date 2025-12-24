@@ -45,11 +45,38 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             today_date TEXT NOT NULL,
             today_strikes INTEGER NOT NULL DEFAULT 0,
             total_strikes INTEGER NOT NULL DEFAULT 0,
+            tasks_deleted INTEGER NOT NULL DEFAULT 0,
+            tasks_edited INTEGER NOT NULL DEFAULT 0,
+            tasks_with_dates INTEGER NOT NULL DEFAULT 0,
+            tasks_with_time INTEGER NOT NULL DEFAULT 0,
+            tasks_planned INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
         """
     )
+
+    # Add new columns if they don't exist (for migration)
+    try:
+        conn.execute("ALTER TABLE analytics ADD COLUMN tasks_deleted INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE analytics ADD COLUMN tasks_edited INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE analytics ADD COLUMN tasks_with_dates INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE analytics ADD COLUMN tasks_with_time INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE analytics ADD COLUMN tasks_planned INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
 
     cur = conn.execute("SELECT COUNT(*) AS c FROM analytics")
     count = cur.fetchone()[0]
@@ -57,8 +84,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         today = date.today().isoformat()
         now = datetime.now().isoformat()
         conn.execute(
-            "INSERT INTO analytics (id, today_date, today_strikes, total_strikes, created_at, updated_at) "
-            "VALUES (1, ?, 0, 0, ?, ?)",
+            "INSERT INTO analytics (id, today_date, today_strikes, total_strikes, tasks_deleted, tasks_edited, tasks_with_dates, tasks_with_time, tasks_planned, created_at, updated_at) "
+            "VALUES (1, ?, 0, 0, 0, 0, 0, 0, 0, ?, ?)",
             (today, now, now),
         )
         conn.commit()
@@ -125,24 +152,33 @@ def init_analytics_db() -> None:
 def get_analytics_counters() -> Dict[str, Any]:
     """Return current analytics counters from SQLite.
 
-    Returns a dict with keys: today_date, today_strikes, total_strikes.
+    Returns a dict with keys: today_date, today_strikes, total_strikes, and new counters.
     Always safe to call; it will create the DB/row if needed.
     """
     with _get_connection() as conn:
         _ensure_schema(conn)
         _maybe_migrate_from_json(conn)
         cur = conn.execute(
-            "SELECT today_date, today_strikes, total_strikes FROM analytics WHERE id = 1"
+            "SELECT today_date, today_strikes, total_strikes, tasks_deleted, tasks_edited, tasks_with_dates, tasks_with_time, tasks_planned FROM analytics WHERE id = 1"
         )
         row = cur.fetchone()
         if not row:
             today = date.today().isoformat()
-            return {"today_date": today, "today_strikes": 0, "total_strikes": 0}
+            return {
+                "today_date": today, "today_strikes": 0, "total_strikes": 0,
+                "tasks_deleted": 0, "tasks_edited": 0, "tasks_with_dates": 0,
+                "tasks_with_time": 0, "tasks_planned": 0
+            }
 
         today = date.today().isoformat()
         stored_today = str(row["today_date"] or today)
         today_strikes = int(row["today_strikes"] or 0)
         total_strikes = int(row["total_strikes"] or 0)
+        tasks_deleted = int(row["tasks_deleted"] or 0)
+        tasks_edited = int(row["tasks_edited"] or 0)
+        tasks_with_dates = int(row["tasks_with_dates"] or 0)
+        tasks_with_time = int(row["tasks_with_time"] or 0)
+        tasks_planned = int(row["tasks_planned"] or 0)
 
         # Roll over on read so UI shows 0 for a new day even before the first strike.
         if stored_today != today:
@@ -162,6 +198,11 @@ def get_analytics_counters() -> Dict[str, Any]:
             "today_date": stored_today,
             "today_strikes": today_strikes,
             "total_strikes": total_strikes,
+            "tasks_deleted": tasks_deleted,
+            "tasks_edited": tasks_edited,
+            "tasks_with_dates": tasks_with_dates,
+            "tasks_with_time": tasks_with_time,
+            "tasks_planned": tasks_planned,
         }
 
 
@@ -206,5 +247,24 @@ def increment_strike_counter() -> None:
             WHERE id = 1
             """,
             (current_today, today_strikes, total_strikes, now),
+        )
+        conn.commit()
+
+
+def increment_analytics_counter(counter_name: str) -> None:
+    """Increment a specific analytics counter by 1.
+    
+    Valid counter names: tasks_deleted, tasks_edited, tasks_with_dates, tasks_with_time, tasks_planned
+    """
+    valid_counters = ['tasks_deleted', 'tasks_edited', 'tasks_with_dates', 'tasks_with_time', 'tasks_planned']
+    if counter_name not in valid_counters:
+        return
+    
+    with _get_connection() as conn:
+        _ensure_schema(conn)
+        now = datetime.now().isoformat()
+        conn.execute(
+            f"UPDATE analytics SET {counter_name} = {counter_name} + 1, updated_at = ? WHERE id = 1",
+            (now,),
         )
         conn.commit()

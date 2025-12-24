@@ -1332,6 +1332,11 @@ def get_analytics_summary():
             tasks_added = total_tasks
             tasks_retried = 0
         
+        # Calculate tasks with dates and time from current tasks
+        tasks_with_dates_live = len([t for t in tasks if t.get('due_date')])
+        tasks_with_time_live = len([t for t in tasks if t.get('estimated_duration') or t.get('duration')])
+        tasks_planned_live = len([t for t in tasks if t.get('planned_date')])
+        
         return jsonify({
             'success': True,
             'tasks': {
@@ -1360,7 +1365,12 @@ def get_analytics_summary():
             'completed_forever': completed_forever,
             'settings_changes': settings_changes,
             'tasks_added': tasks_added,
-            'tasks_retried': tasks_retried
+            'tasks_retried': tasks_retried,
+            'tasks_deleted': analytics.get('tasks_deleted', 0),
+            'tasks_edited': analytics.get('tasks_edited', 0),
+            'tasks_with_dates': tasks_with_dates_live,
+            'tasks_with_time': tasks_with_time_live,
+            'tasks_planned': tasks_planned_live
         })
         
     except Exception:
@@ -1375,7 +1385,12 @@ def get_analytics_summary():
             'completed_forever': 0,
             'settings_changes': 0,
             'tasks_added': 0,
-            'tasks_retried': 0
+            'tasks_retried': 0,
+            'tasks_deleted': 0,
+            'tasks_edited': 0,
+            'tasks_with_dates': 0,
+            'tasks_with_time': 0,
+            'tasks_planned': 0
         }), 200
 
 

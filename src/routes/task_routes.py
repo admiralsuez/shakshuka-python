@@ -299,6 +299,12 @@ def update_task(task_id):
         success = data_manager.update_task_for_user(user_id, task_id, task_data)
         
         if success:
+            # Track edit in analytics
+            try:
+                from src.analytics_manager import increment_analytics_counter
+                increment_analytics_counter('tasks_edited')
+            except Exception:
+                pass
             # Return updated task directly from database
             updated_task = data_manager.get_task_by_id(user_id, task_id)
             if updated_task:
@@ -343,6 +349,12 @@ def delete_task(task_id):
         success = data_manager.delete_task_for_user(user_id, task_id)
         
         if success:
+            # Track deletion in analytics
+            try:
+                from src.analytics_manager import increment_analytics_counter
+                increment_analytics_counter('tasks_deleted')
+            except Exception:
+                pass
             logger.info(f"Successfully deleted task {task_id} for user {user_id}")
             return jsonify(task_to_delete)
         else:
