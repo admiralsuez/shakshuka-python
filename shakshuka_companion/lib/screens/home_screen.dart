@@ -16,15 +16,26 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final StorageService _storage = StorageService();
   final ApiService _api = ApiService();
+  final TextEditingController _quickAddController = TextEditingController();
+  final FocusNode _quickAddFocus = FocusNode();
   List<LocalTask> _tasks = [];
   bool _isUploading = false;
   bool _isConnected = false;
+  int _totalTasksSent = 0;
 
   @override
   void initState() {
     super.initState();
     _loadTasks();
     _checkConnection();
+    _loadStats();
+  }
+
+  @override
+  void dispose() {
+    _quickAddController.dispose();
+    _quickAddFocus.dispose();
+    super.dispose();
   }
 
   void _loadTasks() {
@@ -33,11 +44,30 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _loadStats() async {
+    final stats = await _storage.getStats();
+    setState(() {
+      _totalTasksSent = stats['totalSent'] ?? 0;
+    });
+  }
+
   Future<void> _checkConnection() async {
     if (_storage.isPaired) {
       final connected = await _api.testConnection();
       setState(() => _isConnected = connected);
+    } else {
+      setState(() => _isConnected = false);
     }
+  }
+
+  Future<void> _quickAddTask(String title) async {
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) return;
+
+    final task = LocalTask(title: trimmed, duration: 30);
+    await _storage.addTask(task);
+    _quickAddController.clear();
+    _loadTasks();
   }
 
   Future<void> _addTask() async {
@@ -87,13 +117,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() => _isUploading = true);
 
+    final taskCount = _tasks.length;
     final result = await _api.uploadTasks(_tasks);
 
     setState(() => _isUploading = false);
 
     if (result['success'] == true) {
+      await _storage.incrementTasksSent(taskCount);
       await _storage.clearAllTasks();
       _loadTasks();
+      _loadStats();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -132,64 +165,211 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final device = _storage.getPairedDevice();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Shakshuka Companion'),
-        actions: [
-          IconButton(
-            icon: Icon(
-              _storage.isPaired ? Icons.link : Icons.link_off,
-              color: _isConnected ? Colors.green : Colors.grey,
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF16213E),
+        title: const Row(
+          children: [
+            Text('🍳', style: TextStyle(fontSize: 24)),
+            SizedBox(width: 8),
+            Text('Shakshuka Companion'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'A companion app for Shakshuka Task Manager.',
+              style: TextStyle(fontSize: 14),
             ),
-            onPressed: _openScanner,
-            tooltip: _storage.isPaired
-                ? 'Connected to ${device?.displayUrl}'
-                : 'Pair with PC',
+            const SizedBox(height: 16),
+            Text(
+              'Tasks sent to PC: $_totalTasksSent',
+              style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Version 1.0.0',
+              style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Add tasks on your phone, sync them to your PC with one tap.',
+              style: TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Connection status
-          if (_storage.isPaired)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: _isConnected
-                  ? Colors.green.withOpacity(0.2)
-                  : Colors.orange.withOpacity(0.2),
-              child: Row(
-                children: [
-                  Icon(
-                    _isConnected ? Icons.cloud_done : Icons.cloud_off,
-                    size: 16,
-                    color: _isConnected ? Colors.green : Colors.orange,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _isConnected
-                          ? 'Connected to ${device?.displayUrl}'
-                          : 'PC offline - tasks saved locally',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _isConnected ? Colors.green : Colors.orange,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.refresh, size: 16),
-                    onPressed: _checkConnection,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: const Text('Shakshuka Companion'),
+        actions: [
+          TextButton.icon(
+            onPressed: _openScanner,
+            icon: Icon(
+              _storage.isPaired ? Icons.link : Icons.link_off,
+              size: 18,
+              color: _storage.isPaired && _isConnected
+                  ? Colors.green
+                  : Colors.grey[400],
+            ),
+            label: Text(
+              _storage.isPaired ? 'PAIRED' : 'PAIR',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: _storage.isPaired && _isConnected
+                    ? Colors.green
+                    : Colors.grey[400],
               ),
             ),
+          ),
+        ],
+      ),
+      drawer: Drawer(
+        backgroundColor: const Color(0xFF16213E),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                child: const Row(
+                  children: [
+                    Text('🍳', style: TextStyle(fontSize: 32)),
+                    SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Shakshuka',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'Companion',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: Colors.grey),
+              ListTile(
+                leading: Icon(
+                  _storage.isPaired ? Icons.link : Icons.link_off,
+                  color: _storage.isPaired ? Colors.green : Colors.grey,
+                ),
+                title: Text(_storage.isPaired ? 'Paired' : 'Pair with PC'),
+                subtitle: _storage.isPaired
+                    ? Text(
+                        _isConnected ? 'Connected' : 'Offline',
+                        style: TextStyle(
+                          color: _isConnected ? Colors.green : Colors.orange,
+                          fontSize: 12,
+                        ),
+                      )
+                    : null,
+                onTap: () {
+                  Navigator.pop(context);
+                  _openScanner();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.bar_chart, color: Colors.blue),
+                title: const Text('Stats'),
+                subtitle: Text(
+                  '$_totalTasksSent tasks sent',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                },
+              ),
+              const Divider(color: Colors.grey),
+              ListTile(
+                leading: const Icon(Icons.info_outline, color: Colors.grey),
+                title: const Text('About'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showAboutDialog();
+                },
+              ),
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'v1.0.0',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      body: Column(
+        children: [
+          // Quick add input
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            color: const Color(0xFF16213E),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _quickAddController,
+                    focusNode: _quickAddFocus,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Quick add task...',
+                      hintStyle: TextStyle(color: Colors.grey[500]),
+                      filled: true,
+                      fillColor: const Color(0xFF1A1A2E),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.add, color: Color(0xFFE85D04)),
+                        onPressed: () =>
+                            _quickAddTask(_quickAddController.text),
+                      ),
+                    ),
+                    onSubmitted: _quickAddTask,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
           // Task list
           Expanded(
@@ -213,7 +393,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Tap + to add a task',
+                          'Use quick add above or tap +',
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.grey[600],
@@ -316,44 +496,79 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
           ),
 
-          // Upload button
-          if (_tasks.isNotEmpty)
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _isUploading ? null : _uploadTasks,
-                    icon: _isUploading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.cloud_upload),
-                    label: Text(
-                      _isUploading
-                          ? 'Uploading...'
-                          : 'Send ${_tasks.length} task(s) to PC',
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFE85D04),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+          // Bottom bar with Send and Add buttons
+          SafeArea(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF16213E),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  // Send button
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _tasks.isEmpty || _isUploading
+                          ? null
+                          : _uploadTasks,
+                      icon: _isUploading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.cloud_upload, size: 20),
+                      label: Text(
+                        _isUploading
+                            ? 'Sending...'
+                            : _tasks.isEmpty
+                                ? 'No tasks'
+                                : 'Send ${_tasks.length}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _tasks.isEmpty
+                            ? Colors.grey[700]
+                            : const Color(0xFFE85D04),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 12),
+                  // Add button
+                  SizedBox(
+                    width: 56,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: _addTask,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE85D04),
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Icon(Icons.add, size: 28),
+                    ),
+                  ),
+                ],
               ),
             ),
+          ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addTask,
-        child: const Icon(Icons.add),
       ),
     );
   }
