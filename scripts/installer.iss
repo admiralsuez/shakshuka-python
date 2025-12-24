@@ -55,7 +55,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
 Name: "autostart"; Description: "Start Shakshuka automatically when Windows starts"; GroupDescription: "Startup Options:"
-Name: "firewall"; Description: "Add Windows Firewall rule for phone pairing"; GroupDescription: "Network Options:"; Flags: unchecked
+Name: "firewall"; Description: "Add Windows Firewall rule for phone pairing"; GroupDescription: "Network Options:"
 
 [Files]
 ; Main executable
