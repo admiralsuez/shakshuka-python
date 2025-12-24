@@ -51,6 +51,23 @@
     justify-content: space-between;
     align-items: center;
 }
+.header-actions { display: flex; gap: 12px; align-items: center; }
+.pair-phone-cta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--primary-gradient);
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px var(--shadow-color);
+}
+.pair-phone-cta:hover { transform: translateY(-2px); box-shadow: 0 4px 12px var(--shadow-color); }
+.pair-phone-cta i { font-size: 14px; }
 .settings-section {
     background: var(--surface-finish-gradient);
     backdrop-filter: var(--backdrop-filter);

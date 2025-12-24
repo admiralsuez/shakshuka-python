@@ -154,11 +154,14 @@
             const meta = metaParts.length ? metaParts.join(' • ') : '';
 
             html.push(`
-                <label style="display:flex; gap:10px; align-items:flex-start; padding:10px; border:1px solid rgba(0,0,0,0.08); border-radius:10px;">
-                    <input type="checkbox" class="mobile-inbox-task" data-task-id="${id}" checked />
-                    <div style="display:flex; flex-direction:column; gap:4px;">
-                        <div style="font-weight:600;">${escapeHtml(title || 'Untitled')}</div>
-                        ${meta ? `<div style="opacity:0.7; font-size:12px;">${escapeHtml(meta)}</div>` : ''}
+                <label class="mobile-inbox-task-item" style="display:flex; gap:12px; align-items:center; padding:12px; border:1px solid var(--border-color,rgba(0,0,0,0.1)); border-radius:10px; cursor:pointer; background:var(--surface-color,#fff);">
+                    <span class="custom-checkbox">
+                        <input type="checkbox" class="mobile-inbox-task" data-task-id="${id}" checked />
+                        <span class="checkmark"></span>
+                    </span>
+                    <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
+                        <div style="font-weight:600; color:var(--text-color,#333);">${escapeHtml(title || 'Untitled')}</div>
+                        ${meta ? `<div style="opacity:0.7; font-size:12px; color:var(--text-secondary,#666);">${escapeHtml(meta)}</div>` : ''}
                     </div>
                 </label>
             `);

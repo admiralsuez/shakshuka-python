@@ -2,11 +2,22 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3>Pair Phone</h3>
+            <div class="pair-download-links">
+                <a href="https://github.com/admiralsuez/shakshuka-python/releases/latest" target="_blank" rel="noopener" title="Download from GitHub">
+                    <i class="fab fa-github"></i>
+                </a>
+                <a href="#" target="_blank" rel="noopener" title="Coming soon on Play Store" style="opacity:0.5;cursor:not-allowed;">
+                    <i class="fab fa-google-play"></i>
+                </a>
+                <a href="#" target="_blank" rel="noopener" title="Coming soon on F-Droid" style="opacity:0.5;cursor:not-allowed;">
+                    <i class="fab fa-android"></i>
+                </a>
+            </div>
             <button class="modal-close" id="close-pair-phone-modal">
                 <i class="fas fa-times"></i>
             </button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body" style="text-align:center;">
             <div id="pair-phone-status" style="margin-bottom: 10px;">Loading…</div>
             <div id="pair-phone-code" style="font-size: 28px; font-weight: 700; letter-spacing: 6px; margin-bottom: 10px;"></div>
             <div id="pair-phone-qr" style="display:flex; justify-content:center; margin-bottom: 10px;"></div>

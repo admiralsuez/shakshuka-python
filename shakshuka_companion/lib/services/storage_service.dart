@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
@@ -30,6 +31,38 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     final current = prefs.getInt('total_tasks_created') ?? 0;
     await prefs.setInt('total_tasks_created', current + 1);
+  }
+
+  // Sent tasks history
+  Future<void> addSentTasksHistory(List<Map<String, dynamic>> tasks, bool accepted) async {
+    final prefs = await SharedPreferences.getInstance();
+    final history = await getSentTasksHistory();
+    
+    final entry = {
+      'timestamp': DateTime.now().toIso8601String(),
+      'accepted': accepted,
+      'tasks': tasks.map((t) => {'title': t['title'] ?? 'Untitled', 'duration': t['duration']}).toList(),
+    };
+    history.insert(0, entry);
+    
+    // Keep only last 50 entries
+    if (history.length > 50) {
+      history.removeRange(50, history.length);
+    }
+    
+    await prefs.setString('sent_tasks_history', jsonEncode(history));
+  }
+
+  Future<List<Map<String, dynamic>>> getSentTasksHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final historyJson = prefs.getString('sent_tasks_history');
+    if (historyJson == null || historyJson.isEmpty) return [];
+    try {
+      final list = jsonDecode(historyJson) as List;
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   // Tasks
