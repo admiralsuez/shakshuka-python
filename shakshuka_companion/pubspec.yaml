@@ -1,5 +1,7 @@
 name: shakshuka_companion
-description: Companion app for Shakshuka Task Manager - add tasks on mobile, sync to PC
+description: Shakshuka Companion - Companion app for Shakshuka Task Manager - add tasks on mobile, sync to PC
+authors:
+  - vibinandvanshika
 
 publish_to: 'none'
 version: 1.0.0+1

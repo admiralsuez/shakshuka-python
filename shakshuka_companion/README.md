@@ -1,6 +1,8 @@
 # Shakshuka Companion
 
-A Flutter companion app for Shakshuka Task Manager. Add tasks on your phone and sync them to your PC.
+Shakshuka Companion - A Flutter companion app for Shakshuka Task Manager. Add tasks on your phone and sync them to your PC.
+
+**Author**: vibinandvanshika
 
 ## Features
 
