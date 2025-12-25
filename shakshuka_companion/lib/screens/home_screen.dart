@@ -265,6 +265,38 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 16),
+            const Divider(color: Colors.grey),
+            const SizedBox(height: 8),
+            const Text(
+              'Get the app:',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  onTap: () async {
+                    // Open Play Store link
+                  },
+                  child: Image.asset(
+                    'assets/google-play-badge.png',
+                    height: 40,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () async {
+                    // Open F-Droid link
+                  },
+                  child: Image.asset(
+                    'assets/fdroid-badge.png',
+                    height: 40,
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
         actions: [

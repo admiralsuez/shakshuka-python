@@ -249,6 +249,16 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function parseInlineMarkdown(text) {
+    // First escape HTML for safety, then parse markdown
+    let result = escapeHtml(text);
+    // Parse bold: **text** -> <strong>text</strong>
+    result = result.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // Parse inline code: `text` -> <code>text</code>
+    result = result.replace(/`([^`]+)`/g, '<code>$1</code>');
+    return result;
+}
+
 function formatChangelogSections(groups) {
     let html = '<div class="changelog-sections">';
 
@@ -290,7 +300,7 @@ const highlightsHtml = split.highlights.length
                                     <div class="changelog-highlights">
                                         <div class="changelog-highlights-title">Quick Highlights</div>
                                         <ul>
-                                            ${split.highlights.map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+                                            ${split.highlights.map(item => `<li>${parseInlineMarkdown(item)}</li>`).join('')}
                                         </ul>
                                     </div>
                                   `
@@ -530,7 +540,7 @@ async function showWhatsNewModalForLatestVersion(options) {
     if (split.highlights.length) {
         summaryEl.innerHTML = `
             <ul>
-                ${split.highlights.map(item => `<li>${item}</li>`).join('')}
+                ${split.highlights.map(item => `<li>${parseInlineMarkdown(item)}</li>`).join('')}
             </ul>
         `;
     } else {

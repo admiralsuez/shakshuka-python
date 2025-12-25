@@ -1,65 +1,35 @@
-## Version 17.2 - Release
-Release Date: 2025-12-25T04:35:41.436354
+## Versions 17.0 – 17.3 - Mobile Companion & Codebase Improvements
+Release Period: 2025-12-24 to 2025-12-25
 
 Highlights
 
----
-## Version 17.1 - Release
-Release Date: 2025-12-25T03:22:56.429015
+- **Mobile Companion App**: Added Flutter companion app for Android - add tasks on mobile, sync to PC via QR code pairing.
+- **Mobile Companion App**: Tasks submitted from mobile appear in PC's Mobile Inbox for approval/rejection.
+- **Mobile Companion App**: Stats page shows task submission history with pending/approved/rejected status.
+- **Mobile Companion App**: Edit existing tasks, add project field to task form.
+- **Mobile Companion App**: Offline indicator banner, centered connection view UI.
+- **Mobile Inbox (Web)**: Added "Select All" button for bulk task approval.
+- **Mobile Inbox (Web)**: Auto-refresh QR code on expiry.
+- **Mobile Inbox (Web)**: Pending tasks indicator in sidebar.
+- **Backend**: Added `/api/mobile/submission-status` endpoint for mobile app to check task status.
+- **Configuration**: Created `config/settings.py` with centralized port, timeout, and app constants.
+- **Code Quality**: Added `TaskStatus`, `InboxStatus`, `TaskPriority`, `RecurrenceType` enums in `src/constants.py`.
+- **Code Quality**: Split database layer into modular `src/db/` package with `task_queries.py`, `user_queries.py`, `analytics_queries.py`, `schema.py`.
+- **Code Quality**: Added type hints to all new database query functions for better IDE support.
+- **Build System**: Cleaned up build output - exe now goes to `dist/` folder only, removed duplicate outputs.
+- **Build System**: Split `build.py` into modular `scripts/build/` package.
+- **Installer**: Added firewall rule option (checked by default) for mobile phone pairing.
+- **GitHub Actions**: Fixed Flutter version format to use semver `X.Y.Z+build` format.
 
-Highlights
-
----
-## Version 17.0 - Release
-Release Date: 2025-12-25T03:22:01.809210
-
-Highlights
-
----
-## Version 16.9 - Release
-Release Date: 2025-12-25T00:19:01.984731
-
-Highlights
-
----
-## Version 16.8 - Release
-Release Date: 2025-12-24T01:21:39.457142
-
-Highlights
-
----
-## Version 16.7 - Release
-Release Date: 2025-12-22T20:59:31.139393
-
-Highlights
+Technical Notes
+- Mobile pairing uses QR code with session token, device registers via `/api/mobile/pair`.
+- Database migrations 013-014 add `mobile_devices` and `mobile_inbox` tables.
+- New `ConnectionPool` class in `src/db/connection.py` with context manager support.
+- Inno Setup creates Windows Firewall rule for port 8989 during install, removes on uninstall.
 
 ---
-## Version 16.6 - Release
-Release Date: 2025-12-22T14:27:17.988389
-
-Highlights
-
----
-## Version 16.5 - Release
-Release Date: 2025-12-22T12:43:48.273244
-
-Highlights
-
----
-## Version 16.4 - Release
-Release Date: 2025-12-22T12:42:36.527902
-
-Highlights
-
----
-## Version 16.3 - Release
-Release Date: 2025-12-22T12:03:23.608010
-
-Highlights
-
----
-## Version 16.2 - Refreshed Badge Feature
-Release Date: 2025-12-22T03:07:00.000000
+## Versions 16.2 – 16.9 - Refreshed Badge Feature
+Release Period: 2025-12-22 to 2025-12-24
 
 Highlights
 
@@ -75,13 +45,6 @@ Technical Notes
 - Badge logic in `refreshed-badge-helper.js` checks both time window (8am-12pm) and if task was refreshed today.
 - Badge positioned in `app.js` task-actions div with proper spacing relative to due pills.
 - CSS styling in `refreshed-badge.css` with responsive design and dark theme support.
-- Test functionality temporarily added and then removed after verification.
-
----
-## Version 16.1 - Release
-Release Date: 2025-12-22T03:01:33.833898
-
-Highlights
 
 ---
 ## Version 16.0 - Performance & Architecture Improvements
@@ -137,52 +100,16 @@ Technical Notes
 - Added console logging to daily recap functions for debugging modal visibility issues.
 
 ---
-## Version 15.8 - Release
-Release Date: 2025-12-20T16:52:55.852366
+## Versions 15.2 – 15.8 - Analytics & UI Polish
+Release Period: 2025-12-18 to 2025-12-20
 
 Highlights
 
----
-## Version 15.7 - Release
-Release Date: 2025-12-20T00:49:37.670826
-
-Highlights
-
----
-## Version 15.6 - Release
-Release Date: 2025-12-19T13:23:10.064366
-
-Highlights
-
----
-## Version 15.5 - Release
-Release Date: 2025-12-18T23:37:42.265381
-
-Highlights
-
----
-## Version 15.4 - Release
-Release Date: 2025-12-18T23:30:38.600144
-
-Highlights
-
----
-## Version 15.3 - Release
-Release Date: 2025-12-18T12:43:42.300415
-
-Highlights
-
----
-## Version 15.2 - Release
-Release Date: 2025-12-18T12:14:32.563825
-
-Highlights
-
-- Analytics: fixed Analytics page cards (Completed Today / Day Streak / Striked Today) so they refresh reliably using current task state and `/api/analytics`.
-- Analytics: "Completed Forever" now counts tasks completed normally as well as tasks completed forever.
-- Changelog: consolidated consecutive versions with empty Highlights into version ranges (e.g., 14.4–14.9) for a cleaner changelog.
-- UI: Matte finish now applies a visible matte look across buttons.
-- Updates/Installer: bumped installer version to 15.2 and improved upgrade shutdown via `Shakshuka.exe --shutdown` with fallback force-close.
+- **Analytics**: Fixed Analytics page cards (Completed Today / Day Streak / Striked Today) so they refresh reliably using current task state and `/api/analytics`.
+- **Analytics**: "Completed Forever" now counts tasks completed normally as well as tasks completed forever.
+- **Changelog**: Consolidated consecutive versions with empty Highlights into version ranges (e.g., 14.4–14.9) for a cleaner changelog.
+- **UI**: Matte finish now applies a visible matte look across buttons.
+- **Updates/Installer**: Bumped installer version and improved upgrade shutdown via `Shakshuka.exe --shutdown` with fallback force-close.
 
 ---
 ## Versions 15.0 – 15.1 - Release
