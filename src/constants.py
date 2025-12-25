@@ -1,7 +1,42 @@
 """
-Application-wide constants
+Application-wide constants and enums
 """
 import os
+from enum import Enum, auto
+from typing import Final
+
+
+class TaskStatus(str, Enum):
+    """Status values for tasks"""
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    DEFERRED = "deferred"
+
+
+class InboxStatus(str, Enum):
+    """Status values for mobile inbox submissions"""
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class TaskPriority(str, Enum):
+    """Priority levels for tasks"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+class RecurrenceType(str, Enum):
+    """Recurrence types for recurring tasks"""
+    NONE = "none"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    YEARLY = "yearly"
 
 # Database configuration
 MAX_RETRIES = 3
