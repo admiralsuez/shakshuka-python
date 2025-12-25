@@ -20,13 +20,19 @@ jobs:
       - name: Bump version
         working-directory: shakshuka_companion
         run: |
-          # Read current version from pubspec.yaml
+          # Read current version from pubspec.yaml (format: X.Y.Z+build)
           CURRENT_VERSION=$(grep "^version:" pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
           echo "Current version: $CURRENT_VERSION"
           
-          # Parse major and minor
+          # Parse major, minor, patch
           MAJOR=$(echo $CURRENT_VERSION | cut -d'.' -f1)
           MINOR=$(echo $CURRENT_VERSION | cut -d'.' -f2)
+          PATCH=$(echo $CURRENT_VERSION | cut -d'.' -f3)
+          
+          # Default patch to 0 if not present
+          if [ -z "$PATCH" ]; then
+            PATCH=0
+          fi
           
           # Increment minor, bump major if minor >= 10
           MINOR=$((MINOR + 1))
@@ -38,7 +44,8 @@ jobs:
           # Calculate build number (total builds)
           BUILD_NUM=$((MAJOR * 10 + MINOR))
           
-          NEW_VERSION="${MAJOR}.${MINOR}+${BUILD_NUM}"
+          # Flutter requires semver format: X.Y.Z+build
+          NEW_VERSION="${MAJOR}.${MINOR}.0+${BUILD_NUM}"
           echo "New version: $NEW_VERSION"
           
           # Update pubspec.yaml
