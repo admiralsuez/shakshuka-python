@@ -37,3 +37,11 @@
 # Don't warn about missing classes
 -dontwarn kotlin.**
 -dontwarn org.jetbrains.**
+
+# Play Core library - not used but referenced by Flutter
+-dontwarn com.google.android.play.core.**
+-keep class com.google.android.play.core.** { *; }
+
+# Flutter deferred components (not used)
+-dontwarn io.flutter.app.FlutterPlayStoreSplitApplication
+-dontwarn io.flutter.embedding.engine.deferredcomponents.**
