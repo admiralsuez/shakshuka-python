@@ -220,3 +220,17 @@ graceful_shutdown.py
 config.py
 
 !src/core/config.py
+
+# Build artifacts
+*.exe
+build_reports/
+scripts/dist/
+
+# Sensitive data files
+data/.key
+data/.salt
+data/sessions.json
+data/users.json
+
+# Debug scripts (development only)
+debug_scripts/
