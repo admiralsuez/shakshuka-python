@@ -135,4 +135,33 @@ class ApiService {
       return false;
     }
   }
+
+  Future<Map<String, dynamic>> checkSubmissionStatus(String submissionId) async {
+    final device = _storage.getPairedDevice();
+    if (device == null) {
+      return {'success': false, 'message': 'Not paired'};
+    }
+
+    try {
+      final uri = Uri.parse('${device.serverUrl}/api/mobile/inbox/$submissionId/status');
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'Bearer ${device.token}',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'status': data['status'],
+          'processed_at': data['processed_at'],
+        };
+      }
+      return {'success': false, 'message': 'Failed to get status'};
+    } catch (e) {
+      return {'success': false, 'message': 'Error: $e'};
+    }
+  }
 }

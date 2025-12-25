@@ -3,7 +3,9 @@ import 'package:intl/intl.dart';
 import '../models/task.dart';
 
 class AddTaskScreen extends StatefulWidget {
-  const AddTaskScreen({super.key});
+  final LocalTask? taskToEdit;
+  
+  const AddTaskScreen({super.key, this.taskToEdit});
 
   @override
   State<AddTaskScreen> createState() => _AddTaskScreenState();
@@ -13,15 +15,32 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _projectController = TextEditingController();
   int _duration = 30;
   DateTime? _dueDate;
+  bool get _isEditing => widget.taskToEdit != null;
 
   final List<int> _durationOptions = [5, 10, 15, 20, 30, 45, 60, 90, 120];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.taskToEdit != null) {
+      _titleController.text = widget.taskToEdit!.title;
+      _descriptionController.text = widget.taskToEdit!.description ?? '';
+      _projectController.text = widget.taskToEdit!.project ?? '';
+      _duration = widget.taskToEdit!.duration ?? 30;
+      if (widget.taskToEdit!.dueDate != null) {
+        _dueDate = DateTime.tryParse(widget.taskToEdit!.dueDate!);
+      }
+    }
+  }
 
   @override
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
+    _projectController.dispose();
     super.dispose();
   }
 
@@ -53,6 +72,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   void _saveTask() {
     if (_formKey.currentState!.validate()) {
       final task = LocalTask(
+        id: widget.taskToEdit?.id,
         title: _titleController.text.trim(),
         description: _descriptionController.text.trim().isEmpty
             ? null
@@ -61,6 +81,10 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         dueDate: _dueDate != null
             ? DateFormat('yyyy-MM-dd').format(_dueDate!)
             : null,
+        project: _projectController.text.trim().isEmpty
+            ? null
+            : _projectController.text.trim(),
+        createdAt: widget.taskToEdit?.createdAt,
       );
       Navigator.pop(context, task);
     }
@@ -70,7 +94,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Add Task'),
+        title: Text(_isEditing ? 'Edit Task' : 'Add Task'),
         actions: [
           TextButton(
             onPressed: _saveTask,
@@ -166,6 +190,28 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                   ),
                 );
               }).toList(),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Project
+            TextFormField(
+              controller: _projectController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Project (optional)',
+                hintText: 'e.g. Work, Personal, Study',
+                filled: true,
+                fillColor: const Color(0xFF16213E),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFE85D04)),
+                ),
+              ),
             ),
 
             const SizedBox(height: 24),

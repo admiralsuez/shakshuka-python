@@ -188,52 +188,58 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   }
 
   Widget _buildPairedView(device) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.check_circle,
-            size: 80,
-            color: Colors.green,
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Paired with PC',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.check_circle,
+              size: 80,
+              color: Colors.green,
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            device.displayUrl,
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[400],
+            const SizedBox(height: 24),
+            const Text(
+              'Paired with PC',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Paired on ${device.pairedAt.toString().split('.').first}',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
+            const SizedBox(height: 8),
+            Text(
+              device.displayUrl,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[400],
+              ),
+              textAlign: TextAlign.center,
             ),
-          ),
-          const SizedBox(height: 48),
-          OutlinedButton.icon(
-            onPressed: _unpair,
-            icon: const Icon(Icons.link_off),
-            label: const Text('Unpair Device'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: const BorderSide(color: Colors.red),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            const SizedBox(height: 8),
+            Text(
+              'Paired on ${device.pairedAt.toString().split('.').first}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
             ),
-          ),
-        ],
+            const SizedBox(height: 48),
+            OutlinedButton.icon(
+              onPressed: _unpair,
+              icon: const Icon(Icons.link_off),
+              label: const Text('Unpair Device'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                side: const BorderSide(color: Colors.red),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

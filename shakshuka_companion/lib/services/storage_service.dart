@@ -34,13 +34,14 @@ class StorageService {
   }
 
   // Sent tasks history
-  Future<void> addSentTasksHistory(List<Map<String, dynamic>> tasks, bool accepted) async {
+  Future<void> addSentTasksHistory(List<Map<String, dynamic>> tasks, String? submissionId) async {
     final prefs = await SharedPreferences.getInstance();
     final history = await getSentTasksHistory();
     
     final entry = {
       'timestamp': DateTime.now().toIso8601String(),
-      'accepted': accepted,
+      'submission_id': submissionId,
+      'status': 'pending', // pending, approved, rejected
       'tasks': tasks.map((t) => {'title': t['title'] ?? 'Untitled', 'duration': t['duration']}).toList(),
     };
     history.insert(0, entry);
@@ -48,6 +49,22 @@ class StorageService {
     // Keep only last 50 entries
     if (history.length > 50) {
       history.removeRange(50, history.length);
+    }
+    
+    await prefs.setString('sent_tasks_history', jsonEncode(history));
+  }
+
+  Future<void> updateHistoryStatus(String submissionId, String status) async {
+    final prefs = await SharedPreferences.getInstance();
+    final history = await getSentTasksHistory();
+    
+    for (var entry in history) {
+      if (entry['submission_id'] == submissionId) {
+        entry['status'] = status;
+        // For backward compatibility with UI
+        entry['accepted'] = status == 'approved';
+        break;
+      }
     }
     
     await prefs.setString('sent_tasks_history', jsonEncode(history));

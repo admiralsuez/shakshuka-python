@@ -100,6 +100,25 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _editTask(LocalTask task) async {
+    final result = await Navigator.push<LocalTask>(
+      context,
+      MaterialPageRoute(builder: (_) => AddTaskScreen(taskToEdit: task)),
+    );
+    if (result != null) {
+      await _storage.updateTask(result);
+      _loadTasks();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Task updated'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _uploadTasks() async {
     if (_tasks.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -124,9 +143,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (result['success'] == true) {
       await _storage.incrementTasksSent(taskCount);
-      // Save history
+      // Save history with submission_id for status tracking
       final taskData = _tasks.map((t) => {'title': t.title, 'duration': t.duration}).toList();
-      await _storage.addSentTasksHistory(taskData, true);
+      final submissionId = result['submission_id'] as String?;
+      await _storage.addSentTasksHistory(taskData, submissionId);
       await _storage.clearAllTasks();
       _loadTasks();
       _loadStats();
@@ -200,14 +220,50 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(fontSize: 13, color: Colors.grey[400]),
             ),
             const SizedBox(height: 8),
-            Text(
-              'Version 1.0.0',
-              style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+            const Text(
+              'Version 1.0',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
             ),
             const SizedBox(height: 16),
             const Text(
               'Add tasks on your phone, sync them to your PC with one tap.',
               style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            const Divider(color: Colors.grey),
+            const SizedBox(height: 8),
+            const Text(
+              'By vibinandvanshika',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () async {
+                // Open website
+                // Using url_launcher would be better, but keeping simple
+              },
+              child: const Text(
+                '🌐 vibinandvanshika.in',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFFE85D04),
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            GestureDetector(
+              onTap: () async {
+                // Open GitHub
+              },
+              child: const Text(
+                '📦 github.com/admiralsuez/shakshuka-python',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFFE85D04),
+                  decoration: TextDecoration.underline,
+                ),
+              ),
             ),
           ],
         ),
@@ -320,15 +376,36 @@ class _HomeScreenState extends State<HomeScreen> {
                               final timestamp = DateTime.tryParse(
                                 entry['timestamp'] ?? '',
                               );
-                              final accepted = entry['accepted'] == true;
+                              final status = entry['status'] ?? (entry['accepted'] == true ? 'approved' : 'rejected');
                               final tasks = List.from(entry['tasks'] ?? []);
+                              
+                              IconData statusIcon;
+                              Color statusColor;
+                              String statusText;
+                              
+                              switch (status) {
+                                case 'approved':
+                                  statusIcon = Icons.check_circle;
+                                  statusColor = Colors.green;
+                                  statusText = 'Accepted';
+                                  break;
+                                case 'rejected':
+                                  statusIcon = Icons.cancel;
+                                  statusColor = Colors.red;
+                                  statusText = 'Rejected';
+                                  break;
+                                default:
+                                  statusIcon = Icons.hourglass_empty;
+                                  statusColor = Colors.orange;
+                                  statusText = 'Pending';
+                              }
                               
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: ListTile(
                                   leading: Icon(
-                                    accepted ? Icons.check_circle : Icons.cancel,
-                                    color: accepted ? Colors.green : Colors.red,
+                                    statusIcon,
+                                    color: statusColor,
                                     size: 28,
                                   ),
                                   title: Text(
@@ -361,10 +438,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ],
                                   ),
                                   trailing: Text(
-                                    accepted ? 'Accepted' : 'Rejected',
+                                    statusText,
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: accepted ? Colors.green : Colors.red,
+                                      color: statusColor,
                                     ),
                                   ),
                                 ),
@@ -494,7 +571,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text(
-                  'v1.0.0',
+                  'v1.0',
                   style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 ),
               ),
@@ -580,6 +657,19 @@ class _HomeScreenState extends State<HomeScreen> {
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Slidable(
+                          startActionPane: ActionPane(
+                            motion: const ScrollMotion(),
+                            children: [
+                              SlidableAction(
+                                onPressed: (_) => _editTask(task),
+                                backgroundColor: const Color(0xFFE85D04),
+                                foregroundColor: Colors.white,
+                                icon: Icons.edit,
+                                label: 'Edit',
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ],
+                          ),
                           endActionPane: ActionPane(
                             motion: const ScrollMotion(),
                             children: [

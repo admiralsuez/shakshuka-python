@@ -398,6 +398,52 @@ def approve_inbox(submission_id: str):
         return jsonify({"success": False, "error": "Failed to approve submission"}), 500
 
 
+@mobile_bp.route("/inbox/<submission_id>/status", methods=["GET"])
+def get_submission_status(submission_id: str):
+    """Allow mobile app to check the status of a submission."""
+    ok, device, err = _require_mobile_token()
+    if not ok or not device:
+        return jsonify({"success": False, "error": err}), 401
+
+    dm = _get_data_manager()
+    if not dm:
+        return jsonify({"success": False, "error": "Data manager not available"}), 500
+
+    user_id = device.get("user_id")
+
+    try:
+        with dm._get_connection() as conn:  # pylint: disable=protected-access
+            cur = conn.execute(
+                "SELECT status, processed_at, result_json FROM mobile_inbox WHERE id = ? AND user_id = ?",
+                (submission_id, user_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return jsonify({"success": False, "error": "Submission not found"}), 404
+
+            status = row[0]
+            processed_at = row[1]
+            result_json = row[2]
+            
+            result = None
+            if result_json:
+                try:
+                    result = json.loads(result_json)
+                except Exception:
+                    pass
+
+            return jsonify({
+                "success": True,
+                "submission_id": submission_id,
+                "status": status,
+                "processed_at": processed_at,
+                "result": result,
+            })
+    except Exception as e:
+        logger.error("Failed to get submission status %s: %s", submission_id, e)
+        return jsonify({"success": False, "error": "Failed to get status"}), 500
+
+
 @mobile_bp.route("/inbox/<submission_id>/reject", methods=["POST"])
 def reject_inbox(submission_id: str):
     if not _is_local_request():

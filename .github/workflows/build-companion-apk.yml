@@ -14,6 +14,37 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump version
+        working-directory: shakshuka_companion
+        run: |
+          # Read current version from pubspec.yaml
+          CURRENT_VERSION=$(grep "^version:" pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Parse major and minor
+          MAJOR=$(echo $CURRENT_VERSION | cut -d'.' -f1)
+          MINOR=$(echo $CURRENT_VERSION | cut -d'.' -f2)
+          
+          # Increment minor, bump major if minor >= 10
+          MINOR=$((MINOR + 1))
+          if [ $MINOR -ge 10 ]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+          fi
+          
+          # Calculate build number (total builds)
+          BUILD_NUM=$((MAJOR * 10 + MINOR))
+          
+          NEW_VERSION="${MAJOR}.${MINOR}+${BUILD_NUM}"
+          echo "New version: $NEW_VERSION"
+          
+          # Update pubspec.yaml
+          sed -i "s/^version: .*/version: ${NEW_VERSION}/" pubspec.yaml
+          
+          echo "VERSION=${MAJOR}.${MINOR}" >> $GITHUB_ENV
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -37,7 +68,7 @@ jobs:
         
       - name: Build APK
         working-directory: shakshuka_companion
-        run: flutter build apk --release --split-debug-info=build/debug-info --obfuscate
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

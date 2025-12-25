@@ -23,12 +23,16 @@ class LocalTask extends HiveObject {
   @HiveField(5)
   DateTime createdAt;
 
+  @HiveField(6)
+  String? project;
+
   LocalTask({
     String? id,
     required this.title,
     this.description,
     this.duration,
     this.dueDate,
+    this.project,
     DateTime? createdAt,
   })  : id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
@@ -39,5 +43,6 @@ class LocalTask extends HiveObject {
         'description': description ?? '',
         'duration': duration ?? 30,
         'due_date': dueDate,
+        'project': project,
       };
 }
