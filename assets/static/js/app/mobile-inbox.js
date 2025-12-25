@@ -79,6 +79,8 @@
         }
     }
 
+    let qrRefreshTimer = null;
+
     async function refreshPairingCode() {
         const statusEl = getEl('pair-phone-status');
         const codeEl = getEl('pair-phone-code');
@@ -89,6 +91,12 @@
         if (urlEl) urlEl.textContent = '';
         clearQr();
 
+        // Clear any existing auto-refresh timer
+        if (qrRefreshTimer) {
+            clearTimeout(qrRefreshTimer);
+            qrRefreshTimer = null;
+        }
+
         try {
             const data = await fetchJson('/api/mobile/pairing');
             if (!data || !data.success) {
@@ -97,6 +105,7 @@
 
             const code = String(data.code || '').trim();
             const lanUrl = data.lan_url || '';
+            const expiresIn = data.expires_in || 300; // Default 5 minutes
 
             if (statusEl) statusEl.textContent = 'Scan this QR in your phone app or enter the code manually.';
             if (codeEl) codeEl.textContent = code;
@@ -104,6 +113,17 @@
 
             const qrPayload = JSON.stringify({ url: lanUrl, code });
             renderQr(qrPayload);
+
+            // Auto-refresh QR code before expiry (refresh 30 seconds before expiry)
+            const refreshDelay = Math.max((expiresIn - 30) * 1000, 30000);
+            qrRefreshTimer = setTimeout(() => {
+                // Only refresh if modal is still open
+                const modal = getEl('pair-phone-modal');
+                if (modal && (modal.classList.contains('active') || modal.style.display === 'flex')) {
+                    refreshPairingCode();
+                }
+            }, refreshDelay);
+
         } catch (e) {
             if (statusEl) statusEl.textContent = e.message || 'Failed to create pairing code';
         }
@@ -180,19 +200,40 @@
             .replace(/'/g, '&#039;');
     }
 
+    function updateInboxIndicator(count) {
+        const indicator = getEl('mobile-inbox-indicator');
+        const countEl = getEl('mobile-inbox-count');
+        
+        if (indicator) {
+            indicator.style.display = count > 0 ? 'flex' : 'none';
+        }
+        if (countEl) {
+            countEl.textContent = count;
+        }
+    }
+
     async function pollInboxOnce() {
         if (pollingInFlight) return;
         pollingInFlight = true;
 
         try {
             const data = await fetchJson('/api/mobile/inbox/pending', { cacheTTL: 0 });
-            if (!data || !data.success) return;
+            if (!data || !data.success) {
+                updateInboxIndicator(0);
+                return;
+            }
 
             const pending = data.pending;
             if (!pending || !pending.id) {
                 currentPendingSubmissionId = null;
+                updateInboxIndicator(0);
                 return;
             }
+
+            // Update indicator with task count
+            const payload = pending.payload || {};
+            const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+            updateInboxIndicator(tasks.length);
 
             if (currentPendingSubmissionId === pending.id) {
                 return;
@@ -202,7 +243,7 @@
             renderInboxList(pending);
             open('mobile-inbox-modal');
         } catch (e) {
-            // no-op
+            updateInboxIndicator(0);
         } finally {
             pollingInFlight = false;
         }
@@ -255,6 +296,20 @@
 
         } catch (e) {
             safeNotify(e.message || 'Failed to import tasks', 'error');
+        }
+    }
+
+    function toggleSelectAll() {
+        const checkboxes = Array.from(document.querySelectorAll('.mobile-inbox-task'));
+        const allChecked = checkboxes.every(cb => cb.checked);
+        const btn = getEl('mobile-inbox-select-all-btn');
+        
+        checkboxes.forEach(cb => {
+            cb.checked = !allChecked;
+        });
+        
+        if (btn) {
+            btn.textContent = allChecked ? 'Select All' : 'Deselect All';
         }
     }
 
@@ -323,6 +378,11 @@
         const inboxReject = getEl('mobile-inbox-reject-btn');
         if (inboxReject) {
             inboxReject.addEventListener('click', rejectInbox);
+        }
+
+        const inboxSelectAll = getEl('mobile-inbox-select-all-btn');
+        if (inboxSelectAll) {
+            inboxSelectAll.addEventListener('click', toggleSelectAll);
         }
 
         startPolling();

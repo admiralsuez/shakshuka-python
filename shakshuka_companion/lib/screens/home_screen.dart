@@ -499,11 +499,21 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Container(
                 padding: const EdgeInsets.all(20),
-                child: const Row(
+                child: Row(
                   children: [
-                    Text('🍳', style: TextStyle(fontSize: 32)),
-                    SizedBox(width: 12),
-                    Column(
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Image.asset(
+                        'assets/icon.png',
+                        errorBuilder: (context, error, stackTrace) => const Text('🍳', style: TextStyle(fontSize: 32)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
@@ -581,6 +591,24 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(
         children: [
+          // Offline indicator
+          if (!_isConnected && _storage.isPaired)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              color: Colors.orange.shade800,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.wifi_off, size: 16, color: Colors.white),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Offline - Tasks will sync when connected',
+                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
           // Quick add input
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),

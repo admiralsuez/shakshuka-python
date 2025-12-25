@@ -235,10 +235,16 @@ def build_installer():
             print(f"Installer created: {installer_path}")
             print(f"Size: {installer_path.stat().st_size / (1024*1024):.1f} MB")
             
-            # Copy to root directory for easy access
+            # Move to root directory for easy access (avoid duplicate)
             root_installer = Path('Shakshuka-Setup-v' + str(version) + '.exe')
-            shutil.copy2(installer_path, root_installer)
-            print(f"Installer copied to: {root_installer}")
+            shutil.move(str(installer_path), str(root_installer))
+            print(f"Installer moved to: {root_installer}")
+            
+            # Clean up scripts/dist folder
+            scripts_dist = Path('scripts/dist')
+            if scripts_dist.exists():
+                shutil.rmtree(scripts_dist)
+                print("Cleaned up scripts/dist/")
             
             return True
         else:
