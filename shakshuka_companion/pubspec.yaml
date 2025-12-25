@@ -24,6 +24,7 @@ dependencies:
   # Add for better APK installation handling
   android_intent_plus: ^4.0.3
   package_info_plus: ^4.2.0
+  url_launcher: ^6.2.4
 
 dev_dependencies:
   flutter_test:

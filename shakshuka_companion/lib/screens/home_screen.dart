@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/task.dart';
 import '../services/storage_service.dart';
 import '../services/api_service.dart';
@@ -188,16 +189,30 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   void _showAboutDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF16213E),
         title: Row(
-          children: const [
-            Text('🍳', style: TextStyle(fontSize: 24)),
-            SizedBox(width: 8),
-            Expanded(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.asset(
+                'assets/icon.png',
+                width: 32,
+                height: 32,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Expanded(
               child: Text(
                 'Shakshuka Companion',
                 style: TextStyle(fontSize: 18),
@@ -238,10 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 8),
             GestureDetector(
-              onTap: () async {
-                // Open website
-                // Using url_launcher would be better, but keeping simple
-              },
+              onTap: () => _launchUrl('https://vibinandvanshika.in'),
               child: const Text(
                 '🌐 vibinandvanshika.in',
                 style: TextStyle(
@@ -253,9 +265,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 4),
             GestureDetector(
-              onTap: () async {
-                // Open GitHub
-              },
+              onTap: () => _launchUrl('https://github.com/admiralsuez/shakshuka-python'),
               child: const Text(
                 '📦 github.com/admiralsuez/shakshuka-python',
                 style: TextStyle(
@@ -277,9 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 GestureDetector(
-                  onTap: () async {
-                    // Open Play Store link
-                  },
+                  onTap: () => _launchUrl('https://play.google.com/store/apps/details?id=com.shakshuka.companion'),
                   child: Image.asset(
                     'assets/google-play-badge.png',
                     height: 40,
@@ -287,9 +295,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(width: 8),
                 GestureDetector(
-                  onTap: () async {
-                    // Open F-Droid link
-                  },
+                  onTap: () => _launchUrl('https://f-droid.org/packages/com.shakshuka.companion'),
                   child: Image.asset(
                     'assets/fdroid-badge.png',
                     height: 40,
