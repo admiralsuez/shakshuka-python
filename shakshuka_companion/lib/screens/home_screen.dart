@@ -404,178 +404,10 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => Scaffold(
-          appBar: AppBar(
-            title: const Text('Stats & History'),
-          ),
-          body: FutureBuilder<List<Map<String, dynamic>>>(
-            future: _storage.getSentTasksHistory(),
-            builder: (context, snapshot) {
-              final history = snapshot.data ?? [];
-              
-              return Column(
-                children: [
-                  // Stats summary
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    margin: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF16213E),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        Column(
-                          children: [
-                            Text(
-                              '$_totalTasksSent',
-                              style: const TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFE85D04),
-                              ),
-                            ),
-                            Text(
-                              'Tasks Sent',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[400],
-                              ),
-                            ),
-                          ],
-                        ),
-                        Column(
-                          children: [
-                            Text(
-                              '${history.length}',
-                              style: const TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
-                              ),
-                            ),
-                            Text(
-                              'Syncs',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[400],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  // History list
-                  Expanded(
-                    child: history.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.history,
-                                  size: 64,
-                                  color: Colors.grey[600],
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'No sync history yet',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.grey[500],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            itemCount: history.length,
-                            itemBuilder: (context, index) {
-                              final entry = history[index];
-                              final timestamp = DateTime.tryParse(
-                                entry['timestamp'] ?? '',
-                              );
-                              final status = entry['status'] ?? (entry['accepted'] == true ? 'approved' : 'rejected');
-                              final tasks = List.from(entry['tasks'] ?? []);
-                              
-                              IconData statusIcon;
-                              Color statusColor;
-                              String statusText;
-                              
-                              switch (status) {
-                                case 'approved':
-                                  statusIcon = Icons.check_circle;
-                                  statusColor = Colors.green;
-                                  statusText = 'Accepted';
-                                  break;
-                                case 'rejected':
-                                  statusIcon = Icons.cancel;
-                                  statusColor = Colors.red;
-                                  statusText = 'Rejected';
-                                  break;
-                                default:
-                                  statusIcon = Icons.hourglass_empty;
-                                  statusColor = Colors.orange;
-                                  statusText = 'Pending';
-                              }
-                              
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                child: ListTile(
-                                  leading: Icon(
-                                    statusIcon,
-                                    color: statusColor,
-                                    size: 28,
-                                  ),
-                                  title: Text(
-                                    '${tasks.length} task(s)',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  subtitle: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      if (timestamp != null)
-                                        Text(
-                                          '${timestamp.day}/${timestamp.month}/${timestamp.year} ${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[500],
-                                          ),
-                                        ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        tasks.map((t) => t['title'] ?? '').join(', '),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey[400],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  trailing: Text(
-                                    statusText,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: statusColor,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              );
-            },
-          ),
+        builder: (context) => _StatsPage(
+          storage: _storage,
+          notifications: _notifications,
+          totalTasksSent: _totalTasksSent,
         ),
       ),
     );
@@ -769,31 +601,34 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(
         children: [
-          // Offline indicator - not paired
+          // Offline indicator - not paired (clickable)
           if (!_storage.isPaired)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.red.shade700,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.link_off, size: 18, color: Colors.white),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Not paired - Tap PAIR to connect to PC',
-                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
-                  ),
-                ],
+            GestureDetector(
+              onTap: _openScanner,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade700,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.link_off, size: 18, color: Colors.white),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Not paired - Tap here to connect to PC',
+                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
               ),
             )
           // Offline indicator - paired but disconnected
@@ -1163,6 +998,238 @@ class _ChangelogEntry extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _StatsPage extends StatefulWidget {
+  final StorageService storage;
+  final NotificationService notifications;
+  final int totalTasksSent;
+
+  const _StatsPage({
+    required this.storage,
+    required this.notifications,
+    required this.totalTasksSent,
+  });
+
+  @override
+  State<_StatsPage> createState() => _StatsPageState();
+}
+
+class _StatsPageState extends State<_StatsPage> {
+  List<Map<String, dynamic>> _history = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAndRefreshStatus();
+  }
+
+  Future<void> _loadAndRefreshStatus() async {
+    setState(() => _isLoading = true);
+    
+    // First check for status updates from server
+    await widget.notifications.checkTaskStatusUpdates();
+    
+    // Then load the history
+    final history = await widget.storage.getSentTasksHistory();
+    
+    if (mounted) {
+      setState(() {
+        _history = history;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Stats & History'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadAndRefreshStatus,
+            tooltip: 'Refresh status',
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadAndRefreshStatus,
+              child: Column(
+                children: [
+                  // Stats summary
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    margin: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF16213E),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Column(
+                          children: [
+                            Text(
+                              '${widget.totalTasksSent}',
+                              style: const TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFE85D04),
+                              ),
+                            ),
+                            Text(
+                              'Tasks Sent',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[400],
+                              ),
+                            ),
+                          ],
+                        ),
+                        Column(
+                          children: [
+                            Text(
+                              '${_history.length}',
+                              style: const TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                            ),
+                            Text(
+                              'Syncs',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[400],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  // History list
+                  Expanded(
+                    child: _history.isEmpty
+                        ? ListView(
+                            children: [
+                              SizedBox(
+                                height: MediaQuery.of(context).size.height * 0.4,
+                                child: Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.history,
+                                        size: 64,
+                                        color: Colors.grey[600],
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'No sync history yet',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          color: Colors.grey[500],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: _history.length,
+                            itemBuilder: (context, index) {
+                              final entry = _history[index];
+                              final timestamp = DateTime.tryParse(
+                                entry['timestamp'] ?? '',
+                              );
+                              final status = entry['status'] ?? (entry['accepted'] == true ? 'approved' : 'pending');
+                              final tasks = List.from(entry['tasks'] ?? []);
+                              
+                              IconData statusIcon;
+                              Color statusColor;
+                              String statusText;
+                              
+                              switch (status) {
+                                case 'approved':
+                                  statusIcon = Icons.check_circle;
+                                  statusColor = Colors.green;
+                                  statusText = 'Accepted';
+                                  break;
+                                case 'rejected':
+                                  statusIcon = Icons.cancel;
+                                  statusColor = Colors.red;
+                                  statusText = 'Rejected';
+                                  break;
+                                default:
+                                  statusIcon = Icons.hourglass_empty;
+                                  statusColor = Colors.orange;
+                                  statusText = 'Pending';
+                              }
+                              
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  leading: Icon(
+                                    statusIcon,
+                                    color: statusColor,
+                                    size: 28,
+                                  ),
+                                  title: Text(
+                                    '${tasks.length} task(s)',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (timestamp != null)
+                                        Text(
+                                          '${timestamp.day}/${timestamp.month}/${timestamp.year} ${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[500],
+                                          ),
+                                        ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        tasks.map((t) => t['title'] ?? '').join(', '),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[400],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  trailing: Text(
+                                    statusText,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: statusColor,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 }
