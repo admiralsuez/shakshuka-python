@@ -42,6 +42,29 @@
     transform: translateY(calc(-1px * var(--dpi-scale)));
 }
 
+.btn-outline {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    padding: calc(0.6rem * var(--dpi-scale)) calc(1.2rem * var(--dpi-scale));
+    border-radius: calc(10px * var(--dpi-scale));
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: calc(0.4rem * var(--dpi-scale));
+    font-size: calc(0.9rem * var(--dpi-scale));
+}
+
+.btn-outline:hover {
+    background: var(--surface-color);
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+    transform: translateY(calc(-1px * var(--dpi-scale)));
+}
+
 .btn-danger {
     background: linear-gradient(135deg, #FF6B6B, #FF8E8E);
     color: white;
