@@ -2,7 +2,7 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Shakshuka"
-#define MyAppVersion "17.4"
+#define MyAppVersion "17.7"
 #define MyAppPublisher "vibinandvanshika.in"
 #define MyAppURL "https://github.com/shakshuka-python"
 #define MyAppExeName "Shakshuka.exe"
@@ -21,12 +21,12 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 AppContact=support@vibinandvanshika.in
 AppCopyright=Copyright (C) 2025 vibinandvanshika.in
-VersionInfoVersion=17.4.0.0
+VersionInfoVersion=17.7.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Shakshuka Task Manager - Professional productivity tool
 VersionInfoCopyright=Copyright (C) 2025 vibinandvanshika.in
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=17.4.0.0
+VersionInfoProductVersion=17.7.0.0
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
@@ -59,7 +59,7 @@ Name: "firewall"; Description: "Add Windows Firewall rule for phone pairing"; Gr
 
 [Files]
 ; Main executable
-Source: "..\Shakshuka.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\Shakshuka.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Static files
 Source: "..\assets\static\*"; DestDir: "{app}\assets\static"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Templates
