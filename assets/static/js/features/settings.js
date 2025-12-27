@@ -45,6 +45,9 @@ const Settings = {
             const hourSelect = document.getElementById('reset-hour-select');
             const minuteSelect = document.getElementById('reset-minute-select');
             const periodSelect = document.getElementById('reset-period-select');
+            const streakSkipWeekends = document.getElementById('streak-skip-weekends');
+            const streakCountNewTasks = document.getElementById('streak-count-new-tasks');
+            const streakCountSettings = document.getElementById('streak-count-settings');
             
             // Backend returns autostart_enabled; keep legacy "autostart" fallback just in case
             if (autostartToggle) {
@@ -60,6 +63,9 @@ const Settings = {
             if (dpiSelector) dpiSelector.value = settings.dpi_scale || 100;
             if (quickProjectToggle) quickProjectToggle.checked = !!settings.quick_project_from_title;
             if (casualDatesToggle) casualDatesToggle.checked = !!settings.casual_dates;
+            if (streakSkipWeekends) streakSkipWeekends.checked = !!settings.streak_skip_weekends;
+            if (streakCountNewTasks) streakCountNewTasks.checked = !!settings.streak_count_new_tasks;
+            if (streakCountSettings) streakCountSettings.checked = !!settings.streak_count_settings;
 
             // Build selects (once)
             this.ensureTimeSelectOptions();
@@ -264,6 +270,105 @@ const Settings = {
             Utils.Logger.error('Error updating casual dates setting:', error);
             if (typeof showNotification === 'function') {
                 showNotification('Error updating casual date setting', 'error');
+            }
+        }
+    },
+
+    /**
+     * Update streak skip weekends setting
+     */
+    async updateStreakSkipWeekends() {
+        const enabled = !!document.getElementById('streak-skip-weekends')?.checked;
+
+        try {
+            const response = await apiCall('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ streak_skip_weekends: enabled })
+            });
+
+            if (response.ok) {
+                const settings = AppState.get('currentSettings') || {};
+                settings.streak_skip_weekends = enabled;
+                AppState.set('currentSettings', settings);
+                if (typeof showNotification === 'function') {
+                    showNotification(enabled ? 'Weekends will be skipped in streak' : 'Weekends count in streak', 'success');
+                }
+                window.incrementSettingsChangeCount?.();
+                if (typeof updateDashboardStats === 'function') updateDashboardStats();
+            } else {
+                throw new Error('Failed to update streak setting');
+            }
+        } catch (error) {
+            Utils.Logger.error('Error updating streak skip weekends:', error);
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating streak setting', 'error');
+            }
+        }
+    },
+
+    /**
+     * Update streak count new tasks setting
+     */
+    async updateStreakCountNewTasks() {
+        const enabled = !!document.getElementById('streak-count-new-tasks')?.checked;
+
+        try {
+            const response = await apiCall('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ streak_count_new_tasks: enabled })
+            });
+
+            if (response.ok) {
+                const settings = AppState.get('currentSettings') || {};
+                settings.streak_count_new_tasks = enabled;
+                AppState.set('currentSettings', settings);
+                if (typeof showNotification === 'function') {
+                    showNotification(enabled ? 'Adding tasks counts as streak activity' : 'Adding tasks won\'t count as streak activity', 'success');
+                }
+                window.incrementSettingsChangeCount?.();
+                if (typeof updateDashboardStats === 'function') updateDashboardStats();
+            } else {
+                throw new Error('Failed to update streak setting');
+            }
+        } catch (error) {
+            Utils.Logger.error('Error updating streak count new tasks:', error);
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating streak setting', 'error');
+            }
+        }
+    },
+
+    /**
+     * Update streak count settings changes setting
+     */
+    async updateStreakCountSettings() {
+        const enabled = !!document.getElementById('streak-count-settings')?.checked;
+
+        try {
+            const response = await apiCall('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ streak_count_settings: enabled })
+            });
+
+            if (response.ok) {
+                const settings = AppState.get('currentSettings') || {};
+                settings.streak_count_settings = enabled;
+                AppState.set('currentSettings', settings);
+                if (typeof showNotification === 'function') {
+                    showNotification(enabled ? 'Settings changes count as streak activity' : 'Settings changes won\'t count as streak activity', 'success');
+                }
+                window.incrementSettingsChangeCount?.();
+                if (typeof updateDashboardStats === 'function') updateDashboardStats();
+            } else {
+                throw new Error('Failed to update streak setting');
+            }
+        } catch (error) {
+            Utils.Logger.error('Error updating streak count settings:', error);
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating streak setting', 'error');
             }
         }
     },
@@ -886,6 +991,9 @@ window.loadSettings = () => Settings.load();
 window.updateAutostart = () => Settings.updateAutostart();
 window.updateQuickProjectFromTitle = () => Settings.updateQuickProjectFromTitle();
 window.updateCasualDates = () => Settings.updateCasualDates();
+window.updateStreakSkipWeekends = () => Settings.updateStreakSkipWeekends();
+window.updateStreakCountNewTasks = () => Settings.updateStreakCountNewTasks();
+window.updateStreakCountSettings = () => Settings.updateStreakCountSettings();
 window.updateAutosaveInterval = () => Settings.updateAutosaveInterval();
 window.updateMiniAnalyticsInterval = () => Settings.updateMiniAnalyticsInterval();
 window.applyThemeAndDPI = () => Settings.applyThemeAndDPI();

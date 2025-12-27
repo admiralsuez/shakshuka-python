@@ -135,17 +135,29 @@ if (!window.MiniAnalyticsTicker) {
 
             const total = (summary && summary.success && summary.tasks) ? (summary.tasks.total ?? tasks.length) : tasks.length;
             const productivity = total > 0 ? Math.round((completedForever / total) * 100) : 0;
+            const strikeStreak = (summary && summary.success && summary.strike_streak) ? (summary.strike_streak.current ?? 0) : 0;
+            const tasksDeleted = (summary && summary.success) ? (summary.tasks_deleted ?? 0) : 0;
+            const tasksEdited = (summary && summary.success) ? (summary.tasks_edited ?? 0) : 0;
+            const tasksWithDates = (summary && summary.success) ? (summary.tasks_with_dates ?? 0) : 0;
+            const tasksWithTime = (summary && summary.success) ? (summary.tasks_with_time ?? 0) : 0;
+            const tasksPlanned = (summary && summary.success) ? (summary.tasks_planned ?? 0) : 0;
 
             return [
                 { label: 'Completed Today', value: completedToday },
                 { label: 'Expired Tasks', value: expiredTasks },
                 { label: 'Day Streak', value: dayStreak },
+                { label: 'Strike Streak', value: strikeStreak },
                 { label: 'Productivity', value: productivity + '%' },
                 { label: 'Striked Today', value: strikesToday },
                 { label: 'Tasks Added', value: tasksAdded },
                 { label: 'Completed Forever', value: completedForever },
                 { label: 'Settings Changes', value: settingsChanges },
                 { label: 'Tasks Retried', value: tasksRetried },
+                { label: 'Tasks Deleted', value: tasksDeleted },
+                { label: 'Tasks Edited', value: tasksEdited },
+                { label: 'Tasks with Dates', value: tasksWithDates },
+                { label: 'Tasks with Time', value: tasksWithTime },
+                { label: 'Tasks Planned', value: tasksPlanned },
             ];
         },
 

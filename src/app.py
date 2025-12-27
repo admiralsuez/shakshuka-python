@@ -1219,13 +1219,25 @@ def get_analytics_summary():
                 best = run
             return best
 
+        # Load user settings for streak calculation
+        user_settings = app_context.data_manager.load_settings(user_id) or {}
+        streak_skip_weekends = bool(user_settings.get('streak_skip_weekends', False))
+        streak_count_new_tasks = bool(user_settings.get('streak_count_new_tasks', False))
+        streak_count_settings = bool(user_settings.get('streak_count_settings', False))
+
         # Completion streak: consecutive days with at least one completion.
         today_str = datetime.now().strftime('%Y-%m-%d')
         completion_current = 0
         completion_best = 0
         try:
             conn = app_context.data_manager._get_pooled_connection()
-            completion_current = app_context.data_manager._calculate_streak_days_from_tasks(conn, user_id, today_str)
+            from src.db.analytics_queries import get_productivity_streak
+            completion_current = get_productivity_streak(
+                conn, user_id,
+                skip_weekends=streak_skip_weekends,
+                count_new_tasks=streak_count_new_tasks,
+                count_settings=streak_count_settings
+            )
             app_context.data_manager._return_connection(conn)
         except Exception as e:
             logger.warning(f"Error calculating completion streak: {e}")
@@ -1496,6 +1508,9 @@ def get_settings():
             'autostart_enabled': bool(settings.get('autostart_enabled', False)),
             'quick_project_from_title': bool(settings.get('quick_project_from_title', False)),
             'casual_dates': bool(settings.get('casual_dates', False)),
+            'streak_skip_weekends': bool(settings.get('streak_skip_weekends', False)),
+            'streak_count_new_tasks': bool(settings.get('streak_count_new_tasks', False)),
+            'streak_count_settings': bool(settings.get('streak_count_settings', False)),
         }
         
         logger.info(f"Successfully loaded settings for user {user_id}")
@@ -1626,6 +1641,22 @@ def update_settings():
             cd = settings_data['casual_dates']
             if isinstance(cd, bool):
                 validated_updates['casual_dates'] = cd
+        
+        # Streak settings (simple booleans)
+        if 'streak_skip_weekends' in settings_data:
+            val = settings_data['streak_skip_weekends']
+            if isinstance(val, bool):
+                validated_updates['streak_skip_weekends'] = val
+        
+        if 'streak_count_new_tasks' in settings_data:
+            val = settings_data['streak_count_new_tasks']
+            if isinstance(val, bool):
+                validated_updates['streak_count_new_tasks'] = val
+        
+        if 'streak_count_settings' in settings_data:
+            val = settings_data['streak_count_settings']
+            if isinstance(val, bool):
+                validated_updates['streak_count_settings'] = val
         
         # Timezone validation
         if 'timezone' in settings_data:

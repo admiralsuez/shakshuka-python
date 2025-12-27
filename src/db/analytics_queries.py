@@ -66,30 +66,86 @@ def get_daily_completion_counts(
 def get_productivity_streak(
     conn: sqlite3.Connection,
     user_id: str,
-    min_tasks: int = 1
+    min_tasks: int = 1,
+    skip_weekends: bool = False,
+    count_new_tasks: bool = False,
+    count_settings: bool = False
 ) -> int:
-    """Calculate current productivity streak (consecutive days with completed tasks)."""
-    cursor = conn.execute('''
+    """Calculate current productivity streak (consecutive days with activity).
+    
+    Args:
+        conn: Database connection
+        user_id: User ID
+        min_tasks: Minimum tasks to count as activity (legacy, not used with new options)
+        skip_weekends: If True, Saturday and Sunday don't break the streak
+        count_new_tasks: If True, adding new tasks counts as activity
+        count_settings: If True, settings changes count as activity
+    """
+    # Build query to get all activity dates
+    queries = []
+    params = []
+    
+    # Always include completed tasks
+    queries.append('''
         SELECT DISTINCT DATE(completed_at) as date
         FROM tasks 
-        WHERE user_id = ? AND completed = 1
-        ORDER BY date DESC
-    ''', (user_id,))
+        WHERE user_id = ? AND completed = 1 AND completed_at IS NOT NULL
+    ''')
+    params.append(user_id)
     
-    dates = [row[0] for row in cursor.fetchall()]
-    if not dates:
+    # Optionally include task creation dates
+    if count_new_tasks:
+        queries.append('''
+            SELECT DISTINCT DATE(created_at) as date
+            FROM tasks 
+            WHERE user_id = ? AND created_at IS NOT NULL
+        ''')
+        params.append(user_id)
+    
+    # Optionally include settings change dates
+    if count_settings:
+        # Check if settings_events table exists
+        try:
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings_events'")
+            if cursor.fetchone():
+                queries.append('''
+                    SELECT DISTINCT DATE(timestamp) as date
+                    FROM settings_events 
+                    WHERE user_id = ?
+                ''')
+                params.append(user_id)
+        except:
+            pass
+    
+    # Combine all queries with UNION
+    combined_query = ' UNION '.join(queries) + ' ORDER BY date DESC'
+    
+    cursor = conn.execute(combined_query, tuple(params))
+    activity_dates = set(row[0] for row in cursor.fetchall())
+    
+    if not activity_dates:
         return 0
     
     streak = 0
     today = datetime.now().date()
+    check_date = today
     
-    for i, date_str in enumerate(dates):
-        date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        expected_date = today - timedelta(days=i)
+    while True:
+        date_str = check_date.strftime('%Y-%m-%d')
+        is_weekend = check_date.weekday() >= 5  # Saturday = 5, Sunday = 6
         
-        if date == expected_date:
+        if date_str in activity_dates:
             streak += 1
+            check_date -= timedelta(days=1)
+        elif skip_weekends and is_weekend:
+            # Weekend with no activity - skip it (don't break streak, don't count it)
+            check_date -= timedelta(days=1)
         else:
+            # No activity and not a skipped weekend - streak is broken
+            break
+        
+        # Safety limit to prevent infinite loops
+        if streak > 365:
             break
     
     return streak
