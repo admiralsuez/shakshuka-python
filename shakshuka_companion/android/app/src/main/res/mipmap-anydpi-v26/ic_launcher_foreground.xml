@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Pan handle -->
+    <path
+        android:fillColor="#5C4033"
+        android:pathData="M74,54 L95,54 Q98,54 98,51 L98,49 Q98,46 95,46 L74,46 L74,54 Z"/>
+    
+    <!-- Pan body (circle) -->
+    <path
+        android:fillColor="#2C2C2C"
+        android:pathData="M54,54 m-28,0 a28,28 0 1,1 56,0 a28,28 0 1,1 -56,0"/>
+    
+    <!-- Inner pan (cooking surface) -->
+    <path
+        android:fillColor="#E85D04"
+        android:pathData="M54,54 m-22,0 a22,22 0 1,1 44,0 a22,22 0 1,1 -44,0"/>
+    
+    <!-- Egg 1 (left) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,48 Q35,42 38,52 Q35,62 45,58 Q52,62 50,52 Q52,42 42,48 Z"/>
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M43,52 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0"/>
+    
+    <!-- Egg 2 (right) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M62,48 Q55,42 58,52 Q55,62 65,58 Q72,62 70,52 Q72,42 62,48 Z"/>
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M63,52 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0"/>
+    
+    <!-- Tomato pieces -->
+    <path
+        android:fillColor="#DC143C"
+        android:pathData="M48,62 Q46,66 50,66 Q54,66 52,62 Q50,58 48,62 Z"/>
+    <path
+        android:fillColor="#DC143C"
+        android:pathData="M56,64 Q54,68 58,68 Q62,68 60,64 Q58,60 56,64 Z"/>
+    
+</vector>

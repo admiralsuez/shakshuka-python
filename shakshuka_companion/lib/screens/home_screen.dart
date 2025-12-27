@@ -201,22 +201,31 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF16213E),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
         title: Row(
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Image.asset(
                 'assets/icon.png',
-                width: 32,
-                height: 32,
+                width: 40,
+                height: 40,
               ),
             ),
-            const SizedBox(width: 8),
-            const Expanded(
-              child: Text(
-                'Shakshuka Companion',
-                style: TextStyle(fontSize: 18),
-                overflow: TextOverflow.ellipsis,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Shakshuka Companion',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'v1.1 • $_totalTasksSent tasks sent',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                  ),
+                ],
               ),
             ),
           ],
@@ -226,82 +235,62 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'A companion app for Shakshuka Task Manager.',
-              style: TextStyle(fontSize: 14),
+              'Add tasks on mobile, sync to PC via QR code pairing.',
+              style: TextStyle(fontSize: 13, color: Colors.white70),
             ),
             const SizedBox(height: 16),
-            Text(
-              'Tasks sent to PC: $_totalTasksSent',
-              style: TextStyle(fontSize: 13, color: Colors.grey[400]),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Version 1.0',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Add tasks on your phone, sync them to your PC with one tap.',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            const Divider(color: Colors.grey),
-            const SizedBox(height: 8),
-            const Text(
-              'By vibinandvanshika',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 8),
-            GestureDetector(
-              onTap: () => _launchUrl('https://vibinandvanshika.in'),
-              child: const Text(
-                '🌐 vibinandvanshika.in',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFFE85D04),
-                  decoration: TextDecoration.underline,
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            GestureDetector(
-              onTap: () => _launchUrl('https://github.com/admiralsuez/shakshuka-python'),
-              child: const Text(
-                '📦 github.com/admiralsuez/shakshuka-python',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFFE85D04),
-                  decoration: TextDecoration.underline,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Divider(color: Colors.grey),
-            const SizedBox(height: 8),
-            const Text(
-              'Get the app:',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 8),
+            // Links row
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                GestureDetector(
-                  onTap: () => _launchUrl('https://play.google.com/store/apps/details?id=com.shakshuka.companion'),
-                  child: Image.asset(
-                    'assets/google-play-badge.png',
-                    height: 40,
+                Expanded(
+                  child: InkWell(
+                    onTap: () => _launchUrl('https://vibinandvanshika.in'),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade700),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Column(
+                        children: [
+                          Icon(Icons.language, color: Color(0xFFE85D04), size: 20),
+                          SizedBox(height: 4),
+                          Text('Website', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: () => _launchUrl('https://f-droid.org/packages/com.shakshuka.companion'),
-                  child: Image.asset(
-                    'assets/fdroid-badge.png',
-                    height: 40,
+                Expanded(
+                  child: InkWell(
+                    onTap: () => _launchUrl('https://github.com/admiralsuez/shakshuka-python'),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade700),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Column(
+                        children: [
+                          Icon(Icons.code, color: Color(0xFFE85D04), size: 20),
+                          SizedBox(height: 4),
+                          Text('GitHub', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: Text(
+                'by vibinandvanshika',
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              ),
             ),
           ],
         ),
@@ -629,20 +618,56 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(
         children: [
-          // Offline indicator
-          if (!_isConnected && _storage.isPaired)
+          // Offline indicator - not paired
+          if (!_storage.isPaired)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-              color: Colors.orange.shade800,
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.red.shade700,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.wifi_off, size: 16, color: Colors.white),
+                  const Icon(Icons.link_off, size: 18, color: Colors.white),
                   const SizedBox(width: 8),
                   const Text(
-                    'Offline - Tasks will sync when connected',
-                    style: TextStyle(color: Colors.white, fontSize: 12),
+                    'Not paired - Tap PAIR to connect to PC',
+                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+            )
+          // Offline indicator - paired but disconnected
+          else if (!_isConnected)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade800,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.wifi_off, size: 18, color: Colors.white),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Offline - Tasks saved locally',
+                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
                   ),
                 ],
               ),
