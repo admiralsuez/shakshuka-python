@@ -459,6 +459,7 @@
     white-space: pre-wrap;
     line-height: 1.6;
     color: var(--text-color);
+    text-align: left;
 }
 
 /* Task Form Styles */
