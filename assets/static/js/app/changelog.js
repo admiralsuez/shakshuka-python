@@ -167,19 +167,21 @@ function parseChangelogToSections(markdown) {
 }
 
 function splitHighlightsAndBody(contentLines) {
-    // Derive short "quick highlights" for the version while
-    // keeping the full content intact for detailed rendering.
-    const body = Array.isArray(contentLines) ? contentLines : [];
+    // Extract highlights and return the body WITHOUT the highlights section
+    // to avoid showing highlights twice (once in Quick Highlights box, once in body)
+    const originalLines = Array.isArray(contentLines) ? contentLines : [];
     const quick = [];
 
-    if (!body.length) {
-        return { highlights: quick, body };
+    if (!originalLines.length) {
+        return { highlights: quick, body: originalLines };
     }
 
-    const lines = body;
+    const lines = originalLines;
 
-    function collectBullets(startIndex) {
+    function collectBulletsRange(startIndex) {
+        // Returns {items: [], endIndex: number}
         const items = [];
+        let endIndex = startIndex;
         for (let i = startIndex; i < lines.length; i++) {
             const t = lines[i].trim();
             if (!t || (!t.startsWith('- ') && !t.startsWith('* '))) {
@@ -187,8 +189,9 @@ function splitHighlightsAndBody(contentLines) {
             }
             const text = t.replace(/^[-*]\s+/, '');
             items.push(text);
+            endIndex = i + 1;
         }
-        return items;
+        return { items, endIndex };
     }
 
     // Helper to shorten a bullet to maxWords words.
@@ -200,44 +203,42 @@ function splitHighlightsAndBody(contentLines) {
         return words.slice(0, maxWords).join(' ') + '…';
     }
 
-    // Pass 1: explicit "Quick Highlights" heading
+    // Helper to remove a range from lines array
+    function removeRange(arr, startIdx, endIdx) {
+        return arr.filter((_, idx) => idx < startIdx || idx >= endIdx);
+    }
+
+    // Pass 1: explicit "Quick Highlights" heading - extract and remove
     for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].trim();
         if (/^quick highlights$/i.test(trimmed)) {
-            const items = collectBullets(i + 1);
+            const { items, endIndex } = collectBulletsRange(i + 1);
             if (items.length) {
                 items.forEach(item => quick.push(shorten(item, 7)));
             }
-            return { highlights: quick, body };
+            // Remove the "Quick Highlights" heading and its bullets from body
+            const filteredBody = removeRange(lines, i, endIndex);
+            return { highlights: quick, body: filteredBody };
         }
     }
 
-    // Pass 2: explicit "Highlights" / "Consolidated Highlights" heading
-    for (let i = 0; i < lines.length && quick.length === 0; i++) {
+    // Pass 2: explicit "Highlights" / "Consolidated Highlights" heading - extract and remove
+    for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].trim();
         if (/^highlights$/i.test(trimmed) || /^consolidated highlights$/i.test(trimmed)) {
-            const items = collectBullets(i + 1);
+            const { items, endIndex } = collectBulletsRange(i + 1);
             if (items.length) {
                 items.forEach(item => quick.push(shorten(item, 7)));
+                // Remove the "Highlights" heading and its bullets from body
+                const filteredBody = removeRange(lines, i, endIndex);
+                return { highlights: quick, body: filteredBody };
             }
         }
     }
 
-    // Pass 3: fallback to first bullet list anywhere near the top
-    if (!quick.length) {
-        for (let i = 0; i < lines.length; i++) {
-            const trimmed = lines[i].trim();
-            if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-                const items = collectBullets(i);
-                if (items.length) {
-                    items.forEach(item => quick.push(shorten(item, 7)));
-                }
-                break;
-            }
-        }
-    }
-
-    return { highlights: quick, body };
+    // No explicit highlights section found - return body as-is without quick highlights
+    // (Don't duplicate random bullet lists as "quick highlights")
+    return { highlights: [], body: lines };
 }
 
 function escapeHtml(value) {
