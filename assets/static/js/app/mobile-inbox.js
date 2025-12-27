@@ -345,6 +345,26 @@
     }
 
     function bindUi() {
+        // Mobile inbox indicator click - open the inbox modal
+        const inboxIndicator = getEl('mobile-inbox-indicator');
+        if (inboxIndicator) {
+            inboxIndicator.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // If there's a pending submission, open the inbox modal
+                if (currentPendingSubmissionId) {
+                    open('mobile-inbox-modal');
+                } else {
+                    // Otherwise check for pending and show
+                    pollInboxOnce().then(() => {
+                        if (currentPendingSubmissionId) {
+                            open('mobile-inbox-modal');
+                        }
+                    });
+                }
+            });
+        }
+
         const pairBtn = getEl('pair-phone-btn');
         if (pairBtn) {
             pairBtn.addEventListener('click', openPairPhoneModal);
