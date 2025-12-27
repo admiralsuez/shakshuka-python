@@ -78,6 +78,65 @@
     box-shadow: inset 0 -2px 0 var(--accent-color);
 }
 
+/* Search tab icon */
+#tasks-page .filter-tab.search-tab {
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#tasks-page .filter-tab.search-tab svg {
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+#tasks-page .filter-tab.search-tab:hover svg {
+    opacity: 1;
+}
+#tasks-page .filter-tab.search-tab.active {
+    background: var(--accent-color);
+    color: white;
+}
+#tasks-page .filter-tab.search-tab.active svg {
+    opacity: 1;
+    stroke: white;
+}
+
+/* Task search wrapper */
+#tasks-page .task-search-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 4px 8px;
+    margin-left: auto;
+}
+#tasks-page .task-search-input {
+    border: none;
+    background: transparent;
+    color: var(--text-color);
+    font-size: 0.9rem;
+    padding: 6px 8px;
+    width: 200px;
+    outline: none;
+}
+#tasks-page .task-search-input::placeholder {
+    color: var(--text-secondary);
+}
+#tasks-page .task-search-close {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    line-height: 1;
+}
+#tasks-page .task-search-close:hover {
+    color: var(--accent-color);
+}
+
 /* Project filter on the right */
 #tasks-page .project-filter-wrapper {
     display: flex;

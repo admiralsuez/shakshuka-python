@@ -34,6 +34,13 @@
                         <button class="filter-tab active" data-filter="active">Active</button>
                         <button class="filter-tab" data-filter="expired">Expired</button>
                         <button class="filter-tab" data-filter="completed">Completed</button>
+                        <button class="filter-tab search-tab" id="task-search-toggle" title="Search tasks (Ctrl+F)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+                        </button>
+                    </div>
+                    <div class="task-search-wrapper" id="task-search-wrapper" style="display: none;">
+                        <input type="text" id="task-search-input" class="task-search-input" placeholder="Search tasks..." autocomplete="off">
+                        <button class="task-search-close" id="task-search-close" title="Close search">&times;</button>
                     </div>
                     <div class="project-filter-wrapper">
                         <select id="project-filter" class="project-filter-select">

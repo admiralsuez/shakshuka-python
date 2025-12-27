@@ -51,6 +51,12 @@ except Exception:
     monitoring_bp = None
 
 try:  # pragma: no cover
+    from .analytics_routes import analytics_bp, init_analytics_routes  # type: ignore
+except Exception:
+    analytics_bp = None
+    init_analytics_routes = None
+
+try:  # pragma: no cover
     from .system_routes import system_bp  # type: ignore
 except Exception:
     system_bp = None
@@ -86,8 +92,9 @@ def register_routes(app: Flask) -> None:
     _register(notes_bp, "/api/notes")
     _register(settings_bp, "/api/settings")
     _register(monitoring_bp, "/api/monitoring")
+    _register(analytics_bp)
     _register(system_bp, "/api/system")
     _register(static_bp)
 
 
-__all__ = ["register_routes", "task_bp", "notes_bp", "auth_bp", "settings_bp", "monitoring_bp", "system_bp", "static_bp"]
+__all__ = ["register_routes", "task_bp", "notes_bp", "auth_bp", "settings_bp", "monitoring_bp", "analytics_bp", "init_analytics_routes", "system_bp", "static_bp"]

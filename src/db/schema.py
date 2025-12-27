@@ -8,7 +8,7 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 # Table creation SQL statements
 TABLES = {
@@ -122,6 +122,18 @@ TABLES = {
             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             description TEXT
         )
+    ''',
+    
+    'settings_events': '''
+        CREATE TABLE IF NOT EXISTS settings_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            setting_key TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        )
     '''
 }
 
@@ -135,6 +147,7 @@ INDEXES = [
     'CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at)',
     'CREATE INDEX IF NOT EXISTS idx_mobile_devices_user_token ON mobile_devices (user_id, token_hash)',
     'CREATE INDEX IF NOT EXISTS idx_mobile_inbox_user_status_created ON mobile_inbox (user_id, status, created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_settings_events_user_timestamp ON settings_events (user_id, timestamp)',
 ]
 
 

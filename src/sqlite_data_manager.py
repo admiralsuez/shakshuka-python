@@ -2526,19 +2526,18 @@ class SQLiteDataManager:
             self.logger.error(f"Error adding strike event for task {task_id}: {e}")
             return False
 
-    def add_settings_change_event(self, user_id: str, day: Optional[str] = None) -> bool:
+    def add_settings_change_event(self, user_id: str, setting_key: str = 'general', old_value: str = None, new_value: str = None) -> bool:
+        """Record a settings change event for streak tracking."""
         try:
             self._ensure_user_exists(user_id)
-            day_str = day or datetime.now().strftime('%Y-%m-%d')
-            created_at = datetime.now().isoformat()
             with self._get_connection() as conn:
                 conn.execute('BEGIN IMMEDIATE TRANSACTION')
                 conn.execute(
                     '''
-                    INSERT INTO settings_change_events (user_id, day, created_at)
-                    VALUES (?, ?, ?)
+                    INSERT INTO settings_events (user_id, setting_key, old_value, new_value, timestamp)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ''',
-                    (user_id, day_str, created_at)
+                    (user_id, setting_key, old_value, new_value)
                 )
                 conn.commit()
                 return True

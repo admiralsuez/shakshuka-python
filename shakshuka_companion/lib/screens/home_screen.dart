@@ -63,6 +63,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _refreshData() async {
+    await _checkConnection();
+    _loadTasks();
+    await _loadStats();
+    await _notifications.checkTaskStatusUpdates();
+  }
+
   Future<void> _quickAddTask(String title) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) return;
@@ -81,6 +88,32 @@ class _HomeScreenState extends State<HomeScreen> {
     if (result != null) {
       await _storage.addTask(result);
       _loadTasks();
+    }
+  }
+
+  Future<void> _confirmDeleteTask(LocalTask task) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF16213E),
+        title: const Text('Delete Task?'),
+        content: Text('Are you sure you want to delete "${task.title}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirm == true) {
+      await _deleteTask(task);
     }
   }
 
@@ -762,36 +795,53 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // Task list
+          // Task list with pull-to-refresh
           Expanded(
-            child: _tasks.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.task_alt,
-                          size: 64,
-                          color: Colors.grey[600],
+            child: RefreshIndicator(
+              onRefresh: _refreshData,
+              color: const Color(0xFFE85D04),
+              child: _tasks.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.4,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.task_alt,
+                              size: 64,
+                              color: Colors.grey[600],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No tasks yet',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Use quick add above or tap +',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Pull down to refresh',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No tasks yet',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey[500],
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Use quick add above or tap +',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(16),
@@ -818,7 +868,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             motion: const ScrollMotion(),
                             children: [
                               SlidableAction(
-                                onPressed: (_) => _deleteTask(task),
+                                onPressed: (_) => _confirmDeleteTask(task),
                                 backgroundColor: Colors.red,
                                 foregroundColor: Colors.white,
                                 icon: Icons.delete,
@@ -898,6 +948,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
+            ),
           ),
 
           // Bottom bar with Send and Add buttons

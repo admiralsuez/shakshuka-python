@@ -966,6 +966,99 @@ function syncStrikeClassesFromState() {
     } catch (e) { /* no-op */ }
 }
 
+// Task Search functionality
+let taskSearchQuery = '';
+
+function initTaskSearch() {
+    const searchToggle = document.getElementById('task-search-toggle');
+    const searchWrapper = document.getElementById('task-search-wrapper');
+    const searchInput = document.getElementById('task-search-input');
+    const searchClose = document.getElementById('task-search-close');
+    
+    if (!searchToggle || !searchWrapper || !searchInput) return;
+    
+    searchToggle.addEventListener('click', () => {
+        const isActive = searchToggle.classList.contains('active');
+        if (isActive) {
+            closeTaskSearch();
+        } else {
+            openTaskSearch();
+        }
+    });
+    
+    searchClose?.addEventListener('click', closeTaskSearch);
+    
+    searchInput.addEventListener('input', (e) => {
+        taskSearchQuery = e.target.value.toLowerCase().trim();
+        filterTasksBySearch();
+    });
+    
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeTaskSearch();
+        }
+    });
+}
+
+function openTaskSearch() {
+    const searchToggle = document.getElementById('task-search-toggle');
+    const searchWrapper = document.getElementById('task-search-wrapper');
+    const searchInput = document.getElementById('task-search-input');
+    
+    searchToggle?.classList.add('active');
+    if (searchWrapper) searchWrapper.style.display = 'flex';
+    searchInput?.focus();
+}
+
+function closeTaskSearch() {
+    const searchToggle = document.getElementById('task-search-toggle');
+    const searchWrapper = document.getElementById('task-search-wrapper');
+    const searchInput = document.getElementById('task-search-input');
+    
+    searchToggle?.classList.remove('active');
+    if (searchWrapper) searchWrapper.style.display = 'none';
+    if (searchInput) searchInput.value = '';
+    taskSearchQuery = '';
+    filterTasksBySearch();
+}
+
+function filterTasksBySearch() {
+    const tasksList = document.getElementById('tasks-list');
+    if (!tasksList) return;
+    
+    const taskCards = tasksList.querySelectorAll('.task-card');
+    taskCards.forEach(card => {
+        if (!taskSearchQuery) {
+            card.style.display = '';
+            return;
+        }
+        
+        const title = card.querySelector('.task-title')?.textContent?.toLowerCase() || '';
+        const description = card.querySelector('.task-description')?.textContent?.toLowerCase() || '';
+        const project = card.querySelector('.task-project')?.textContent?.toLowerCase() || '';
+        
+        const matches = title.includes(taskSearchQuery) || 
+                       description.includes(taskSearchQuery) || 
+                       project.includes(taskSearchQuery);
+        
+        card.style.display = matches ? '' : 'none';
+    });
+}
+
+// Initialize search on page load
+document.addEventListener('DOMContentLoaded', initTaskSearch);
+
+// Keyboard shortcut Ctrl+F for search
+document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        const tasksPage = document.getElementById('tasks-page');
+        if (tasksPage && tasksPage.classList.contains('active')) {
+            e.preventDefault();
+            openTaskSearch();
+        }
+    }
+});
+
 window.Tasks = {
     loadTasks,
     saveTask,
@@ -1006,5 +1099,8 @@ window.Tasks = {
     },
     updateTaskStats,
     sortTasksForDisplay,
-    syncStrikeClassesFromState
+    syncStrikeClassesFromState,
+    initTaskSearch,
+    openTaskSearch,
+    closeTaskSearch
 };

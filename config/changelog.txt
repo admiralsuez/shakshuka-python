@@ -1,3 +1,24 @@
+## Version 17.7 - UI Improvements & App Enhancements
+Release Date: 2025-12-28
+
+Highlights
+
+- **Task Search**: Search icon in filter tabs - click or press Ctrl+F to search tasks by title, description, or project.
+- **Keyboard Shortcuts Modal**: New Help section in Settings with keyboard shortcuts reference.
+- **Delete Confirmation**: Android app now shows confirmation dialog before deleting tasks.
+- **Pull-to-Refresh**: Android app supports pull-to-refresh to update connection status and sync history.
+- **Settings Events Table**: New database table for tracking settings changes (for streak calculation).
+- **Analytics Routes Module**: Started modularizing app.py - extracted analytics routes to separate module.
+- **Help Section**: New Help section in Settings with Documentation and Report Issue links.
+
+Technical Notes
+- Added `settings_events` table to schema (v15) with user_id, setting_key, old_value, new_value, timestamp.
+- Task search functionality in `tasks.js` with CSS styles in `tasks.css`.
+- Keyboard shortcuts modal in `keyboard.js`.
+- Created `analytics_routes.py` blueprint for analytics endpoints.
+- Android: `_confirmDeleteTask()` with AlertDialog, `_refreshData()` with RefreshIndicator.
+
+---
 ## Version 17.6 - Mobile App Notifications
 Release Date: 2025-12-27
 
