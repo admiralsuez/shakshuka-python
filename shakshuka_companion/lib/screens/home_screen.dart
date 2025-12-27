@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/task.dart';
 import '../services/storage_service.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
 import 'add_task_screen.dart';
 import 'qr_scanner_screen.dart';
 
@@ -17,6 +18,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final StorageService _storage = StorageService();
   final ApiService _api = ApiService();
+  final NotificationService _notifications = NotificationService();
   final TextEditingController _quickAddController = TextEditingController();
   final FocusNode _quickAddFocus = FocusNode();
   List<LocalTask> _tasks = [];
@@ -151,6 +153,14 @@ class _HomeScreenState extends State<HomeScreen> {
       await _storage.clearAllTasks();
       _loadTasks();
       _loadStats();
+      
+      // Show notification for successful upload
+      await _notifications.showTaskNotification(
+        title: 'Tasks Uploaded!',
+        body: 'Your ${taskCount} task(s) have been sent to PC inbox',
+        submissionId: submissionId,
+      );
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -593,6 +603,49 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   _showStatsPage();
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  _notifications.notificationsEnabled 
+                      ? Icons.notifications 
+                      : Icons.notifications_off,
+                  color: _notifications.notificationsEnabled 
+                      ? Colors.green 
+                      : Colors.grey,
+                ),
+                title: Text(
+                  'Notifications',
+                  style: TextStyle(
+                    color: _notifications.notificationsEnabled 
+                        ? Colors.white 
+                        : Colors.grey,
+                  ),
+                ),
+                subtitle: Text(
+                  _notifications.notificationsEnabled 
+                      ? 'Enabled' 
+                      : 'Disabled',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[400],
+                  ),
+                ),
+                onTap: () async {
+                  final newValue = !_notifications.notificationsEnabled;
+                  await _notifications.setNotificationsEnabled(newValue);
+                  setState(() {}); // Rebuild to update icon
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        newValue 
+                            ? 'Notifications enabled' 
+                            : 'Notifications disabled',
+                      ),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
                 },
               ),
               const Divider(color: Colors.grey),

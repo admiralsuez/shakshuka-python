@@ -4,7 +4,7 @@ authors:
   - vibinandvanshika
 
 publish_to: 'none'
-version: 1.1.0+11
+version: 1.2.0+12
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -25,6 +25,9 @@ dependencies:
   android_intent_plus: ^4.0.3
   package_info_plus: ^4.2.0
   url_launcher: ^6.2.4
+  # Local notifications (no Firebase needed)
+  flutter_local_notifications: ^17.1.0
+  workmanager: ^0.5.2
 
 dev_dependencies:
   flutter_test:

@@ -1,8 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:workmanager/workmanager.dart';
 import 'models/task.dart';
 import 'models/paired_device.dart';
+import 'services/notification_service.dart';
 import 'screens/home_screen.dart';
+
+void callbackDispatcher() {
+  Workmanager().executeTask((task, inputData) async {
+    // This is the background task that will check for task status updates
+    final notifications = NotificationService();
+    await notifications.initialize();
+    
+    // Check for pending task status updates
+    // We'll implement this logic in the notification service
+    await notifications.checkTaskStatusUpdates();
+    
+    return Future.value(true);
+  });
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,6 +29,23 @@ void main() async {
   
   await Hive.openBox<LocalTask>('tasks');
   await Hive.openBox<PairedDevice>('paired_device');
+  
+  // Initialize notifications
+  await NotificationService().initialize();
+  
+  // Initialize background work for checking status updates
+  await Workmanager().initialize(callbackDispatcher);
+  
+  // Register periodic task to check for updates every 15 minutes
+  await Workmanager().registerPeriodicTask(
+    'taskStatusCheck',
+    'checkTaskStatus',
+    frequency: const Duration(minutes: 15),
+    constraints: Constraints(
+      networkType: NetworkType.connected,
+      requiresCharging: false,
+    ),
+  );
   
   runApp(const ShakshukaCompanionApp());
 }

@@ -1,3 +1,19 @@
+## Version 17.6 - Mobile App Notifications
+Release Date: 2025-12-27
+
+Highlights
+
+- **Mobile Notifications**: Android companion app now shows local notifications when tasks are uploaded.
+- **Status Notifications**: Background polling checks task approval/rejection status and notifies user.
+- **Notification Settings**: Toggle to enable/disable notifications in the app drawer menu.
+- **No Firebase Required**: Uses local notifications with WorkManager for background polling - no cloud setup needed.
+
+Technical Notes
+- Added `flutter_local_notifications` and `workmanager` packages.
+- Background task polls desktop server every 15 minutes for status updates.
+- New `notification_service.dart` handles all notification logic.
+
+---
 ## Version 17.5 - Streak Settings & UI Improvements
 Release Date: 2025-12-27
 
