@@ -1,16 +1,23 @@
-## Version 17.4 - Release
-Release Date: 2025-12-27T12:15:03.949687
+## Version 17.5 - Streak Settings & UI Improvements
+Release Date: 2025-12-27
 
 Highlights
 
----
-## Version 17.3 - Release
-Release Date: 2025-12-25T20:54:38.006816
+- **Streak Settings**: New settings section with three options - skip weekends, count new tasks as activity, count settings changes as activity.
+- **Streak Calculation**: Streak now respects user settings - weekends can be skipped without breaking streak, task creation and settings changes can count as streak activity.
+- **Mini Analytics Bar**: Now includes all 15 analytics widgets (added Strike Streak, Tasks Deleted, Tasks Edited, Tasks with Dates, Tasks with Time, Tasks Planned).
+- **Settings Renamed**: "General" section renamed to "Additional Customization" for clarity.
+- **Changelog Fix**: Fixed redundancy where highlights appeared twice (in Quick Highlights box and in body).
+- **Task Details**: Fixed description alignment - now properly left-aligned instead of centered.
+- **Mobile Inbox**: Fixed navigation - clicking Phone Tasks indicator now opens inbox modal correctly.
 
-Highlights
+Technical Notes
+- Streak calculation in `analytics_queries.py` now accepts `skip_weekends`, `count_new_tasks`, `count_settings` parameters.
+- Backend `/api/settings` endpoint updated to store and return streak settings.
+- `splitHighlightsAndBody()` in changelog.js now removes highlights from body after extraction.
 
 ---
-## Versions 17.0 – 17.3 - Mobile Companion & Codebase Improvements
+## Versions 17.0 – 17.4 - Mobile Companion & Codebase Improvements
 Release Period: 2025-12-24 to 2025-12-25
 
 Highlights
