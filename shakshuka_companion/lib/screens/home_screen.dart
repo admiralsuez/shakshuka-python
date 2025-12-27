@@ -347,6 +347,59 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showChangelogPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Changelog'),
+          ),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: const [
+              _ChangelogEntry(
+                version: '1.2.0',
+                date: '2025-12-28',
+                changes: [
+                  'Added local notifications for task uploads',
+                  'Background polling for task approval/rejection status',
+                  'Notification toggle in drawer menu',
+                  'Delete confirmation dialog before removing tasks',
+                  'Pull-to-refresh on task list',
+                  'Changelog view in drawer menu',
+                ],
+              ),
+              _ChangelogEntry(
+                version: '1.1.0',
+                date: '2025-12-27',
+                changes: [
+                  'Added project field to task form',
+                  'Edit existing tasks before upload',
+                  'Stats page with sync history',
+                  'Task status tracking (pending/approved/rejected)',
+                  'Improved About dialog with clickable links',
+                ],
+              ),
+              _ChangelogEntry(
+                version: '1.0.0',
+                date: '2025-12-24',
+                changes: [
+                  'Initial release',
+                  'QR code pairing with desktop app',
+                  'Quick add tasks',
+                  'Full task form with title, description, duration, due date',
+                  'Offline task storage',
+                  'Bulk task upload to PC inbox',
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showStatsPage() {
     Navigator.push(
       context,
@@ -681,6 +734,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                 },
               ),
+              ListTile(
+                leading: const Icon(Icons.history, color: Colors.purple),
+                title: const Text('Changelog'),
+                subtitle: Text(
+                  'v1.2.0',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showChangelogPage();
+                },
+              ),
               const Divider(color: Colors.grey),
               ListTile(
                 leading: const Icon(Icons.info_outline, color: Colors.grey),
@@ -694,7 +759,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text(
-                  'v1.0',
+                  'v1.2.0',
                   style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 ),
               ),
@@ -1024,6 +1089,79 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ChangelogEntry extends StatelessWidget {
+  final String version;
+  final String date;
+  final List<String> changes;
+
+  const _ChangelogEntry({
+    required this.version,
+    required this.date,
+    required this.changes,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE85D04),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'v$version',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  date,
+                  style: TextStyle(
+                    color: Colors.grey[500],
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...changes.map((change) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('• ', style: TextStyle(color: Color(0xFFE85D04))),
+                  Expanded(
+                    child: Text(
+                      change,
+                      style: TextStyle(
+                        color: Colors.grey[300],
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )),
+          ],
+        ),
       ),
     );
   }
