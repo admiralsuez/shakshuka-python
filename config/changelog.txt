@@ -1,3 +1,22 @@
+## Version 17.9 - Paired Devices Management & UI Polish
+Release Date: 2025-12-28
+
+Highlights
+
+- **Paired Devices List**: Pair Phone modal now shows all paired devices with last seen time.
+- **Unpair from Desktop**: Remove paired devices directly from the desktop app with one click.
+- **Glowing Pair Phone Button**: The Pair Phone button now has a subtle pulsing glow effect to draw attention.
+- **Consistent Settings Buttons**: All settings action buttons (View Logs, Changelog, Shortcuts, Docs, Report Issue) now have uniform styling.
+- **Android Unpair Detection**: If a device is unpaired from desktop, the Android app detects this and prompts to re-pair.
+- **Tasks Preserved on Unpair**: When unpaired, tasks remain saved locally on the phone - nothing is lost.
+
+Technical Notes
+- Added `GET /api/mobile/devices` and `DELETE /api/mobile/devices/<device_id>` endpoints.
+- Added `loadPairedDevices()` and `unpairDevice()` functions in `mobile-inbox.js`.
+- Added `pair-phone-glow` CSS animation in `planner.css`.
+- Android app clears pairing on 401 and shows re-pair dialog with tasks preserved.
+
+---
 ## Version 17.8 - Settings Persistence & Search Fix
 Release Date: 2025-12-28
 

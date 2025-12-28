@@ -62,6 +62,11 @@ Tasks will appear in Shakshuka's inbox for approval.
 
 ## Changelog
 
+### Version 1.3.0 (2025-12-28)
+- **Unpair Detection**: App now detects when device is unpaired from desktop and prompts to re-pair
+- **Tasks Preserved**: When unpaired, your tasks remain saved locally - nothing is lost
+- **Re-pair Dialog**: Friendly dialog with "Pair Now" button when unpaired state is detected
+
 ### Version 1.2.0 (2025-12-28)
 - **Dismissable "Not Paired" Bar**: The announcement bar can now be dismissed with X button, reappears on next launch
 - **Consistent APK Signing**: GitHub Actions now uses consistent keystore for updates without reinstall
