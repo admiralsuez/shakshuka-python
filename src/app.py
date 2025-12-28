@@ -1511,6 +1511,8 @@ def get_settings():
             'streak_skip_weekends': bool(settings.get('streak_skip_weekends', False)),
             'streak_count_new_tasks': bool(settings.get('streak_count_new_tasks', False)),
             'streak_count_settings': bool(settings.get('streak_count_settings', False)),
+            'finish': settings.get('finish', 'glossy'),
+            'intensity': settings.get('intensity', '5'),
         }
         
         logger.info(f"Successfully loaded settings for user {user_id}")
@@ -1657,6 +1659,18 @@ def update_settings():
             val = settings_data['streak_count_settings']
             if isinstance(val, bool):
                 validated_updates['streak_count_settings'] = val
+        
+        # Finish validation (glossy/matte)
+        if 'finish' in settings_data:
+            finish = settings_data['finish']
+            if isinstance(finish, str) and finish in ['glossy', 'matte']:
+                validated_updates['finish'] = finish
+        
+        # Intensity validation (1-10)
+        if 'intensity' in settings_data:
+            intensity = settings_data['intensity']
+            if isinstance(intensity, str) and intensity in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
+                validated_updates['intensity'] = intensity
         
         # Timezone validation
         if 'timezone' in settings_data:

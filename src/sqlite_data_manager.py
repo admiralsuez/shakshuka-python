@@ -1653,6 +1653,8 @@ class SQLiteDataManager:
                                 has_streak_skip_weekends = 'streak_skip_weekends' in cols
                                 has_streak_count_new_tasks = 'streak_count_new_tasks' in cols
                                 has_streak_count_settings = 'streak_count_settings' in cols
+                                has_finish = 'finish' in cols
+                                has_intensity = 'intensity' in cols
 
                                 select_cols = [
                                     'theme',
@@ -1676,6 +1678,10 @@ class SQLiteDataManager:
                                     select_cols.append('streak_count_new_tasks')
                                 if has_streak_count_settings:
                                     select_cols.append('streak_count_settings')
+                                if has_finish:
+                                    select_cols.append('finish')
+                                if has_intensity:
+                                    select_cols.append('intensity')
                                 select_cols.extend(['created_at', 'updated_at'])
 
                                 cursor = conn.execute(
@@ -1701,6 +1707,8 @@ class SQLiteDataManager:
                                         'streak_skip_weekends': bool(raw.get('streak_skip_weekends')) if raw.get('streak_skip_weekends') is not None else False,
                                         'streak_count_new_tasks': bool(raw.get('streak_count_new_tasks')) if raw.get('streak_count_new_tasks') is not None else False,
                                         'streak_count_settings': bool(raw.get('streak_count_settings')) if raw.get('streak_count_settings') is not None else False,
+                                        'finish': raw.get('finish') or 'glossy',
+                                        'intensity': raw.get('intensity') or '5',
                                         'created_at': raw.get('created_at'),
                                         'updated_at': raw.get('updated_at'),
                                     }
@@ -1890,6 +1898,18 @@ class SQLiteDataManager:
             streak_count_settings = False
         validated['streak_count_settings'] = streak_count_settings
         
+        # Finish setting (glossy/matte)
+        finish = settings.get('finish', 'glossy')
+        if not isinstance(finish, str) or finish not in ['glossy', 'matte']:
+            finish = 'glossy'
+        validated['finish'] = finish
+        
+        # Intensity setting (1-10)
+        intensity = settings.get('intensity', '5')
+        if not isinstance(intensity, str) or intensity not in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
+            intensity = '5'
+        validated['intensity'] = intensity
+        
         return validated
     
     def _validate_time_format(self, time_str: str) -> bool:
@@ -1975,9 +1995,13 @@ class SQLiteDataManager:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN streak_count_new_tasks INTEGER DEFAULT 0")
                                     if 'streak_count_settings' not in cols:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN streak_count_settings INTEGER DEFAULT 0")
+                                    if 'finish' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN finish TEXT DEFAULT 'glossy'")
+                                    if 'intensity' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN intensity TEXT DEFAULT '5'")
                                 except Exception as schema_e:
                                     # Log but do not fail save if ALTER fails; feature will just fall back to default
-                                    self.logger.warning(f"Could not ensure streak settings columns on user_preferences: {schema_e}")
+                                    self.logger.warning(f"Could not ensure settings columns on user_preferences: {schema_e}")
 
                                 # Use new user_preferences table (including quick_project_from_title & casual_dates when available)
                                 conn.execute('''
@@ -1986,8 +2010,9 @@ class SQLiteDataManager:
                                         daily_reset_time, last_daily_reset_at, timezone, language, mini_analytics_interval, 
                                         quick_project_from_title, casual_dates, 
                                         streak_skip_weekends, streak_count_new_tasks, streak_count_settings,
+                                        finish, intensity,
                                         updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ''', (
                                     user_id,
                                     validated_settings['theme'],
@@ -2004,6 +2029,8 @@ class SQLiteDataManager:
                                     1 if validated_settings.get('streak_skip_weekends', False) else 0,
                                     1 if validated_settings.get('streak_count_new_tasks', False) else 0,
                                     1 if validated_settings.get('streak_count_settings', False) else 0,
+                                    validated_settings.get('finish', 'glossy'),
+                                    validated_settings.get('intensity', '5'),
                                     datetime.now().isoformat()
                                 ))
                             else:
