@@ -59,3 +59,23 @@ Tasks will appear in Shakshuka's inbox for approval.
 
 - **Camera**: For QR code scanning
 - **Internet**: To communicate with PC
+
+## Changelog
+
+### Version 1.2.0 (2025-12-28)
+- **Dismissable "Not Paired" Bar**: The announcement bar can now be dismissed with X button, reappears on next launch
+- **Consistent APK Signing**: GitHub Actions now uses consistent keystore for updates without reinstall
+- **Delete Confirmation**: Added confirmation dialog before deleting tasks
+- **Pull-to-Refresh**: Refresh connection status and sync history by pulling down
+
+### Version 1.1.0 (2025-12-27)
+- **Local Notifications**: Get notified when tasks are uploaded or processed
+- **Background Status Polling**: App checks task approval/rejection status in background
+- **Notification Settings**: Toggle notifications on/off in drawer menu
+
+### Version 1.0.0 (2025-12-24)
+- Initial release
+- QR code pairing with desktop
+- Offline task creation
+- Batch upload to PC
+- Task submission history with status tracking

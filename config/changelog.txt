@@ -1,7 +1,21 @@
-## Version 17.8 - Release
-Release Date: 2025-12-28T14:00:11.709217
+## Version 17.8 - Settings Persistence & Search Fix
+Release Date: 2025-12-28
 
 Highlights
+
+- **Settings Persistence Fixed**: Streak settings (skip weekends, count new tasks, count settings changes) now properly save to database.
+- **Finish & Intensity Settings Fixed**: Theme finish (glossy/matte) and intensity (1-10) settings now persist across sessions.
+- **Task Search Fixed**: Search now correctly filters tasks as you type (was using wrong CSS selector).
+- **Search Close Behavior**: Closing search now automatically switches back to Active filter tab.
+- **Android App Signing**: GitHub Actions workflow now supports consistent APK signing for updates.
+- **Dismissable Not Paired Bar**: Android app's "Not paired" announcement bar can now be dismissed.
+
+Technical Notes
+- Added `streak_skip_weekends`, `streak_count_new_tasks`, `streak_count_settings` columns to `user_preferences` table.
+- Added `finish` and `intensity` columns to `user_preferences` table.
+- Fixed `filterTasksBySearch()` to use `.task-item` instead of `.task-card`.
+- Added `setActiveFilter('active')` call when closing search.
+- Updated `build-companion-apk.yml` with keystore handling for consistent signing.
 
 ---
 ## Version 17.7 - UI Improvements & App Enhancements
