@@ -60,6 +60,36 @@
         }
     }
 
+    function clearWebCompanionQr() {
+        const qrEl = getEl('web-companion-qr');
+        if (qrEl) {
+            qrEl.innerHTML = '';
+        }
+    }
+
+    function renderWebCompanionQr(url) {
+        const qrEl = getEl('web-companion-qr');
+        if (!qrEl) return;
+
+        clearWebCompanionQr();
+
+        try {
+            if (typeof QRCode === 'function') {
+                // eslint-disable-next-line no-new
+                new QRCode(qrEl, {
+                    text: url,
+                    width: 180,
+                    height: 180,
+                    colorDark: '#ffffff',
+                    colorLight: 'transparent',
+                    correctLevel: QRCode.CorrectLevel.M,
+                });
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
     function renderQr(text) {
         const qrEl = getEl('pair-phone-qr');
         if (!qrEl) return;
@@ -121,8 +151,11 @@
                     const companionUrl = `${urlObj.protocol}//${urlObj.host}/companion`;
                     webCompanionUrlEl.textContent = companionUrl;
                     webCompanionUrlEl.dataset.url = companionUrl;
+
+                    renderWebCompanionQr(companionUrl);
                 } catch (e) {
                     webCompanionUrlEl.textContent = 'Could not determine URL';
+                    clearWebCompanionQr();
                 }
             }
 
