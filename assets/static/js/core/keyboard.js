@@ -104,8 +104,8 @@ function showKeyboardShortcutsModal() {
     `).join('');
     
     const modalHtml = `
-        <div class="modal-overlay" id="keyboard-shortcuts-modal" onclick="closeKeyboardShortcutsModal(event)">
-            <div class="modal-content shortcuts-modal" onclick="event.stopPropagation()">
+        <div class="modal active" id="keyboard-shortcuts-modal" style="display:flex; position:fixed; top:0; left:0; right:0; bottom:0; z-index:9999; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;" onclick="closeKeyboardShortcutsModal(event)">
+            <div class="modal-content shortcuts-modal" style="position:relative; background:var(--surface-color); border-radius:16px; max-width:500px; width:90%; max-height:80vh; overflow:auto;" onclick="event.stopPropagation()">
                 <div class="modal-header">
                     <h2><i class="fas fa-keyboard"></i> Keyboard Shortcuts</h2>
                     <button class="modal-close" onclick="closeKeyboardShortcutsModal()">&times;</button>

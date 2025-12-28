@@ -121,5 +121,10 @@ class StorageService {
     await _deviceBox.clear();
   }
 
+  // Alias for unpairDevice - used when device is unpaired from desktop
+  Future<void> clearPairing() async {
+    await _deviceBox.clear();
+  }
+
   bool get isPaired => _deviceBox.isNotEmpty;
 }
