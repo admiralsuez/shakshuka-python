@@ -318,6 +318,36 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.error(f"Migration 014 failed: {e}")
             raise
+
+    def _migration_015_settings_events(self, conn) -> List[Dict[str, Any]]:
+        """Migration 15: Create settings_events table for tracking settings changes."""
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            conn.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS settings_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    setting_key TEXT NOT NULL,
+                    old_value TEXT,
+                    new_value TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_settings_events_user_timestamp ON settings_events (user_id, timestamp)')
+
+            migrations_applied.append({
+                'version': 15,
+                'description': 'Created settings_events table for streak activity tracking',
+                'sql': 'CREATE TABLE settings_events'
+            })
+
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 015 failed: {e}")
+            raise
     
     def _run_migrations(self):
         """Run database migrations with comprehensive error handling and rollback"""
@@ -397,6 +427,10 @@ class SQLiteDataManager:
 
                     if migration_version < 14:
                         migrations_applied.extend(self._migration_014_mobile_inbox(conn))
+
+                    # Migration 15: Add settings_events table for streak tracking
+                    if migration_version < 15:
+                        migrations_applied.extend(self._migration_015_settings_events(conn))
                     
                     # Update migration version
                     if migrations_applied:

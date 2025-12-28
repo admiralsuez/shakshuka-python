@@ -19,37 +19,6 @@
 
                 <div class="settings-container">
                     <div class="settings-section">
-                        <h3>Streak Settings</h3>
-                        <div class="setting-item">
-                            <label class="setting-label">
-                                <span>Skip weekends (Sat/Sun don't break streak)</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="streak-skip-weekends" onchange="updateStreakSkipWeekends()">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </label>
-                        </div>
-                        <div class="setting-item">
-                            <label class="setting-label">
-                                <span>Count adding new tasks as activity</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="streak-count-new-tasks" onchange="updateStreakCountNewTasks()">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </label>
-                        </div>
-                        <div class="setting-item">
-                            <label class="setting-label">
-                                <span>Count settings changes as activity</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="streak-count-settings" onchange="updateStreakCountSettings()">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="settings-section">
                         <h3>Additional Customization</h3>
                         <div class="setting-item">
                             <label>
@@ -115,6 +84,33 @@
                                 <button type="button" id="save-reset-time-btn" class="btn-primary" style="margin-top: 8px; width: auto; min-width: unset; padding: 6px 10px;">
                                     Save
                                 </button>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Skip weekends for streak (Sat/Sun don't break streak)</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="streak-skip-weekends" onchange="updateStreakSkipWeekends()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Count adding new tasks as streak activity</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="streak-count-new-tasks" onchange="updateStreakCountNewTasks()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Count settings changes as streak activity</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="streak-count-settings" onchange="updateStreakCountSettings()">
+                                    <span class="toggle-slider"></span>
+                                </label>
                             </label>
                         </div>
                     </div>
