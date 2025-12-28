@@ -403,6 +403,8 @@
         let tasks = [];
         let token = localStorage.getItem('companion_token');
         let deviceId = localStorage.getItem('companion_device_id') || generateId();
+
+        const TASKS_STORAGE_KEY = 'companion_tasks_v1';
         
         // Elements
         const pairingSection = document.getElementById('pairing-section');
@@ -429,6 +431,50 @@
             toast.textContent = message;
             toast.className = 'toast show ' + type;
             setTimeout(() => toast.className = 'toast', 3000);
+        }
+
+        function loadTasksFromStorage() {
+            try {
+                const raw = localStorage.getItem(TASKS_STORAGE_KEY);
+                if (!raw) return [];
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function saveTasksToStorage() {
+            try {
+                localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
+            } catch (_) {
+                // ignore
+            }
+        }
+
+        function updateSendButtonState() {
+            const canSend = navigator.onLine && token && tasks.length > 0;
+            sendBtn.disabled = !canSend;
+            sendBtn.style.opacity = canSend ? '1' : '0.6';
+        }
+
+        function updateOnlineBadge() {
+            if (!navigator.onLine) {
+                if (token) {
+                    statusBadge.textContent = 'Paired (Offline)';
+                } else {
+                    statusBadge.textContent = 'Offline';
+                }
+                statusBadge.className = 'status-badge disconnected';
+            } else {
+                if (token) {
+                    statusBadge.textContent = 'Paired';
+                    statusBadge.className = 'status-badge connected';
+                } else {
+                    statusBadge.textContent = 'Not Paired';
+                    statusBadge.className = 'status-badge disconnected';
+                }
+            }
         }
 
         // Code input handling
@@ -504,8 +550,8 @@
             pairingSection.style.display = 'none';
             taskSection.style.display = 'block';
             bottomBar.style.display = 'block';
-            statusBadge.textContent = 'Paired';
-            statusBadge.className = 'status-badge connected';
+            updateOnlineBadge();
+            updateSendButtonState();
         }
 
         // Add task
@@ -543,7 +589,9 @@
 
         // Render tasks
         function renderTasks() {
+            saveTasksToStorage();
             taskCountEl.textContent = tasks.length;
+            updateSendButtonState();
             
             if (tasks.length === 0) {
                 tasksContainer.innerHTML = `
@@ -582,6 +630,12 @@
 
         // Send tasks to PC
         sendBtn.addEventListener('click', async () => {
+            if (!navigator.onLine) {
+                showToast('You are offline. Tasks are saved locally — send when back online.', 'error');
+                updateSendButtonState();
+                return;
+            }
+
             if (tasks.length === 0) {
                 showToast('Add some tasks first', 'error');
                 return;
@@ -619,8 +673,8 @@
                     pairingSection.style.display = 'block';
                     taskSection.style.display = 'none';
                     bottomBar.style.display = 'none';
-                    statusBadge.textContent = 'Not Paired';
-                    statusBadge.className = 'status-badge disconnected';
+                    updateOnlineBadge();
+                    updateSendButtonState();
                 } else {
                     showToast(data.error || 'Failed to send', 'error');
                 }
@@ -635,6 +689,7 @@
                 </svg>
                 Send to PC
             `;
+            updateSendButtonState();
         });
 
         // Escape HTML
@@ -655,9 +710,28 @@
                 } else {
                     localStorage.removeItem('companion_token');
                     token = null;
+                    updateOnlineBadge();
+                    updateSendButtonState();
                 }
             }).catch(() => {});
         }
+
+        tasks = loadTasksFromStorage();
+        renderTasks();
+        updateOnlineBadge();
+        updateSendButtonState();
+
+        window.addEventListener('online', () => {
+            updateOnlineBadge();
+            updateSendButtonState();
+            showToast('Back online — you can send tasks now.', 'success');
+        });
+
+        window.addEventListener('offline', () => {
+            updateOnlineBadge();
+            updateSendButtonState();
+            showToast('Offline — tasks will stay saved on this device.', 'error');
+        });
     </script>
 </body>
 </html>

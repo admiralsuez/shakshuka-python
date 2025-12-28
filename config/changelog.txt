@@ -1,3 +1,9 @@
+## Version 18.0 - Release
+Release Date: 2025-12-28T23:28:51.899737
+
+Highlights
+
+---
 ## Version 17.10 - Web Companion for iPhone & Security
 Release Date: 2025-12-28
 
