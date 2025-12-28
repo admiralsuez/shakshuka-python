@@ -66,6 +66,7 @@ Tasks will appear in Shakshuka's inbox for approval.
 - **Unpair Detection**: App now detects when device is unpaired from desktop and prompts to re-pair
 - **Tasks Preserved**: When unpaired, your tasks remain saved locally - nothing is lost
 - **Re-pair Dialog**: Friendly dialog with "Pair Now" button when unpaired state is detected
+- **Note**: iPhone users can now use the web companion at `http://YOUR-PC-IP:8989/companion`
 
 ### Version 1.2.0 (2025-12-28)
 - **Dismissable "Not Paired" Bar**: The announcement bar can now be dismissed with X button, reappears on next launch

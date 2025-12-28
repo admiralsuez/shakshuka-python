@@ -1,3 +1,20 @@
+## Version 17.10 - Web Companion for iPhone & Security
+Release Date: 2025-12-28
+
+Highlights
+
+- **Web Companion**: iPhone and other devices can now add tasks via browser at `/companion` - no app needed!
+- **Easy Pairing URL**: Pair Phone modal now shows a clickable URL to copy - no need to know your IP address.
+- **Rate Limiting**: Pairing attempts are now limited to 5 per 5 minutes to prevent brute force attacks.
+- **Keyboard Shortcuts Modal Fix**: Modal now displays as centered overlay instead of at bottom of page.
+
+Technical Notes
+- Added `/companion` route serving a mobile-optimized web app.
+- Web companion uses same pairing code and token system as Android app.
+- Added rate limiting with `_pairing_attempts` tracking and 429 responses.
+- Fixed keyboard shortcuts modal CSS positioning.
+
+---
 ## Version 17.9 - Paired Devices Management & UI Polish
 Release Date: 2025-12-28
 
