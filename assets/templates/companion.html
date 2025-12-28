@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0a0e1a">
     <title>Shakshuka Companion</title>
     <link rel="icon" type="image/png" href="/static/images/icon.png">
+    <link rel="manifest" href="/companion/manifest.webmanifest">
     <style>
         * {
             box-sizing: border-box;
@@ -31,7 +33,7 @@
             color: var(--text-color);
             min-height: 100vh;
             padding: 16px;
-            padding-bottom: 100px;
+            padding-bottom: 120px;
         }
         
         .header {
@@ -120,6 +122,35 @@
         /* Task Form */
         #task-section {
             display: none;
+        }
+
+        .quick-add {
+            background: var(--surface-color);
+            border-radius: 16px;
+            padding: 14px;
+            margin-bottom: 16px;
+            border: 1px solid var(--border-color);
+        }
+
+        .quick-add input {
+            width: 100%;
+            padding: 14px;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            color: var(--text-color);
+            font-size: 1rem;
+            outline: none;
+        }
+
+        .quick-add input:focus {
+            border-color: var(--accent-color);
+        }
+
+        .quick-add-hint {
+            margin-top: 8px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
         }
         
         .task-form {
@@ -264,6 +295,76 @@
             border-top: 1px solid var(--border-color);
             display: none;
         }
+
+        .bottom-bar-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .bottom-bar-actions .btn-primary {
+            flex: 1;
+        }
+
+        .btn-icon {
+            width: 52px;
+            height: 52px;
+            padding: 0;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border-color);
+            background: var(--bg-color);
+            color: var(--text-color);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-icon:active {
+            transform: scale(0.98);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            z-index: 2000;
+        }
+
+        .modal-sheet {
+            width: 100%;
+            max-width: 520px;
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            overflow: hidden;
+        }
+
+        .modal-sheet-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .modal-sheet-title {
+            font-weight: 700;
+            font-size: 1rem;
+        }
+
+        .modal-sheet-body {
+            padding: 16px;
+        }
         
         .bottom-bar .btn {
             display: flex;
@@ -350,26 +451,9 @@
 
     <!-- Task Section (hidden until paired) -->
     <div id="task-section">
-        <div class="task-form">
-            <div class="form-group">
-                <label>Task Title *</label>
-                <input type="text" id="task-title" placeholder="What do you need to do?">
-            </div>
-            <div class="form-group">
-                <label>Description</label>
-                <textarea id="task-description" placeholder="Add more details..."></textarea>
-            </div>
-            <div class="form-group">
-                <label>Project</label>
-                <input type="text" id="task-project" placeholder="e.g., Work, Personal">
-            </div>
-            <div class="form-group">
-                <label>Duration (minutes)</label>
-                <div class="duration-row">
-                    <input type="number" id="task-duration" placeholder="30" min="1" max="480">
-                </div>
-            </div>
-            <button class="btn btn-primary" id="add-task-btn">+ Add Task</button>
+        <div class="quick-add">
+            <input type="text" id="quick-add-input" placeholder="Quick add task… (press Enter)">
+            <div class="quick-add-hint">Press Enter to add • Use + for full details</div>
         </div>
 
         <div class="task-list" id="task-list">
@@ -387,12 +471,56 @@
 
     <!-- Bottom Bar -->
     <div class="bottom-bar" id="bottom-bar">
-        <button class="btn btn-primary" id="send-btn">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-            Send to PC
-        </button>
+        <div class="bottom-bar-actions">
+            <button class="btn btn-primary" id="send-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Send to PC
+            </button>
+            <button class="btn-icon" id="open-form-btn" title="Add task details">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Full Task Form Modal -->
+    <div class="modal-overlay" id="task-form-modal">
+        <div class="modal-sheet" onclick="event.stopPropagation()">
+            <div class="modal-sheet-header">
+                <div class="modal-sheet-title">Add Task</div>
+                <button class="btn-icon" id="close-form-btn" title="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-sheet-body">
+                <div class="task-form" style="margin-bottom: 0; padding: 0; background: transparent; border-radius: 0;">
+                    <div class="form-group">
+                        <label>Task Title *</label>
+                        <input type="text" id="task-title" placeholder="What do you need to do?">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea id="task-description" placeholder="Add more details..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Project</label>
+                        <input type="text" id="task-project" placeholder="e.g., Work, Personal">
+                    </div>
+                    <div class="form-group">
+                        <label>Duration (minutes)</label>
+                        <div class="duration-row">
+                            <input type="number" id="task-duration" placeholder="30" min="1" max="480">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" id="add-task-btn">+ Add Task</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Toast -->
@@ -413,10 +541,14 @@
         const statusBadge = document.getElementById('status-badge');
         const codeInputs = document.querySelectorAll('.code-input input');
         const pairBtn = document.getElementById('pair-btn');
-        const addTaskBtn = document.getElementById('add-task-btn');
         const sendBtn = document.getElementById('send-btn');
         const tasksContainer = document.getElementById('tasks-container');
         const taskCountEl = document.getElementById('task-count');
+        const quickAddInput = document.getElementById('quick-add-input');
+        const openFormBtn = document.getElementById('open-form-btn');
+        const closeFormBtn = document.getElementById('close-form-btn');
+        const taskFormModal = document.getElementById('task-form-modal');
+        const addTaskBtn = document.getElementById('add-task-btn');
 
         // Generate unique ID
         function generateId() {
@@ -456,6 +588,20 @@
             const canSend = navigator.onLine && token && tasks.length > 0;
             sendBtn.disabled = !canSend;
             sendBtn.style.opacity = canSend ? '1' : '0.6';
+        }
+
+        function openTaskForm() {
+            if (!taskFormModal) return;
+            taskFormModal.style.display = 'flex';
+            setTimeout(() => {
+                const titleEl = document.getElementById('task-title');
+                if (titleEl) titleEl.focus();
+            }, 50);
+        }
+
+        function closeTaskForm() {
+            if (!taskFormModal) return;
+            taskFormModal.style.display = 'none';
         }
 
         function updateOnlineBadge() {
@@ -554,8 +700,60 @@
             updateSendButtonState();
         }
 
-        // Add task
-        addTaskBtn.addEventListener('click', () => {
+        if (openFormBtn) {
+            openFormBtn.addEventListener('click', () => {
+                openTaskForm();
+            });
+        }
+
+        if (closeFormBtn) {
+            closeFormBtn.addEventListener('click', () => {
+                closeTaskForm();
+            });
+        }
+
+        if (taskFormModal) {
+            taskFormModal.addEventListener('click', () => {
+                closeTaskForm();
+            });
+        }
+
+        function addTaskToQueue(task) {
+            tasks.push(task);
+            renderTasks();
+        }
+
+        function createTaskFromFields(title, description, project, duration) {
+            const nowId = Date.now().toString();
+            return {
+                id: nowId,
+                client_task_id: nowId,
+                title,
+                description,
+                project,
+                duration
+            };
+        }
+
+        // Quick add task
+        if (quickAddInput) {
+            quickAddInput.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter') return;
+                const title = quickAddInput.value.trim();
+                if (!title) {
+                    showToast('Please enter a task title', 'error');
+                    return;
+                }
+                const task = createTaskFromFields(title, '', '', 30);
+                addTaskToQueue(task);
+                quickAddInput.value = '';
+                showToast('Task added!', 'success');
+            });
+        }
+
+        // Add task (full form)
+        addTaskBtn.addEventListener('click', (e) => {
+            e.preventDefault();
             const title = document.getElementById('task-title').value.trim();
             const description = document.getElementById('task-description').value.trim();
             const project = document.getElementById('task-project').value.trim();
@@ -566,17 +764,8 @@
                 return;
             }
 
-            const task = {
-                id: Date.now().toString(),
-                client_task_id: Date.now().toString(),
-                title,
-                description,
-                project,
-                duration
-            };
-
-            tasks.push(task);
-            renderTasks();
+            const task = createTaskFromFields(title, description, project, duration);
+            addTaskToQueue(task);
             
             // Clear form
             document.getElementById('task-title').value = '';
@@ -585,6 +774,7 @@
             document.getElementById('task-duration').value = '';
             
             showToast('Task added!', 'success');
+            closeTaskForm();
         });
 
         // Render tasks
@@ -714,6 +904,11 @@
                     updateSendButtonState();
                 }
             }).catch(() => {});
+        }
+
+        // Register service worker for offline support
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/companion/sw.js').catch(() => {});
         }
 
         tasks = loadTasksFromStorage();

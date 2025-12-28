@@ -1,0 +1,16 @@
+{
+  "name": "Shakshuka Companion",
+  "short_name": "Companion",
+  "start_url": "/companion",
+  "scope": "/companion",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#0a0e1a",
+  "icons": [
+    {
+      "src": "/static/images/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

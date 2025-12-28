@@ -1043,6 +1043,20 @@ def companion():
     """Serve the web-based mobile companion page for iOS and other devices"""
     return render_template('companion.html')
 
+
+@app.route('/companion/manifest.webmanifest')
+def companion_manifest():
+    """Serve the PWA manifest for the web companion"""
+    companion_dir = os.path.join(root_dir, 'assets', 'static', 'companion')
+    return send_from_directory(companion_dir, 'manifest.webmanifest', mimetype='application/manifest+json')
+
+
+@app.route('/companion/sw.js')
+def companion_sw():
+    """Serve the service worker for the web companion (must be under /companion scope)"""
+    companion_dir = os.path.join(root_dir, 'assets', 'static', 'companion')
+    return send_from_directory(companion_dir, 'sw.js', mimetype='application/javascript')
+
 @app.route('/favicon.ico')
 def favicon():
     """Serve the favicon"""
