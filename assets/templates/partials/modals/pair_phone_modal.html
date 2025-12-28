@@ -31,7 +31,20 @@
                 <div id="pair-phone-status" style="margin-bottom: 10px;">Loading…</div>
                 <div id="pair-phone-code" style="font-size: 28px; font-weight: 700; letter-spacing: 6px; margin-bottom: 10px;"></div>
                 <div id="pair-phone-qr" style="display:flex; justify-content:center; margin-bottom: 10px;"></div>
-                <div id="pair-phone-url" style="word-break: break-all;"></div>
+                <div id="pair-phone-url" style="word-break: break-all; margin-bottom: 16px;"></div>
+                
+                <!-- Web Companion URL for iPhone/other devices -->
+                <div id="web-companion-section" style="background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-top: 16px;">
+                    <div style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px;">
+                        <i class="fas fa-globe"></i> <strong>iPhone or no app?</strong> Open this in your phone's browser:
+                    </div>
+                    <div id="web-companion-url" style="background: var(--bg-color); padding: 12px; border-radius: 8px; font-family: monospace; font-size: 1rem; word-break: break-all; user-select: all; cursor: pointer;" onclick="copyCompanionUrl()" title="Click to copy">
+                        Loading...
+                    </div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 8px;">
+                        <i class="fas fa-info-circle"></i> Tap to copy • Works on any device on your WiFi
+                    </div>
+                </div>
             </div>
         </div>
         <div class="modal-footer">

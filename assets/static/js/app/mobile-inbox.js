@@ -112,6 +112,20 @@
             if (codeEl) codeEl.textContent = code;
             if (urlEl) urlEl.textContent = lanUrl;
 
+            // Update web companion URL for iPhone/other devices
+            const webCompanionUrlEl = getEl('web-companion-url');
+            if (webCompanionUrlEl && lanUrl) {
+                // Extract base URL (without /api/mobile/pair path) and add /companion
+                try {
+                    const urlObj = new URL(lanUrl);
+                    const companionUrl = `${urlObj.protocol}//${urlObj.host}/companion`;
+                    webCompanionUrlEl.textContent = companionUrl;
+                    webCompanionUrlEl.dataset.url = companionUrl;
+                } catch (e) {
+                    webCompanionUrlEl.textContent = 'Could not determine URL';
+                }
+            }
+
             const qrPayload = JSON.stringify({ url: lanUrl, code });
             renderQr(qrPayload);
 
@@ -205,6 +219,38 @@
 
     // Expose unpairDevice globally
     window.unpairDevice = unpairDevice;
+
+    // Copy companion URL to clipboard
+    window.copyCompanionUrl = function() {
+        const urlEl = document.getElementById('web-companion-url');
+        if (!urlEl) return;
+        
+        const url = urlEl.dataset.url || urlEl.textContent;
+        if (!url || url === 'Loading...' || url === 'Could not determine URL') return;
+        
+        navigator.clipboard.writeText(url).then(() => {
+            if (typeof showNotification === 'function') {
+                showNotification('URL copied! Open it on your phone.', 'success');
+            }
+            // Visual feedback
+            const originalText = urlEl.textContent;
+            urlEl.textContent = '✓ Copied!';
+            setTimeout(() => {
+                urlEl.textContent = originalText;
+            }, 1500);
+        }).catch(() => {
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = url;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            if (typeof showNotification === 'function') {
+                showNotification('URL copied!', 'success');
+            }
+        });
+    };
 
     function getTasksFromPayload(payload) {
         if (!payload || typeof payload !== 'object') return [];
