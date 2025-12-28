@@ -61,11 +61,14 @@ jobs:
 
       - name: Setup signing key
         working-directory: shakshuka_companion/android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           # Create keystore from secret or generate new one
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+          if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Using existing keystore from secrets"
-            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > shakshuka-release-key.jks
+            echo "$KEYSTORE_BASE64" | base64 -d > shakshuka-release-key.jks
+            echo "KEYSTORE_FROM_SECRET=true" >> $GITHUB_ENV
           else
             echo "Generating new keystore (first build)"
             keytool -genkey -v -keystore shakshuka-release-key.jks \
@@ -76,6 +79,7 @@ jobs:
             echo "⚠️  IMPORTANT: Add this keystore to GitHub secrets to ensure consistent signing!"
             echo "Run: base64 -w 0 shakshuka-release-key.jks"
             echo "Then add the output as ANDROID_KEYSTORE_BASE64 secret in your repo settings."
+            echo "KEYSTORE_FROM_SECRET=false" >> $GITHUB_ENV
           fi
           
           # Create key.properties
@@ -142,6 +146,7 @@ jobs:
           retention-days: 30
 
       - name: Upload keystore (save this as secret for future builds)
+        if: env.KEYSTORE_FROM_SECRET != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: android-keystore-SAVE-AS-SECRET
