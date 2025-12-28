@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Shakshuka Companion</title>
+    <link rel="icon" type="image/png" href="/static/images/icon.png">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        :root {
+            --bg-color: #0a0e1a;
+            --surface-color: #16213e;
+            --accent-color: #ff6b35;
+            --text-color: #ffffff;
+            --text-secondary: #a0a0a0;
+            --border-color: #2a3a5a;
+            --success-color: #4caf50;
+            --error-color: #f44336;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            padding: 16px;
+            padding-bottom: 100px;
+        }
+        
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .header h1 {
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .header img {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+        }
+        
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        
+        .status-badge.connected {
+            background: var(--success-color);
+            color: white;
+        }
+        
+        .status-badge.disconnected {
+            background: var(--error-color);
+            color: white;
+        }
+        
+        /* Pairing Section */
+        #pairing-section {
+            background: var(--surface-color);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        #pairing-section h2 {
+            font-size: 1.2rem;
+            margin-bottom: 16px;
+        }
+        
+        #pairing-section p {
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+        }
+        
+        .code-input {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        
+        .code-input input {
+            width: 45px;
+            height: 55px;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: var(--bg-color);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            color: var(--text-color);
+            outline: none;
+        }
+        
+        .code-input input:focus {
+            border-color: var(--accent-color);
+        }
+        
+        /* Task Form */
+        #task-section {
+            display: none;
+        }
+        
+        .task-form {
+            background: var(--surface-color);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        
+        .form-group {
+            margin-bottom: 16px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 12px 14px;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: var(--text-color);
+            font-size: 1rem;
+            outline: none;
+        }
+        
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            border-color: var(--accent-color);
+        }
+        
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        .duration-row {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .duration-row input {
+            flex: 1;
+        }
+        
+        /* Buttons */
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-color), #ff8c5a);
+            color: white;
+        }
+        
+        .btn-primary:active {
+            transform: scale(0.98);
+        }
+        
+        .btn-secondary {
+            background: var(--surface-color);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+        }
+        
+        .btn-danger {
+            background: var(--error-color);
+            color: white;
+        }
+        
+        /* Task List */
+        .task-list {
+            margin-bottom: 20px;
+        }
+        
+        .task-list h3 {
+            font-size: 1rem;
+            margin-bottom: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .task-item {
+            background: var(--surface-color);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .task-item-content {
+            flex: 1;
+        }
+        
+        .task-item-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .task-item-meta {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        .task-item-delete {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: var(--error-color);
+            color: white;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Fixed Bottom Bar */
+        .bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--surface-color);
+            padding: 16px;
+            border-top: 1px solid var(--border-color);
+            display: none;
+        }
+        
+        .bottom-bar .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+        }
+        
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+        
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--surface-color);
+            color: var(--text-color);
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+        }
+        
+        .toast.show {
+            opacity: 1;
+        }
+        
+        .toast.success {
+            background: var(--success-color);
+        }
+        
+        .toast.error {
+            background: var(--error-color);
+        }
+        
+        /* Responsive */
+        @media (min-width: 500px) {
+            body {
+                max-width: 500px;
+                margin: 0 auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>
+            <img src="/static/images/icon.png" alt="Shakshuka" onerror="this.style.display='none'">
+            Shakshuka
+        </h1>
+        <span class="status-badge disconnected" id="status-badge">Not Paired</span>
+    </div>
+
+    <!-- Pairing Section -->
+    <div id="pairing-section">
+        <h2>Pair with PC</h2>
+        <p>Open Shakshuka on your PC, go to Settings → Pair Phone, and enter the 6-digit code below:</p>
+        <div class="code-input">
+            <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-index="0">
+            <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-index="1">
+            <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-index="2">
+            <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-index="3">
+            <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-index="4">
+            <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" data-index="5">
+        </div>
+        <button class="btn btn-primary" id="pair-btn">Pair Device</button>
+    </div>
+
+    <!-- Task Section (hidden until paired) -->
+    <div id="task-section">
+        <div class="task-form">
+            <div class="form-group">
+                <label>Task Title *</label>
+                <input type="text" id="task-title" placeholder="What do you need to do?">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="task-description" placeholder="Add more details..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Project</label>
+                <input type="text" id="task-project" placeholder="e.g., Work, Personal">
+            </div>
+            <div class="form-group">
+                <label>Duration (minutes)</label>
+                <div class="duration-row">
+                    <input type="number" id="task-duration" placeholder="30" min="1" max="480">
+                </div>
+            </div>
+            <button class="btn btn-primary" id="add-task-btn">+ Add Task</button>
+        </div>
+
+        <div class="task-list" id="task-list">
+            <h3>Tasks to Send (<span id="task-count">0</span>)</h3>
+            <div id="tasks-container">
+                <div class="empty-state">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                    </svg>
+                    <p>No tasks yet. Add your first task above!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Bar -->
+    <div class="bottom-bar" id="bottom-bar">
+        <button class="btn btn-primary" id="send-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+            </svg>
+            Send to PC
+        </button>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // State
+        let tasks = [];
+        let token = localStorage.getItem('companion_token');
+        let deviceId = localStorage.getItem('companion_device_id') || generateId();
+        
+        // Elements
+        const pairingSection = document.getElementById('pairing-section');
+        const taskSection = document.getElementById('task-section');
+        const bottomBar = document.getElementById('bottom-bar');
+        const statusBadge = document.getElementById('status-badge');
+        const codeInputs = document.querySelectorAll('.code-input input');
+        const pairBtn = document.getElementById('pair-btn');
+        const addTaskBtn = document.getElementById('add-task-btn');
+        const sendBtn = document.getElementById('send-btn');
+        const tasksContainer = document.getElementById('tasks-container');
+        const taskCountEl = document.getElementById('task-count');
+
+        // Generate unique ID
+        function generateId() {
+            const id = 'web_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('companion_device_id', id);
+            return id;
+        }
+
+        // Show toast notification
+        function showToast(message, type = '') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show ' + type;
+            setTimeout(() => toast.className = 'toast', 3000);
+        }
+
+        // Code input handling
+        codeInputs.forEach((input, index) => {
+            input.addEventListener('input', (e) => {
+                const value = e.target.value;
+                if (value && index < 5) {
+                    codeInputs[index + 1].focus();
+                }
+            });
+            
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !e.target.value && index > 0) {
+                    codeInputs[index - 1].focus();
+                }
+            });
+            
+            input.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const paste = (e.clipboardData || window.clipboardData).getData('text');
+                const digits = paste.replace(/\D/g, '').slice(0, 6);
+                digits.split('').forEach((d, i) => {
+                    if (codeInputs[i]) codeInputs[i].value = d;
+                });
+                if (digits.length === 6) {
+                    codeInputs[5].focus();
+                }
+            });
+        });
+
+        // Pair device
+        pairBtn.addEventListener('click', async () => {
+            const code = Array.from(codeInputs).map(i => i.value).join('');
+            if (code.length !== 6) {
+                showToast('Please enter the 6-digit code', 'error');
+                return;
+            }
+
+            pairBtn.disabled = true;
+            pairBtn.textContent = 'Pairing...';
+
+            try {
+                const response = await fetch('/api/mobile/pair', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        code: code,
+                        device_id: deviceId,
+                        device_name: 'Web Browser (' + navigator.platform + ')'
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    token = data.token;
+                    localStorage.setItem('companion_token', token);
+                    showToast('Successfully paired!', 'success');
+                    showTaskSection();
+                } else {
+                    showToast(data.error || 'Pairing failed', 'error');
+                }
+            } catch (e) {
+                showToast('Connection failed', 'error');
+            }
+
+            pairBtn.disabled = false;
+            pairBtn.textContent = 'Pair Device';
+        });
+
+        // Show task section after pairing
+        function showTaskSection() {
+            pairingSection.style.display = 'none';
+            taskSection.style.display = 'block';
+            bottomBar.style.display = 'block';
+            statusBadge.textContent = 'Paired';
+            statusBadge.className = 'status-badge connected';
+        }
+
+        // Add task
+        addTaskBtn.addEventListener('click', () => {
+            const title = document.getElementById('task-title').value.trim();
+            const description = document.getElementById('task-description').value.trim();
+            const project = document.getElementById('task-project').value.trim();
+            const duration = parseInt(document.getElementById('task-duration').value) || 30;
+
+            if (!title) {
+                showToast('Please enter a task title', 'error');
+                return;
+            }
+
+            const task = {
+                id: Date.now().toString(),
+                client_task_id: Date.now().toString(),
+                title,
+                description,
+                project,
+                duration
+            };
+
+            tasks.push(task);
+            renderTasks();
+            
+            // Clear form
+            document.getElementById('task-title').value = '';
+            document.getElementById('task-description').value = '';
+            document.getElementById('task-project').value = '';
+            document.getElementById('task-duration').value = '';
+            
+            showToast('Task added!', 'success');
+        });
+
+        // Render tasks
+        function renderTasks() {
+            taskCountEl.textContent = tasks.length;
+            
+            if (tasks.length === 0) {
+                tasksContainer.innerHTML = `
+                    <div class="empty-state">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                        </svg>
+                        <p>No tasks yet. Add your first task above!</p>
+                    </div>
+                `;
+                return;
+            }
+
+            tasksContainer.innerHTML = tasks.map(task => `
+                <div class="task-item">
+                    <div class="task-item-content">
+                        <div class="task-item-title">${escapeHtml(task.title)}</div>
+                        <div class="task-item-meta">
+                            ${task.project ? task.project + ' • ' : ''}${task.duration} min
+                        </div>
+                    </div>
+                    <button class="task-item-delete" onclick="deleteTask('${task.id}')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Delete task
+        window.deleteTask = function(id) {
+            tasks = tasks.filter(t => t.id !== id);
+            renderTasks();
+        };
+
+        // Send tasks to PC
+        sendBtn.addEventListener('click', async () => {
+            if (tasks.length === 0) {
+                showToast('Add some tasks first', 'error');
+                return;
+            }
+
+            if (!token) {
+                showToast('Please pair with your PC first', 'error');
+                return;
+            }
+
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<span>Sending...</span>';
+
+            try {
+                const response = await fetch('/api/mobile/inbox', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify({ tasks })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(`Sent ${tasks.length} task(s) to PC!`, 'success');
+                    tasks = [];
+                    renderTasks();
+                } else if (response.status === 401) {
+                    // Token invalid, need to re-pair
+                    localStorage.removeItem('companion_token');
+                    token = null;
+                    showToast('Session expired. Please pair again.', 'error');
+                    pairingSection.style.display = 'block';
+                    taskSection.style.display = 'none';
+                    bottomBar.style.display = 'none';
+                    statusBadge.textContent = 'Not Paired';
+                    statusBadge.className = 'status-badge disconnected';
+                } else {
+                    showToast(data.error || 'Failed to send', 'error');
+                }
+            } catch (e) {
+                showToast('Connection failed', 'error');
+            }
+
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Send to PC
+            `;
+        });
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Check if already paired
+        if (token) {
+            // Verify token is still valid
+            fetch('/api/mobile/inbox/pending', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            }).then(r => {
+                if (r.ok) {
+                    showTaskSection();
+                } else {
+                    localStorage.removeItem('companion_token');
+                    token = null;
+                }
+            }).catch(() => {});
+        }
+    </script>
+</body>
+</html>

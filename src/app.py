@@ -1038,6 +1038,11 @@ def index():
         config=config
     )
 
+@app.route('/companion')
+def companion():
+    """Serve the web-based mobile companion page for iOS and other devices"""
+    return render_template('companion.html')
+
 @app.route('/favicon.ico')
 def favicon():
     """Serve the favicon"""
