@@ -19,6 +19,11 @@ _app_context = None
 _get_user_id_func = None
 _ensure_data_manager_func = None
 
+# Rate limiting for pairing attempts (prevent brute force)
+_pairing_attempts = {}  # IP -> {count, first_attempt_time}
+MAX_PAIRING_ATTEMPTS = 5
+PAIRING_LOCKOUT_SECONDS = 300  # 5 minutes
+
 
 def init_mobile_routes(app_context, get_user_id_func, ensure_data_manager_func):
     global _app_context, _get_user_id_func, _ensure_data_manager_func
@@ -132,6 +137,41 @@ def get_pairing_code():
     )
 
 
+def _check_rate_limit(ip: str) -> Tuple[bool, str]:
+    """Check if IP is rate limited. Returns (allowed, error_message)."""
+    now = datetime.now()
+    
+    if ip in _pairing_attempts:
+        attempt_data = _pairing_attempts[ip]
+        first_attempt = datetime.fromisoformat(attempt_data["first_attempt"])
+        elapsed = (now - first_attempt).total_seconds()
+        
+        # Reset if lockout period has passed
+        if elapsed > PAIRING_LOCKOUT_SECONDS:
+            _pairing_attempts[ip] = {"count": 0, "first_attempt": now.isoformat()}
+        elif attempt_data["count"] >= MAX_PAIRING_ATTEMPTS:
+            remaining = int(PAIRING_LOCKOUT_SECONDS - elapsed)
+            return False, f"Too many attempts. Try again in {remaining} seconds."
+    else:
+        _pairing_attempts[ip] = {"count": 0, "first_attempt": now.isoformat()}
+    
+    return True, ""
+
+
+def _record_failed_attempt(ip: str):
+    """Record a failed pairing attempt."""
+    if ip in _pairing_attempts:
+        _pairing_attempts[ip]["count"] += 1
+    else:
+        _pairing_attempts[ip] = {"count": 1, "first_attempt": datetime.now().isoformat()}
+
+
+def _clear_rate_limit(ip: str):
+    """Clear rate limit on successful pairing."""
+    if ip in _pairing_attempts:
+        del _pairing_attempts[ip]
+
+
 @mobile_bp.route("/pair", methods=["POST"])
 def pair_device():
     if _ensure_data_manager_func and not _ensure_data_manager_func():
@@ -139,6 +179,12 @@ def pair_device():
 
     if not _app_context:
         return jsonify({"success": False, "error": "App context not available"}), 500
+
+    # Rate limiting check
+    client_ip = request.remote_addr or "unknown"
+    allowed, rate_error = _check_rate_limit(client_ip)
+    if not allowed:
+        return jsonify({"success": False, "error": rate_error}), 429
 
     data = request.json
     if data is None or not isinstance(data, dict):
@@ -150,6 +196,7 @@ def pair_device():
 
     pairing_cache = getattr(_app_context, "_mobile_pairing_codes", None)
     if not code or pairing_cache is None or code not in pairing_cache:
+        _record_failed_attempt(client_ip)
         return jsonify({"success": False, "error": "Invalid or expired code"}), 400
 
     try:
@@ -177,6 +224,9 @@ def pair_device():
         logger.error("Failed to save paired device: %s", e)
         return jsonify({"success": False, "error": "Failed to save device"}), 500
 
+    # Clear rate limit on successful pairing
+    _clear_rate_limit(client_ip)
+    
     return jsonify({"success": True, "token": token, "device_id": device_id, "device_name": device_name})
 
 
