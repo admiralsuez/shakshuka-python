@@ -1,3 +1,9 @@
+## Version 17.8 - Release
+Release Date: 2025-12-28T14:00:11.709217
+
+Highlights
+
+---
 ## Version 17.7 - UI Improvements & App Enhancements
 Release Date: 2025-12-28
 
