@@ -1020,28 +1020,31 @@ function closeTaskSearch() {
     if (searchInput) searchInput.value = '';
     taskSearchQuery = '';
     filterTasksBySearch();
+    
+    // Switch to active filter tab when closing search
+    setActiveFilter('active');
 }
 
 function filterTasksBySearch() {
     const tasksList = document.getElementById('tasks-list');
     if (!tasksList) return;
     
-    const taskCards = tasksList.querySelectorAll('.task-card');
-    taskCards.forEach(card => {
+    const taskItems = tasksList.querySelectorAll('.task-item');
+    taskItems.forEach(item => {
         if (!taskSearchQuery) {
-            card.style.display = '';
+            item.style.display = '';
             return;
         }
         
-        const title = card.querySelector('.task-title')?.textContent?.toLowerCase() || '';
-        const description = card.querySelector('.task-description')?.textContent?.toLowerCase() || '';
-        const project = card.querySelector('.task-project')?.textContent?.toLowerCase() || '';
+        const title = item.querySelector('.task-title')?.textContent?.toLowerCase() || '';
+        const description = item.querySelector('.task-description')?.textContent?.toLowerCase() || '';
+        const project = item.querySelector('.project-tag')?.textContent?.toLowerCase() || '';
         
         const matches = title.includes(taskSearchQuery) || 
                        description.includes(taskSearchQuery) || 
                        project.includes(taskSearchQuery);
         
-        card.style.display = matches ? '' : 'none';
+        item.style.display = matches ? '' : 'none';
     });
 }
 
