@@ -59,6 +59,33 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup signing key
+        working-directory: shakshuka_companion/android
+        run: |
+          # Create keystore from secret or generate new one
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "Using existing keystore from secrets"
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > shakshuka-release-key.jks
+          else
+            echo "Generating new keystore (first build)"
+            keytool -genkey -v -keystore shakshuka-release-key.jks \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -alias shakshuka -storepass shakshuka123 -keypass shakshuka123 \
+              -dname "CN=Shakshuka, OU=Mobile, O=Shakshuka, L=Unknown, ST=Unknown, C=US"
+            echo ""
+            echo "⚠️  IMPORTANT: Add this keystore to GitHub secrets to ensure consistent signing!"
+            echo "Run: base64 -w 0 shakshuka-release-key.jks"
+            echo "Then add the output as ANDROID_KEYSTORE_BASE64 secret in your repo settings."
+          fi
+          
+          # Create key.properties
+          cat > key.properties << EOF
+          storePassword=shakshuka123
+          keyPassword=shakshuka123
+          keyAlias=shakshuka
+          storeFile=../shakshuka-release-key.jks
+          EOF
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -113,3 +140,11 @@ jobs:
           name: shakshuka-companion-debug-symbols
           path: shakshuka_companion/build/debug-info/
           retention-days: 30
+
+      - name: Upload keystore (save this as secret for future builds)
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-keystore-SAVE-AS-SECRET
+          path: shakshuka_companion/android/shakshuka-release-key.jks
+          retention-days: 7
+          if-no-files-found: ignore

@@ -234,3 +234,8 @@ data/users.json
 
 # Debug scripts (development only)
 debug_scripts/
+
+# Android signing keys (sensitive)
+*.jks
+*.keystore
+shakshuka_companion/android/key.properties
