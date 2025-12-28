@@ -4,6 +4,7 @@
     let currentPendingSubmissionId = null;
     let pollingTimer = null;
     let pollingInFlight = false;
+    let operationInProgress = false;
 
     function getEl(id) {
         return document.getElementById(id);
@@ -250,8 +251,14 @@
     }
 
     async function approveInbox() {
+        if (operationInProgress) {
+            console.log('[MobileInbox] Operation already in progress, skipping approve');
+            return;
+        }
         const submissionId = currentPendingSubmissionId;
         if (!submissionId) return;
+        
+        operationInProgress = true;
 
         const checkboxes = Array.from(document.querySelectorAll('.mobile-inbox-task'));
         const selected = checkboxes
@@ -296,6 +303,8 @@
 
         } catch (e) {
             safeNotify(e.message || 'Failed to import tasks', 'error');
+        } finally {
+            operationInProgress = false;
         }
     }
 
@@ -314,11 +323,17 @@
     }
 
     async function rejectInbox() {
+        if (operationInProgress) {
+            console.log('[MobileInbox] Operation already in progress, skipping reject');
+            return;
+        }
         const submissionId = currentPendingSubmissionId;
         if (!submissionId) {
             close('mobile-inbox-modal');
             return;
         }
+        
+        operationInProgress = true;
 
         try {
             const data = await fetchJson(`/api/mobile/inbox/${encodeURIComponent(submissionId)}/reject`, {
@@ -335,6 +350,8 @@
             currentPendingSubmissionId = null;
         } catch (e) {
             safeNotify(e.message || 'Failed to reject', 'error');
+        } finally {
+            operationInProgress = false;
         }
     }
 

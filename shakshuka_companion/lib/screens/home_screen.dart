@@ -25,6 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isUploading = false;
   bool _isConnected = false;
   int _totalTasksSent = 0;
+  bool _notPairedBarDismissed = false;
 
   @override
   void initState() {
@@ -601,8 +602,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(
         children: [
-          // Offline indicator - not paired (clickable)
-          if (!_storage.isPaired)
+          // Offline indicator - not paired (clickable, dismissable)
+          if (!_storage.isPaired && !_notPairedBarDismissed)
             GestureDetector(
               onTap: _openScanner,
               child: Container(
@@ -619,13 +620,30 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.link_off, size: 18, color: Colors.white),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Not paired - Tap here to connect to PC',
-                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: const [
+                          Icon(Icons.link_off, size: 18, color: Colors.white),
+                          SizedBox(width: 8),
+                          Text(
+                            'Not paired - Tap to connect',
+                            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _notPairedBarDismissed = true;
+                        });
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.only(left: 8),
+                        child: Icon(Icons.close, size: 18, color: Colors.white70),
+                      ),
                     ),
                   ],
                 ),
