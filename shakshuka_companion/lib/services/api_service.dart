@@ -103,9 +103,12 @@ class ApiService {
           'message': data['error'] ?? 'Upload failed'
         };
       } else if (response.statusCode == 401) {
+        // Device was unpaired from desktop - clear local pairing
+        await _storage.clearPairing();
         return {
           'success': false,
-          'message': 'Authentication failed. Please re-pair with your PC.'
+          'message': 'Device was unpaired from PC. Please pair again before sending tasks.',
+          'unpaired': true,
         };
       } else {
         return {

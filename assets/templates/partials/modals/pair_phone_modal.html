@@ -18,10 +18,21 @@
             </button>
         </div>
         <div class="modal-body" style="text-align:center;">
-            <div id="pair-phone-status" style="margin-bottom: 10px;">Loading…</div>
-            <div id="pair-phone-code" style="font-size: 28px; font-weight: 700; letter-spacing: 6px; margin-bottom: 10px;"></div>
-            <div id="pair-phone-qr" style="display:flex; justify-content:center; margin-bottom: 10px;"></div>
-            <div id="pair-phone-url" style="word-break: break-all;"></div>
+            <!-- Paired Devices Section -->
+            <div id="paired-devices-section" style="margin-bottom: 20px; text-align: left; display: none;">
+                <h4 style="margin-bottom: 10px; color: var(--text-color);">
+                    <i class="fas fa-mobile-alt"></i> Paired Devices
+                </h4>
+                <div id="paired-devices-list" style="max-height: 150px; overflow-y: auto;"></div>
+            </div>
+            
+            <!-- Pairing Section -->
+            <div id="pairing-section">
+                <div id="pair-phone-status" style="margin-bottom: 10px;">Loading…</div>
+                <div id="pair-phone-code" style="font-size: 28px; font-weight: 700; letter-spacing: 6px; margin-bottom: 10px;"></div>
+                <div id="pair-phone-qr" style="display:flex; justify-content:center; margin-bottom: 10px;"></div>
+                <div id="pair-phone-url" style="word-break: break-all;"></div>
+            </div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn-secondary" id="pair-phone-refresh-btn">Refresh</button>

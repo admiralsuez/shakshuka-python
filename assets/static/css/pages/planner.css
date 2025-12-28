@@ -64,9 +64,14 @@
     font-weight: 700;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: 0 2px 8px var(--shadow-color);
+    box-shadow: 0 0 15px var(--accent-color), 0 2px 8px var(--shadow-color);
+    animation: pair-phone-glow 2s ease-in-out infinite alternate;
 }
-.pair-phone-cta:hover { transform: translateY(-2px); box-shadow: 0 4px 12px var(--shadow-color); }
+@keyframes pair-phone-glow {
+    from { box-shadow: 0 0 10px var(--accent-color), 0 2px 8px var(--shadow-color); }
+    to { box-shadow: 0 0 20px var(--accent-color), 0 0 30px var(--accent-color), 0 4px 12px var(--shadow-color); }
+}
+.pair-phone-cta:hover { transform: translateY(-2px); box-shadow: 0 0 25px var(--accent-color), 0 4px 12px var(--shadow-color); animation: none; }
 .pair-phone-cta i { font-size: 14px; }
 .settings-section {
     background: var(--surface-finish-gradient);

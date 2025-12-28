@@ -132,8 +132,79 @@
 
     function openPairPhoneModal() {
         open('pair-phone-modal');
+        loadPairedDevices();
         refreshPairingCode();
     }
+
+    async function loadPairedDevices() {
+        const section = getEl('paired-devices-section');
+        const listEl = getEl('paired-devices-list');
+        if (!section || !listEl) return;
+
+        try {
+            const response = await apiCall('/api/mobile/devices');
+            const data = await response.json();
+            
+            if (data.success && data.devices && data.devices.length > 0) {
+                section.style.display = 'block';
+                const html = data.devices.map(device => {
+                    const lastSeen = device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : 'Never';
+                    return `
+                        <div class="paired-device-item" style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: var(--surface-color); border-radius: 8px; margin-bottom: 8px; border: 1px solid var(--border-color);">
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; color: var(--text-color);">
+                                    <i class="fas fa-mobile-alt" style="margin-right: 8px;"></i>${device.device_name || 'Unknown Device'}
+                                </div>
+                                <div style="font-size: 0.8rem; color: var(--text-secondary);">Last seen: ${lastSeen}</div>
+                            </div>
+                            <button class="btn-danger" style="padding: 6px 12px; font-size: 0.8rem;" onclick="unpairDevice('${device.device_id}')">
+                                <i class="fas fa-unlink"></i> Unpair
+                            </button>
+                        </div>
+                    `;
+                }).join('');
+                listEl.innerHTML = html;
+            } else {
+                section.style.display = 'none';
+                listEl.innerHTML = '';
+            }
+        } catch (e) {
+            console.error('Failed to load paired devices:', e);
+            section.style.display = 'none';
+        }
+    }
+
+    async function unpairDevice(deviceId) {
+        if (!confirm('Are you sure you want to unpair this device? The phone will need to pair again before sending tasks.')) {
+            return;
+        }
+
+        try {
+            const response = await apiCall(`/api/mobile/devices/${deviceId}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                if (typeof showNotification === 'function') {
+                    showNotification('Device unpaired successfully', 'success');
+                }
+                loadPairedDevices();
+            } else {
+                if (typeof showNotification === 'function') {
+                    showNotification(data.error || 'Failed to unpair device', 'error');
+                }
+            }
+        } catch (e) {
+            console.error('Failed to unpair device:', e);
+            if (typeof showNotification === 'function') {
+                showNotification('Failed to unpair device', 'error');
+            }
+        }
+    }
+
+    // Expose unpairDevice globally
+    window.unpairDevice = unpairDevice;
 
     function getTasksFromPayload(payload) {
         if (!payload || typeof payload !== 'object') return [];

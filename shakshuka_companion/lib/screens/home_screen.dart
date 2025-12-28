@@ -204,15 +204,61 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message']),
-            backgroundColor: Colors.red,
-          ),
-        );
+      // Check if device was unpaired from desktop
+      if (result['unpaired'] == true) {
+        setState(() => _isConnected = false);
+        if (mounted) {
+          _showUnpairedDialog();
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result['message']),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
+  }
+
+  void _showUnpairedDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF16213E),
+        title: const Row(
+          children: [
+            Icon(Icons.link_off, color: Colors.orange),
+            SizedBox(width: 12),
+            Text('Device Unpaired'),
+          ],
+        ),
+        content: const Text(
+          'This device was unpaired from your PC. Your tasks are still saved locally.\n\nPlease pair again before sending tasks.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Later'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _openScanner();
+            },
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text('Pair Now'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openScanner() async {

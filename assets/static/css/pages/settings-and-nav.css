@@ -65,6 +65,41 @@
     width: auto;
 }
 
+/* Consistent styling for settings action buttons */
+#view-logs-btn,
+#view-changelog-btn,
+#view-whats-new-btn,
+#view-shortcuts-btn,
+#view-docs-btn,
+#report-issue-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(0.5rem * var(--dpi-scale));
+    padding: calc(0.6rem * var(--dpi-scale)) calc(1rem * var(--dpi-scale));
+    min-width: 160px;
+    font-size: calc(0.85rem * var(--dpi-scale));
+    font-weight: 500;
+    border-radius: calc(10px * var(--dpi-scale));
+    transition: all 0.2s ease;
+}
+#view-logs-btn:hover,
+#view-changelog-btn:hover,
+#view-whats-new-btn:hover,
+#view-shortcuts-btn:hover,
+#view-docs-btn:hover,
+#report-issue-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--shadow-color);
+}
+#view-logs-btn i,
+#view-changelog-btn i,
+#view-whats-new-btn i,
+#view-shortcuts-btn i,
+#view-docs-btn i,
+#report-issue-btn i {
+    font-size: calc(0.9rem * var(--dpi-scale));
+}
+
 .backup-list {
     max-height: calc(400px * var(--dpi-scale));
     overflow-y: auto;

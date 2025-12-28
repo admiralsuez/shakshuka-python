@@ -180,6 +180,71 @@ def pair_device():
     return jsonify({"success": True, "token": token, "device_id": device_id, "device_name": device_name})
 
 
+@mobile_bp.route("/devices", methods=["GET"])
+def list_devices():
+    """List all paired devices for the current user (local requests only)."""
+    if not _is_local_request():
+        return jsonify({"success": False, "error": "Forbidden"}), 403
+
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        return jsonify({"success": False, "error": "Data manager not initialized"}), 503
+
+    dm = _get_data_manager()
+    if not dm:
+        return jsonify({"success": False, "error": "Data manager not available"}), 500
+
+    user_id = _get_user_id()
+
+    try:
+        with dm._get_connection() as conn:  # pylint: disable=protected-access
+            cur = conn.execute(
+                "SELECT device_id, device_name, created_at, last_seen_at FROM mobile_devices WHERE user_id = ? ORDER BY last_seen_at DESC",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+            devices = [
+                {
+                    "device_id": row[0],
+                    "device_name": row[1],
+                    "created_at": row[2],
+                    "last_seen_at": row[3],
+                }
+                for row in rows
+            ]
+            return jsonify({"success": True, "devices": devices})
+    except Exception as e:
+        logger.error("Failed to list devices: %s", e)
+        return jsonify({"success": False, "error": "Failed to list devices"}), 500
+
+
+@mobile_bp.route("/devices/<device_id>", methods=["DELETE"])
+def unpair_device(device_id: str):
+    """Unpair a device (local requests only)."""
+    if not _is_local_request():
+        return jsonify({"success": False, "error": "Forbidden"}), 403
+
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        return jsonify({"success": False, "error": "Data manager not initialized"}), 503
+
+    dm = _get_data_manager()
+    if not dm:
+        return jsonify({"success": False, "error": "Data manager not available"}), 500
+
+    user_id = _get_user_id()
+
+    try:
+        with dm._get_connection() as conn:  # pylint: disable=protected-access
+            conn.execute(
+                "DELETE FROM mobile_devices WHERE user_id = ? AND device_id = ?",
+                (user_id, device_id),
+            )
+            conn.commit()
+            return jsonify({"success": True, "message": "Device unpaired"})
+    except Exception as e:
+        logger.error("Failed to unpair device: %s", e)
+        return jsonify({"success": False, "error": "Failed to unpair device"}), 500
+
+
 @mobile_bp.route("/inbox", methods=["POST"])
 def submit_inbox():
     if _ensure_data_manager_func and not _ensure_data_manager_func():
