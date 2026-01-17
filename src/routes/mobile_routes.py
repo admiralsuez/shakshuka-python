@@ -623,6 +623,7 @@ def get_current_tasks():
                 "struck_today": t.get("struck_today", False),
                 "completed": t.get("completed", False),
                 "struck_forever": t.get("struck_forever", False),
+                "strike_count": t.get("strike_count", 0),
             }
             for t in all_tasks
             if not t.get("struck_forever") and not t.get("completed")
