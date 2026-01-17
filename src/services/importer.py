@@ -28,7 +28,7 @@ def _maybe_sanitize(value: Any, sanitize: SanitizeFn) -> Any:
         return value
     try:
         return sanitize(value)
-    except Exception:  # pragma: no cover - defensive only
+    except Exception:  # pragma: no cover - defensive only  # noqa: broad-except
         logger.warning("sanitize_input failed, returning original value", exc_info=True)
         return value
 

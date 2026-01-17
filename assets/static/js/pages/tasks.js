@@ -3,15 +3,36 @@
 // Task management functions
 async function loadTasks() {
     try {
-        const response = await apiCall('/api/tasks');
-        const baseTasks = await response.json();
+        try {
+            if (window.Utils && typeof window.Utils.waitForHealthy === 'function') {
+                await window.Utils.waitForHealthy({ timeoutMs: 12000, intervalMs: 250 });
+            }
+        } catch (e) {}
+
+        let baseTasks = null;
+        if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+            baseTasks = await window.Utils.apiRequestJson('/api/tasks', {}, { expectObject: false, retries: 3, retryDelayMs: 750 });
+        } else {
+            const response = await apiCall('/api/tasks');
+            if (!response.ok) {
+                throw new Error(`Failed to load tasks (${response.status})`);
+            }
+            baseTasks = await response.json();
+        }
 
         let merged = Array.isArray(baseTasks) ? baseTasks : [];
 
         // Merge scheduled tasks from Planner v2 so Tasks page shows them too
         try {
-            const schedResp = await apiCall('/api/planner-v2/schedule');
-            const schedData = await schedResp.json();
+            let schedData = null;
+            if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+                schedData = await window.Utils.apiRequestJson('/api/planner-v2/schedule', {}, { expectObject: true, retries: 0 });
+            } else {
+                const schedResp = await apiCall('/api/planner-v2/schedule');
+                if (schedResp.ok) {
+                    schedData = await schedResp.json();
+                }
+            }
             if (schedData && schedData.success && schedData.scheduled_tasks) {
                 const flatScheduled = [];
                 Object.values(schedData.scheduled_tasks).forEach(dayMap => {
@@ -153,11 +174,11 @@ if (!window.MiniAnalyticsTicker) {
                 { label: 'Completed Forever', value: completedForever },
                 { label: 'Settings Changes', value: settingsChanges },
                 { label: 'Tasks Retried', value: tasksRetried },
-                { label: 'Tasks Deleted', value: tasksDeleted },
+                { label: 'Deleted (All-time)', value: tasksDeleted },
                 { label: 'Tasks Edited', value: tasksEdited },
                 { label: 'Tasks with Dates', value: tasksWithDates },
                 { label: 'Tasks with Time', value: tasksWithTime },
-                { label: 'Tasks Planned', value: tasksPlanned },
+                { label: 'Planned (All-time)', value: tasksPlanned },
             ];
         },
 
@@ -333,7 +354,8 @@ async function deleteTask(taskId) {
 
     try {
         const response = await apiCall(`/api/tasks/${taskId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: { 'X-Delete-Source': 'tasklist' }
         });
 
         if (response.ok) {
@@ -367,7 +389,19 @@ async function deleteTask(taskId) {
                     }
                 }
             } catch (e) { /* no-op */ }
-            Utils.safeShowNotification('Task deleted successfully!', 'success');
+
+            try {
+                if (typeof showNotification === 'function') {
+                    showNotification('Task deleted. Click to undo.', 'info', {
+                        durationMs: 3000,
+                        onClick: () => undoDeleteTask(taskId)
+                    });
+                } else {
+                    Utils.safeShowNotification('Task deleted successfully!', 'success');
+                }
+            } catch (e) {
+                Utils.safeShowNotification('Task deleted successfully!', 'success');
+            }
         } else {
             const error = await response.json();
             Utils.safeShowNotification(error.error || 'Failed to delete task', 'error');
@@ -375,6 +409,49 @@ async function deleteTask(taskId) {
     } catch (error) {
         Logger.error('Failed to delete task:', error);
         Utils.safeShowNotification('Failed to delete task', 'error');
+    }
+}
+
+async function undoDeleteTask(taskId) {
+    try {
+        const response = await apiCall(`/api/tasks/${taskId}/undo-delete`, {
+            method: 'POST',
+            headers: { 'X-Delete-Source': 'tasklist' }
+        });
+
+        if (response.ok) {
+            const currentFilter = (AppState && AppState.get) ? AppState.get('currentFilter') || 'active' : 'active';
+            const currentPage = (AppState && AppState.get) ? AppState.get('currentPage') : 'tasks';
+
+            await loadTasks();
+
+            if (currentPage === 'tasks') {
+                try {
+                    if (typeof setActiveFilter === 'function') setActiveFilter(currentFilter);
+                    if (typeof renderTasks === 'function') renderTasks(currentFilter);
+                } catch (e) { /* no-op */ }
+            }
+
+            try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
+            try {
+                if (window.DailyPlannerV2) {
+                    if (typeof window.DailyPlannerV2.loadAvailableTasks === 'function') {
+                        window.DailyPlannerV2.loadAvailableTasks();
+                    }
+                    if (typeof window.DailyPlannerV2.loadScheduledTasksFromBackend === 'function') {
+                        window.DailyPlannerV2.loadScheduledTasksFromBackend();
+                    }
+                }
+            } catch (e) { /* no-op */ }
+
+            Utils.safeShowNotification('Task restored successfully!', 'success');
+        } else {
+            const error = await response.json().catch(() => ({}));
+            Utils.safeShowNotification(error.error || 'Failed to restore task', 'error');
+        }
+    } catch (error) {
+        Logger.error('Failed to undo delete task:', error);
+        Utils.safeShowNotification('Failed to restore task', 'error');
     }
 }
 
@@ -561,6 +638,9 @@ function renderTasks() {
 
     // Re-attach drag and drop listeners
     setupDragAndDrop();
+    
+    // Setup scrolling titles for long task names
+    setupScrollingTitles();
 }
 
 // Sync strike classes with current task state (used after daily reset to remove stale CSS classes)
@@ -663,15 +743,54 @@ function sortTasksForDisplay(tasks) {
         return [];
     }
 
-    return [...tasks].sort((a, b) => {
-        const aStruck = a?.struck_today || a?.completed || a?.struck_forever;
-        const bStruck = b?.struck_today || b?.completed || b?.struck_forever;
+    const sortBy = (AppState && AppState.get) ? AppState.get('taskSort') || 'default' : 'default';
+    const tasksCopy = [...tasks];
 
-        if (aStruck === bStruck) {
-            return 0;
+    // Separate struck and non-struck tasks
+    const activeTasksList = tasksCopy.filter(t => !t?.struck_today && !t?.completed && !t?.struck_forever);
+    const struckTasksList = tasksCopy.filter(t => t?.struck_today || t?.completed || t?.struck_forever);
+
+    // Apply user-selected sort to both groups
+    const applySorting = (list) => {
+        if (sortBy === 'title') {
+            list.sort((a, b) => (a?.title || '').localeCompare(b?.title || ''));
+        } else if (sortBy === 'title-desc') {
+            list.sort((a, b) => (b?.title || '').localeCompare(a?.title || ''));
+        } else if (sortBy === 'priority') {
+            const priorityOrder = { high: 1, medium: 2, low: 3 };
+            list.sort((a, b) => {
+                const aPrio = priorityOrder[a?.priority] || 4;
+                const bPrio = priorityOrder[b?.priority] || 4;
+                return aPrio - bPrio;
+            });
+        } else if (sortBy === 'due-date') {
+            list.sort((a, b) => {
+                const aDate = a?.due_date ? new Date(a.due_date).getTime() : Infinity;
+                const bDate = b?.due_date ? new Date(b.due_date).getTime() : Infinity;
+                return aDate - bDate;
+            });
+        } else if (sortBy === 'created') {
+            list.sort((a, b) => {
+                const aDate = a?.created_at ? new Date(a.created_at).getTime() : 0;
+                const bDate = b?.created_at ? new Date(b.created_at).getTime() : 0;
+                return bDate - aDate; // newest first
+            });
+        } else if (sortBy === 'created-asc') {
+            list.sort((a, b) => {
+                const aDate = a?.created_at ? new Date(a.created_at).getTime() : 0;
+                const bDate = b?.created_at ? new Date(b.created_at).getTime() : 0;
+                return aDate - bDate; // oldest first
+            });
         }
-        return aStruck ? 1 : -1;
-    });
+        return list;
+    };
+
+    // Apply sorting to both groups
+    applySorting(activeTasksList);
+    applySorting(struckTasksList);
+
+    // Return active tasks first, then struck tasks
+    return [...activeTasksList, ...struckTasksList];
 }
 
 // Task filtering
@@ -683,6 +802,7 @@ function filterTasks(tasks, filter) {
             return tasks.filter(task => window.TaskHelpers && TaskHelpers.isDone(task));
         case 'today':
             return tasks.filter(task => window.TaskHelpers && TaskHelpers.isStruckToday(task));
+        case 'expired':
         case 'overdue':
             return tasks.filter(task => window.TaskHelpers && TaskHelpers.isExpired(task));
         case 'all':
@@ -707,6 +827,19 @@ function setActiveFilter(filter) {
     renderTasks();
 }
 
+function setTaskSort(sortValue) {
+    const value = sortValue || 'default';
+    AppState.set('taskSort', value);
+
+    const select = document.getElementById('task-sort');
+    if (select && select.value !== value) {
+        select.value = value;
+    }
+
+    // Re-render tasks with the new sort order
+    renderTasks();
+}
+
 function setProjectFilter(filterValue) {
     const value = filterValue || 'all';
     AppState.set('projectFilter', value);
@@ -724,7 +857,22 @@ function setProjectFilter(filterValue) {
     }
 }
 
+// Debounce timer for updateProjectFilterOptions
+let _updateProjectFilterTimer = null;
+
 function updateProjectFilterOptions() {
+    // Debounce to prevent multiple rapid calls from freezing the UI
+    if (_updateProjectFilterTimer) {
+        clearTimeout(_updateProjectFilterTimer);
+    }
+    
+    _updateProjectFilterTimer = setTimeout(() => {
+        _updateProjectFilterTimer = null;
+        _updateProjectFilterOptionsNow();
+    }, 100);
+}
+
+function _updateProjectFilterOptionsNow() {
     const select = document.getElementById('project-filter');
     if (!select || !AppState || !AppState.getTasks) return;
 
@@ -786,12 +934,12 @@ function updateProjectFilterOptions() {
     AppState.set('projectFilter', target);
 }
 
-// Wire up project filter change handler once DOM is ready
+// Wire up project filter and task sort change handlers once DOM is ready
 if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', () => {
-        const select = document.getElementById('project-filter');
-        if (select) {
-            select.addEventListener('change', (e) => {
+        const projectSelect = document.getElementById('project-filter');
+        if (projectSelect) {
+            projectSelect.addEventListener('change', (e) => {
                 setProjectFilter(e.target.value);
             });
 
@@ -800,9 +948,122 @@ if (typeof document !== 'undefined') {
                 const existing = (typeof AppState !== 'undefined' && AppState.get)
                     ? AppState.get('projectFilter') || 'all'
                     : 'all';
-                select.value = existing;
+                projectSelect.value = existing;
             } catch (e) { /* no-op */ }
         }
+
+        const sortSelect = document.getElementById('task-sort');
+        if (sortSelect) {
+            sortSelect.addEventListener('change', (e) => {
+                setTaskSort(e.target.value);
+            });
+
+            // Initialize from AppState if a task sort is already set
+            try {
+                const existing = (typeof AppState !== 'undefined' && AppState.get)
+                    ? AppState.get('taskSort') || 'default'
+                    : 'default';
+                sortSelect.value = existing;
+            } catch (e) { /* no-op */ }
+        }
+    });
+}
+
+// Scrolling title functionality for long task names
+function setupScrollingTitles() {
+    const taskItems = document.querySelectorAll('.task-item');
+    
+    taskItems.forEach(item => {
+        const titleEl = item.querySelector('.task-title');
+        const contentEl = item.querySelector('.task-content');
+        const actionsEl = item.querySelector('.task-actions');
+        
+        if (!titleEl || !contentEl || !actionsEl) return;
+        
+        let scrollInterval = null;
+        let resizeObserver = null;
+        let originalText = null;
+        
+        const checkOverflow = () => {
+            // Store original text if not already stored
+            if (!originalText) {
+                originalText = titleEl.textContent;
+            }
+            // Check if title width exceeds available space in the content container
+            const contentWidth = contentEl.offsetWidth;
+            const actionsWidth = actionsEl.offsetWidth;
+            const availableWidth = contentWidth - actionsWidth - 40; // Buffer for spacing
+            const isOverflowing = titleEl.scrollWidth > availableWidth;
+            
+            return isOverflowing;
+        };
+        
+        const startScroll = () => {
+            if (!checkOverflow()) return;
+            
+            // Store original text before modifying
+            if (!originalText) {
+                originalText = titleEl.textContent;
+            }
+            
+            titleEl.style.whiteSpace = 'nowrap';
+            titleEl.style.overflow = 'hidden';
+            
+            const extendedText = originalText + '   •   ' + originalText; // Add separator
+            titleEl.textContent = extendedText;
+            
+            let position = 0;
+            const speed = 30; // pixels per second
+            const textWidth = titleEl.scrollWidth / 2; // Half because we duplicated
+            
+            scrollInterval = setInterval(() => {
+                position += 1;
+                if (position >= textWidth) {
+                    position = 0;
+                }
+                titleEl.style.transform = `translateX(-${position}px)`;
+            }, 1000 / speed);
+        };
+        
+        const stopScroll = () => {
+            if (scrollInterval) {
+                clearInterval(scrollInterval);
+                scrollInterval = null;
+            }
+            titleEl.style.transform = 'translateX(0)';
+            titleEl.style.whiteSpace = '';
+            titleEl.style.overflow = '';
+            
+            // Restore original text
+            if (originalText) {
+                titleEl.textContent = originalText;
+            }
+        };
+        
+        // Hover events
+        item.addEventListener('mouseenter', startScroll);
+        item.addEventListener('mouseleave', stopScroll);
+        
+        // Responsive: re-check on resize
+        if (typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver(() => {
+                if (scrollInterval) {
+                    stopScroll();
+                    if (item.matches(':hover')) {
+                        startScroll();
+                    }
+                }
+            });
+            resizeObserver.observe(item);
+        }
+        
+        // Cleanup on element removal
+        item.addEventListener('remove', () => {
+            stopScroll();
+            if (resizeObserver) {
+                resizeObserver.disconnect();
+            }
+        });
     });
 }
 

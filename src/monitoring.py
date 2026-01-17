@@ -61,8 +61,8 @@ class PerformanceMonitor:
                 try:
                     self._collect_system_metrics()
                     time.sleep(30)  # Collect metrics every 30 seconds
-                except Exception as e:
-                    logger.error(f"Error in system monitoring: {e}")
+                except Exception:  # noqa: broad-except
+                    logger.exception("Error in system monitoring loop")
                     time.sleep(60)  # Wait longer on error
         
         monitor_thread = threading.Thread(target=monitor_system, daemon=True)
@@ -76,8 +76,9 @@ class PerformanceMonitor:
             with self._lock:
                 now = time.time()
                 
-                # CPU usage
-                cpu_percent = psutil.cpu_percent(interval=1)
+                # CPU usage - use interval=None for non-blocking call
+                # Returns CPU usage since last call (or 0.0 on first call)
+                cpu_percent = psutil.cpu_percent(interval=None)
                 self.metrics['cpu_usage'].append((now, cpu_percent))
                 
                 # Memory usage
@@ -85,21 +86,27 @@ class PerformanceMonitor:
                 self.metrics['memory_usage'].append((now, memory.percent))
                 self.metrics['memory_available'].append((now, memory.available / (1024**3)))  # GB
                 
-                # Disk usage
-                disk = psutil.disk_usage('/')
-                disk_percent = (disk.used / disk.total) * 100
-                self.metrics['disk_usage'].append((now, disk_percent))
+                # Disk usage - only check every hour as it can be slow
+                if not self.metrics['disk_usage'] or (now - self.metrics['disk_usage'][-1][0]) > 3600:
+                    try:
+                        disk = psutil.disk_usage('/')
+                        disk_percent = (disk.used / disk.total) * 100
+                        self.metrics['disk_usage'].append((now, disk_percent))
+                    except Exception:  # noqa: broad-except
+                        disk_percent = 0.0
+                else:
+                    disk_percent = self.metrics['disk_usage'][-1][1] if self.metrics['disk_usage'] else 0.0
                 
-                # Process-specific metrics
+                # Process-specific metrics - use interval=None for non-blocking
                 process = psutil.Process()
-                self.metrics['process_cpu'].append((now, process.cpu_percent()))
+                self.metrics['process_cpu'].append((now, process.cpu_percent(interval=None)))
                 self.metrics['process_memory'].append((now, process.memory_info().rss / (1024**2)))  # MB
                 
                 # Check thresholds and create alerts
                 self._check_thresholds(cpu_percent, memory.percent, disk_percent)
                 
-        except Exception as e:
-            logger.error(f"Error collecting system metrics: {e}")
+        except Exception:  # noqa: broad-except
+            logger.exception("Error collecting system metrics")
     
     def _check_thresholds(self, cpu_percent: float, memory_percent: float, disk_percent: float):
         """Check system thresholds and create alerts"""
@@ -115,7 +122,7 @@ class PerformanceMonitor:
             self._create_alert('high_disk', f"High disk usage: {disk_percent:.1f}%", 'critical')
     
     def _create_alert(self, alert_type: str, message: str, severity: str):
-        """Create a new alert"""
+        """Create a new alert with structured logging."""
         alert = {
             'type': alert_type,
             'message': message,
@@ -130,10 +137,24 @@ class PerformanceMonitor:
             if len(self.alerts) > 100:
                 self.alerts = self.alerts[-100:]
         
-        logger.warning(f"Alert created: {message}")
+        # Emit structured signal for observability
+        logger.warning(
+            "MONITOR_ALERT: type=%s severity=%s message=%s",
+            alert_type, severity, message
+        )
     
     def record_request(self, endpoint: str, method: str, response_time: float, status_code: int):
-        """Record API request metrics"""
+        """Record API request metrics with structured logging."""
+        if not isinstance(endpoint, str) or not isinstance(method, str):
+            logger.warning("record_request: invalid endpoint or method type")
+            return
+        if not isinstance(response_time, (int, float)) or response_time < 0:
+            logger.warning("record_request: invalid response_time %r", response_time)
+            return
+        if not isinstance(status_code, int):
+            logger.warning("record_request: invalid status_code %r", status_code)
+            return
+        
         with self._lock:
             now = time.time()
             
@@ -148,13 +169,28 @@ class PerformanceMonitor:
             self.counters[f'status_{status_code}'] += 1
             self.counters['total_requests'] += 1
             
+            # Emit structured signal for request tracking
+            logger.debug(
+                "MONITOR_REQUEST: method=%s endpoint=%s status=%d response_time=%.3f",
+                method, endpoint, status_code, response_time
+            )
+            
             # Check response time threshold
             if response_time > self.response_time_threshold:
                 self._create_alert('slow_response', 
                                  f"Slow response time: {response_time:.2f}s for {endpoint}", 'warning')
     
     def record_error(self, error_type: str, error_message: str, context: Dict[str, Any] = None):
-        """Record application errors"""
+        """Record application errors with structured logging."""
+        if not isinstance(error_type, str) or not error_type:
+            logger.warning("record_error: invalid error_type")
+            return
+        if not isinstance(error_message, str):
+            error_message = str(error_message) if error_message else 'Unknown error'
+        if context is not None and not isinstance(context, dict):
+            logger.warning("record_error: context must be dict, got %s", type(context).__name__)
+            context = {}
+        
         with self._lock:
             now = time.time()
             
@@ -171,6 +207,12 @@ class PerformanceMonitor:
             }
             self.metrics['errors'].append((now, error_data))
             
+            # Emit structured signal for error tracking
+            logger.error(
+                "MONITOR_ERROR: type=%s message=%s context=%s",
+                error_type, error_message, json.dumps(context or {})
+            )
+            
             # Check error rate
             total_requests = self.counters['total_requests']
             total_errors = self.counters['total_errors']
@@ -181,7 +223,17 @@ class PerformanceMonitor:
                                      f"High error rate: {error_rate:.1f}%", 'critical')
     
     def record_database_operation(self, operation: str, duration: float, success: bool):
-        """Record database operation metrics"""
+        """Record database operation metrics with structured logging."""
+        if not isinstance(operation, str) or not operation:
+            logger.warning("record_database_operation: invalid operation")
+            return
+        if not isinstance(duration, (int, float)) or duration < 0:
+            logger.warning("record_database_operation: invalid duration %r", duration)
+            return
+        if not isinstance(success, bool):
+            logger.warning("record_database_operation: success must be bool")
+            return
+        
         with self._lock:
             now = time.time()
             
@@ -193,6 +245,12 @@ class PerformanceMonitor:
                 self.counters[f'db_{operation}_success'] += 1
             else:
                 self.counters[f'db_{operation}_error'] += 1
+            
+            # Emit structured signal for DB operation tracking
+            logger.debug(
+                "MONITOR_DB: operation=%s duration=%.3f success=%s",
+                operation, duration, success
+            )
     
     def get_metrics_summary(self) -> Dict[str, Any]:
         """Get comprehensive metrics summary"""
@@ -327,8 +385,8 @@ class PerformanceMonitor:
                 logger.info(f"Metrics exported to {filepath}")
                 return True
                 
-        except Exception as e:
-            logger.error(f"Error exporting metrics: {e}")
+        except Exception:  # noqa: broad-except
+            logger.exception("Error exporting metrics to %s", filepath)
             return False
     
     def clear_old_data(self, max_age_hours: int = 24):
@@ -351,8 +409,8 @@ class PerformanceMonitor:
                 
                 logger.info(f"Cleared metrics data older than {max_age_hours} hours")
                 
-        except Exception as e:
-            logger.error(f"Error clearing old data: {e}")
+        except Exception:  # noqa: broad-except
+            logger.exception("Error clearing old metrics data")
 
 # Global monitoring instance
 monitor = PerformanceMonitor(auto_start=False)

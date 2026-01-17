@@ -54,8 +54,10 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         );
         serverUrl = json['url'] as String?;
         scannedCode = json['code']?.toString();
-      } catch (_) {
+      }
+      catch (e) { // noqa: broad-catch
         // Not valid JSON, try other formats
+        debugPrint('QR JSON parse failed: $e');
       }
     }
 

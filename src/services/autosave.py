@@ -8,6 +8,7 @@ import time
 from typing import Optional
 
 from src.constants import DEFAULT_USER_ID
+from src.exceptions import DatabaseError
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,8 @@ def _get_user_id() -> str:
         try:
             uid = _get_user_id_func()
             return uid or DEFAULT_USER_ID
-        except Exception:
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Failed to get user id for auto-save")
             return DEFAULT_USER_ID
     return DEFAULT_USER_ID
 
@@ -53,8 +55,12 @@ def auto_save_worker() -> None:
                 try:
                     user_id = _get_user_id()
                     settings = _app_context.data_manager.load_settings(user_id) or {}
-                except Exception as e:
-                    logger.warning(f"Failed to load settings for auto-save: {e}")
+                except DatabaseError:
+                    logger.exception("Failed to load settings for auto-save")
+                    settings = {}
+                except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+                    logger.exception("Failed to load settings for auto-save")
+                    settings = {}
 
             interval = settings.get('autosave_interval', 30)
 
@@ -84,7 +90,11 @@ def auto_save_worker() -> None:
                     logger.warning("No user ID available for auto-save")
                     continue
 
-                tasks = _app_context.data_manager.load_tasks_for_user(user_id)
+                try:
+                    tasks = _app_context.data_manager.load_tasks_for_user(user_id)
+                except DatabaseError:
+                    logger.exception("Auto-save could not load tasks (DB error) for user %s", user_id)
+                    continue
 
                 current_time = time.time()
                 last_save_time = _app_context.get_last_save_time()
@@ -111,13 +121,13 @@ def auto_save_worker() -> None:
                 else:
                     logger.error(f"Auto-save failed for user {user_id}")
 
-            except Exception as save_error:
-                logger.error(f"Auto-save error for user {user_id or 'unknown'}: {save_error}")
+            except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+                logger.exception("Auto-save error for user %s", user_id or 'unknown')
             finally:
                 _app_context.set_save_in_progress(False)
 
         except Exception as e:
-            logger.error(f"Auto-save worker error: {e}")
+            logger.exception("Auto-save worker error")
             time.sleep(5)
 
     logger.info("Auto-save worker stopped")

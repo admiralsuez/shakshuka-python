@@ -1,4 +1,4 @@
-﻿/* Modal */
+/* Modal */
 .modal {
     display: none;
     position: fixed;
@@ -9,12 +9,10 @@
     /* Solid backdrop without heavy blur to avoid FPS drops on open/close */
     background: rgba(0, 0, 0, 0.6);
     z-index: 2000;
-    animation: fadeIn 0.2s ease-out;
+    animation: modalFadeIn 0.15s ease-out;
     padding: calc(1rem * var(--dpi-scale));
     box-sizing: border-box;
-    will-change: opacity;
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
+    contain: layout style;
 }
 .modal.active {
     display: flex;
@@ -31,28 +29,34 @@
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: 0 calc(16px * var(--dpi-scale)) calc(40px * var(--dpi-scale)) rgba(0, 0, 0, 0.25);
-    animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: modalSlideUp 0.15s ease-out;
     border: calc(1px * var(--dpi-scale)) solid var(--border-color);
-    will-change: transform, opacity;
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
-    -webkit-backface-visibility: hidden;
-    backface-visibility: hidden;
+    contain: layout;
 }
-@keyframes slideUp {
+@keyframes modalSlideUp {
     from { 
-        transform: translateY(calc(30px * var(--dpi-scale))) translateZ(0); 
+        transform: translateY(20px); 
         opacity: 0; 
     }
     to { 
-        transform: translateY(0) translateZ(0); 
+        transform: translateY(0); 
         opacity: 1; 
     }
 }
 
-@keyframes fadeIn {
+@keyframes modalFadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
+}
+
+/* Disable modal animations for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .modal {
+        animation: none;
+    }
+    .modal-content {
+        animation: none;
+    }
 }
 .modal-header {
     display: flex;

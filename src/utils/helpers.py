@@ -26,8 +26,8 @@ def get_app_version() -> str:
         with open(version_path, 'r') as f:
             version_data = json.load(f)
         return f"{version_data['version']}.{version_data['build']}"
-    except Exception as e:
-        logger.warning(f"Failed to read version.json, falling back to 1.0.0: {e}")
+    except (OSError, json.JSONDecodeError, KeyError):
+        logger.exception("Failed to read version.json, falling back to 1.0.0")
         return '1.0.0'
 
 
@@ -55,8 +55,8 @@ def is_newer_version(new_version: str, current_version: str) -> bool:
         cur_parts += [0] * (max_len - len(cur_parts))
         
         return new_parts > cur_parts
-    except Exception:
-        logger.error(f"Error comparing versions: {new_version} vs {current_version}")
+    except (TypeError, ValueError):
+        logger.exception("Error comparing versions: %r vs %r", new_version, current_version)
         return False
 
 
@@ -76,8 +76,8 @@ def parse_version_string(version_str: str) -> Tuple[int, int, int]:
         while len(parts) < 3:
             parts.append(0)
         return tuple(parts[:3])
-    except Exception:
-        logger.warning(f"Could not parse version string: {version_str}")
+    except (TypeError, ValueError):
+        logger.exception("Could not parse version string: %r", version_str)
         return (1, 0, 0)
 
 

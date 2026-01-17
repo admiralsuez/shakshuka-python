@@ -174,7 +174,7 @@ class SecurityManager:
                 total_size += len(requests) * sys.getsizeof(0.0)  # Each timestamp
             
             return total_size / (1024 * 1024)  # Convert to MB
-        except Exception:
+        except Exception:  # noqa: broad-except
             return 0.0
     
     def generate_session_secret(self, user_id: str) -> str:

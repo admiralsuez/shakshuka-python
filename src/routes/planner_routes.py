@@ -3,19 +3,25 @@ import logging
 from datetime import datetime
 
 from src.constants import DEFAULT_USER_ID
+from src.exceptions import DatabaseError
+from src.routes.api_utils import get_json_object, register_api_error_handlers
 
 logger = logging.getLogger(__name__)
 
 planner_bp = Blueprint("planner_v2", __name__, url_prefix="/api/planner-v2")
 
+register_api_error_handlers(planner_bp)
+
 _app_context = None
 _get_user_id_func = None
+_ensure_data_manager_func = None
 
 
-def init_planner_routes(app_context, get_user_id_func):
-    global _app_context, _get_user_id_func
+def init_planner_routes(app_context, get_user_id_func, ensure_data_manager_func=None):
+    global _app_context, _get_user_id_func, _ensure_data_manager_func
     _app_context = app_context
     _get_user_id_func = get_user_id_func
+    _ensure_data_manager_func = ensure_data_manager_func
 
 
 def _get_user_id() -> str:
@@ -25,6 +31,8 @@ def _get_user_id() -> str:
 
 
 def _get_data_manager():
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        return None
     return _app_context.data_manager if _app_context else None
 
 
@@ -36,9 +44,13 @@ def get_planner_v2_schedule():
     try:
         dm = _get_data_manager()
         if not dm:
-            return jsonify({'success': False, 'error': 'Data manager not available'}), 500
+            raise DatabaseError(message='Data manager not available')
 
-        tasks = dm.load_tasks(user_id)
+        try:
+            tasks = dm.load_tasks(user_id)
+        except DatabaseError:
+            logger.exception("Database error loading tasks for planner v2 schedule (user %s)", user_id)
+            return jsonify({'success': False, 'error': 'Database error loading tasks'}), 503
         scheduled_tasks = {}
 
         for task in tasks:
@@ -57,7 +69,7 @@ def get_planner_v2_schedule():
         return jsonify({'success': True, 'scheduled_tasks': scheduled_tasks})
 
     except Exception as e:
-        logger.error(f"Error loading planner v2 schedule: {e}")
+        logger.exception("Error loading planner v2 schedule")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -66,9 +78,7 @@ def save_planner_v2_schedule():
     """Save scheduled tasks for Daily Planner v2"""
     user_id = _get_user_id()
     try:
-        data = request.json
-        if data is None or not isinstance(data, dict):
-            return jsonify({'success': False, 'error': 'Request must contain JSON object'}), 400
+        data = get_json_object(required=True)
 
         scheduled_tasks = data.get('scheduled_tasks', {})
         if scheduled_tasks is None:
@@ -81,7 +91,7 @@ def save_planner_v2_schedule():
                 return jsonify({'success': False, 'error': 'scheduled_tasks keys must be date strings'}), 400
             try:
                 datetime.strptime(date_key, '%Y-%m-%d')
-            except Exception:
+            except Exception:  # noqa: broad-except - API route error handler must catch all exceptions
                 return jsonify({'success': False, 'error': f"Invalid scheduled date: {date_key}"}), 400
 
             if not isinstance(by_hour, dict):
@@ -90,7 +100,7 @@ def save_planner_v2_schedule():
             for hour_key, tasks_list in by_hour.items():
                 try:
                     hour_int = int(hour_key)
-                except Exception:
+                except Exception:  # noqa: broad-except
                     return jsonify({'success': False, 'error': f"Invalid hour key: {hour_key}"}), 400
                 if hour_int < 0 or hour_int > 23:
                     return jsonify({'success': False, 'error': f"Invalid hour: {hour_int}"}), 400
@@ -107,16 +117,20 @@ def save_planner_v2_schedule():
 
         dm = _get_data_manager()
         if not dm:
-            return jsonify({'success': False, 'error': 'Data manager not available'}), 500
+            raise DatabaseError(message='Data manager not available')
 
-        success = dm.save_planner_v2_schedule(user_id, scheduled_tasks)
+        try:
+            success = dm.save_planner_v2_schedule(user_id, scheduled_tasks)
+        except DatabaseError:
+            logger.exception("Database error saving planner v2 schedule (user %s)", user_id)
+            return jsonify({'success': False, 'error': 'Database error saving schedule'}), 503
         if success:
             return jsonify({'success': True})
 
         return jsonify({'success': False, 'error': 'Failed to save schedule'}), 500
 
     except Exception as e:
-        logger.error(f"Error saving planner v2 schedule: {e}")
+        logger.exception("Error saving planner v2 schedule")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -130,7 +144,11 @@ def get_planner_v2_available_tasks():
         if not dm:
             return jsonify({'success': False, 'error': 'Data manager not available'}), 500
 
-        tasks = dm.load_tasks(user_id)
+        try:
+            tasks = dm.load_tasks(user_id)
+        except DatabaseError:
+            logger.exception("Database error loading tasks for planner v2 available tasks (user %s)", user_id)
+            return jsonify({'success': False, 'error': 'Database error loading tasks'}), 503
 
         available_tasks = []
         for task in tasks:
@@ -152,7 +170,7 @@ def get_planner_v2_available_tasks():
         return jsonify({'success': True, 'available_tasks': available_tasks})
 
     except Exception as e:
-        logger.error(f"Error loading planner v2 available tasks: {e}")
+        logger.exception("Error loading planner v2 available tasks")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -167,7 +185,11 @@ def cleanup_overdue_scheduled_tasks():
 
         today_str = datetime.now().strftime('%Y-%m-%d')
 
-        tasks = dm.load_tasks(user_id)
+        try:
+            tasks = dm.load_tasks(user_id)
+        except DatabaseError:
+            logger.exception("Database error loading tasks for cleanup_overdue_scheduled_tasks (user %s)", user_id)
+            return jsonify({'success': False, 'error': 'Database error loading tasks'}), 503
         unscheduled = 0
         for t in tasks:
             scheduled_date = t.get('scheduled_date')
@@ -185,7 +207,7 @@ def cleanup_overdue_scheduled_tasks():
         return jsonify({'success': True, 'unscheduled': unscheduled})
 
     except Exception as e:
-        logger.error(f"Error cleaning up overdue scheduled tasks: {e}")
+        logger.exception("Error cleaning up overdue scheduled tasks")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -200,17 +222,21 @@ def get_planner_history_days():
         limit_raw = request.args.get('limit', '7')
         try:
             limit = int(limit_raw)
-        except Exception:
+        except Exception:  # noqa: broad-except - API route error handler must catch all exceptions
             limit = 7
         if limit <= 0:
             limit = 7
         if limit > 30:
             limit = 30
 
-        days = dm.load_planner_history_days(user_id, limit=limit)
+        try:
+            days = dm.load_planner_history_days(user_id, limit=limit)
+        except DatabaseError:
+            logger.exception("Database error loading planner history days (user %s)", user_id)
+            return jsonify({'success': False, 'error': 'Database error loading history'}), 503
         return jsonify({'success': True, 'days': days})
     except Exception as e:
-        logger.error(f"Error loading planner history days: {e}")
+        logger.exception("Error loading planner history days")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -224,11 +250,15 @@ def get_planner_history_for_day(day: str):
 
         try:
             datetime.strptime(day, '%Y-%m-%d')
-        except Exception:
+        except Exception:  # noqa: broad-except - API route error handler must catch all exceptions
             return jsonify({'success': False, 'error': 'Invalid day'}), 400
 
-        entries = dm.load_planner_history_for_day(user_id, day)
+        try:
+            entries = dm.load_planner_history_for_day(user_id, day)
+        except DatabaseError:
+            logger.exception("Database error loading planner history for day %s (user %s)", day, user_id)
+            return jsonify({'success': False, 'error': 'Database error loading history'}), 503
         return jsonify({'success': True, 'day': day, 'entries': entries})
     except Exception as e:
-        logger.error(f"Error loading planner history for day {day}: {e}")
+        logger.exception("Error loading planner history for day %s", day)
         return jsonify({'success': False, 'error': str(e)}), 500

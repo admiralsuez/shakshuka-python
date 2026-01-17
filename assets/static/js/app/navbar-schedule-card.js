@@ -65,6 +65,27 @@
     async function updateCard(){
         const card = document.getElementById('nav-compact-schedule');
         if (!card) return;
+
+        const navigateToPlanner = () => {
+            try { navigateToPage('planner'); } catch(e) {
+                const btn = document.querySelector('.nav-item[data-page="planner"]');
+                if (btn) btn.click();
+            }
+            try { if (typeof window.ensurePlannerV2Init === 'function') { window.ensurePlannerV2Init(); } } catch(e) {}
+        };
+
+        const makePlanLink = (el) => {
+            if (!el) return;
+            el.innerHTML = '<a href="#" class="nav-plan-now-link">Plan now?</a>';
+            const link = el.querySelector('.nav-plan-now-link');
+            if (link) {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    navigateToPlanner();
+                }, { once: true });
+            }
+        };
+
         const now = new Date();
         const nowMin = toMinutes(now.getHours(), now.getMinutes());
         const list = await fetchScheduleFor(now);
@@ -78,22 +99,9 @@
             const curBadge = card.querySelector('#nav-current-badge');
             const nextBadge = card.querySelector('#nav-next-badge');
             if (curTitleEl) curTitleEl.textContent = 'Nothing scheduled';
-            if (curTimeEl) {
-                curTimeEl.innerHTML = '<a href="#" id="nav-plan-now-link">Plan now?</a>';
-                const link = card.querySelector('#nav-plan-now-link');
-                if (link) {
-                    link.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        try { navigateToPage('planner'); } catch(e) {
-                            const btn = document.querySelector('.nav-item[data-page="planner"]');
-                            if (btn) btn.click();
-                        }
-                        try { if (typeof window.ensurePlannerV2Init === 'function') { window.ensurePlannerV2Init(); } } catch(e) {}
-                    }, { once: true });
-                }
-            }
-            if (nextTitleEl) nextTitleEl.textContent = '—';
-            if (nextTimeEl) nextTimeEl.textContent = '—';
+            makePlanLink(curTimeEl);
+            if (nextTitleEl) nextTitleEl.textContent = 'None';
+            makePlanLink(nextTimeEl);
             if (curBadge) curBadge.textContent = 'Now';
             if (nextBadge) nextBadge.textContent = 'Next';
             return;
@@ -127,22 +135,9 @@
         // Realtime CTA: if neither current nor next, offer to plan
         if (!current && !next) {
             if (curTitleEl) curTitleEl.textContent = 'Nothing scheduled';
-            if (curTimeEl) {
-                curTimeEl.innerHTML = '<a href="#" id="nav-plan-now-link">Plan now?</a>';
-                const link = card.querySelector('#nav-plan-now-link');
-                if (link) {
-                    link.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        try { navigateToPage('planner'); } catch(e) {
-                            const btn = document.querySelector('.nav-item[data-page="planner"]');
-                            if (btn) btn.click();
-                        }
-                        try { if (typeof window.ensurePlannerV2Init === 'function') { window.ensurePlannerV2Init(); } } catch(e) {}
-                    }, { once: true });
-                }
-            }
-            if (nextTitleEl) nextTitleEl.textContent = '—';
-            if (nextTimeEl) nextTimeEl.textContent = '—';
+            makePlanLink(curTimeEl);
+            if (nextTitleEl) nextTitleEl.textContent = 'None';
+            makePlanLink(nextTimeEl);
             if (curBadge) curBadge.textContent = 'Now';
             if (nextBadge) nextBadge.textContent = 'Next';
             return;
@@ -167,21 +162,6 @@
         if (nextBadge) nextBadge.textContent = 'Next';
 
         // Slot-level CTA cases
-        const makePlanLink = (el) => {
-            if (!el) return;
-            el.innerHTML = '<a href="#" class="nav-plan-now-link">Plan now?</a>';
-            const link = el.querySelector('.nav-plan-now-link');
-            if (link) {
-                link.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    try { navigateToPage('planner'); } catch(e) {
-                        const btn = document.querySelector('.nav-item[data-page="planner"]');
-                        if (btn) btn.click();
-                    }
-                    try { if (typeof window.ensurePlannerV2Init === 'function') { window.ensurePlannerV2Init(); } } catch(e) {}
-                }, { once: true });
-            }
-        };
         if (current && !next) {
             // Offer to plan in the Next slot
             if (nextTitleEl) nextTitleEl.textContent = 'None';

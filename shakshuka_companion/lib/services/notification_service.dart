@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -157,7 +158,12 @@ class NotificationService {
             }
           }
         }
-      } catch (e) {
+      } on TimeoutException {
+        if (kDebugMode) {
+          print('Timeout checking status for $submissionId');
+        }
+      }
+      catch (e) { // noqa: broad-catch
         if (kDebugMode) {
           print('Error checking status for $submissionId: $e');
         }

@@ -8,41 +8,182 @@ This module manages:
 - Background scheduler thread
 """
 
+import json
 import logging
+import os
+import tempfile
 import threading
 import time
-import schedule
+import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Dict, Optional
 
-# These will be injected at runtime
-_app_context = None
-_data_manager_getter = None
+import schedule
+
+from src.core.correlation import correlation_context
+from src.exceptions import DatabaseError, ValidationError
+from src.utils.paths import get_user_data_dir
 
 logger = logging.getLogger(__name__)
 
 
-_scheduler_thread: Optional[threading.Thread] = None
-_stop_event: Optional[threading.Event] = None
+def _job_correlation_id(job_name: str) -> str:
+    # Keep it short (<=64 chars) and regex-safe.
+    safe = ''.join(ch if (ch.isalnum() or ch in ('_', '-')) else '_' for ch in str(job_name or 'job'))
+    safe = safe.strip('_-') or 'job'
+    suffix = uuid.uuid4().hex[:12]
+    base = f"job_{safe}_{suffix}"
+    return base[:64]
+
+
+def _run_job_with_correlation(job_name: str, fn, *args, **kwargs):
+    cid = _job_correlation_id(job_name)
+    with correlation_context(cid):
+        return fn(*args, **kwargs)
+
+
+@dataclass
+class _SchedulerState:
+    lock: threading.RLock = field(default_factory=threading.RLock)
+    schedule_lock: threading.RLock = field(default_factory=threading.RLock)
+    app_context: Any = None
+    data_manager_getter: Any = None
+
+    scheduler_thread: Optional[threading.Thread] = None
+    stop_event: Optional[threading.Event] = None
+
+    job_locks: Dict[str, threading.Lock] = field(default_factory=dict)
+    last_run_markers: Dict[str, str] = field(default_factory=dict)
+    markers_loaded: bool = False
+    markers_path: Optional[str] = None
+
+    last_known_reset_time: str = '08:00'
+
+
+_STATE = _SchedulerState()
 
 
 def set_app_context(app_context):
     """Set the app context - call this during app initialization"""
-    global _app_context
-    _app_context = app_context
+    with _STATE.lock:
+        _STATE.app_context = app_context
 
 
 def set_data_manager_getter(getter_func):
     """Set function to get data manager - call this during app initialization"""
-    global _data_manager_getter
-    _data_manager_getter = getter_func
+    with _STATE.lock:
+        _STATE.data_manager_getter = getter_func
 
 
 def _get_data_manager():
     """Get the data manager instance"""
-    if _data_manager_getter:
-        return _data_manager_getter()
-    return _app_context.data_manager if _app_context else None
+    with _STATE.lock:
+        getter = _STATE.data_manager_getter
+        app_context = _STATE.app_context
+
+    if getter:
+        return getter()
+    return app_context.data_manager if app_context else None
+
+
+def _get_job_lock(job_name: str) -> threading.Lock:
+    with _STATE.lock:
+        lock = _STATE.job_locks.get(job_name)
+        if lock is None:
+            lock = threading.Lock()
+            _STATE.job_locks[job_name] = lock
+        return lock
+
+
+def _get_markers_path() -> str:
+    with _STATE.lock:
+        if _STATE.markers_path:
+            return _STATE.markers_path
+
+    try:
+        base_dir = get_user_data_dir()
+        os.makedirs(base_dir, exist_ok=True)
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Failed to resolve user_data_dir for scheduler markers; falling back to temp dir")
+        base_dir = tempfile.gettempdir()
+
+    path = os.path.join(base_dir, 'scheduler_last_run.json')
+    with _STATE.lock:
+        _STATE.markers_path = path
+    return path
+
+
+def _load_markers() -> None:
+    with _STATE.lock:
+        if _STATE.markers_loaded:
+            return
+
+    path = _get_markers_path()
+    markers: Dict[str, str] = {}
+    try:
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                for k, v in payload.items():
+                    if isinstance(k, str) and isinstance(v, str):
+                        markers[k] = v
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Failed to load scheduler last-run markers")
+        markers = {}
+
+    with _STATE.lock:
+        _STATE.last_run_markers = markers
+        _STATE.markers_loaded = True
+
+
+def _flush_markers() -> None:
+    path = _get_markers_path()
+    with _STATE.lock:
+        payload = dict(_STATE.last_run_markers)
+
+    tmp_path = f"{path}.tmp"
+    try:
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f)
+        os.replace(tmp_path, path)
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Failed to persist scheduler last-run markers")
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Failed to remove temp markers file")
+
+
+def _read_last_run(job_name: str) -> Optional[datetime]:
+    _load_markers()
+    with _STATE.lock:
+        raw = _STATE.last_run_markers.get(job_name)
+    if raw is None:
+        return None
+    try:
+        return _parse_iso_datetime(raw)
+    except ValidationError:
+        logger.exception("Invalid last-run marker for job %s: %r", job_name, raw)
+        return None
+
+
+def _write_last_run(job_name: str, dt: datetime) -> None:
+    _load_markers()
+    with _STATE.lock:
+        _STATE.last_run_markers[job_name] = dt.isoformat()
+    _flush_markers()
+
+
+def _local_day(dt: datetime) -> str:
+    try:
+        if dt.tzinfo is not None:
+            return dt.astimezone().strftime('%Y-%m-%d')
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Failed to convert datetime to local day")
+    return dt.strftime('%Y-%m-%d')
 
 
 def _get_user_id():
@@ -64,10 +205,8 @@ def _validate_and_normalize_reset_time(reset_time_str: str) -> str:
         Normalized time string in HH:MM format
     """
     try:
-        # Parse the time string
         hour, minute = map(int, reset_time_str.split(':'))
-        
-        # Validate hour and minute ranges
+
         if not (0 <= hour <= 23):
             logger.warning(f"Invalid hour in reset time: {hour}, using default")
             return "08:00"
@@ -77,7 +216,6 @@ def _validate_and_normalize_reset_time(reset_time_str: str) -> str:
             return "08:00"
 
         return f"{hour:02d}:{minute:02d}"
-        
     except (ValueError, AttributeError) as e:
         logger.warning(f"Invalid reset time format '{reset_time_str}': {e}, using default")
         return "08:00"
@@ -88,11 +226,11 @@ def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
         return None
     try:
         return datetime.fromisoformat(value.replace('Z', '+00:00'))
-    except Exception:
-        return None
+    except Exception as e:
+        raise ValidationError(message="Invalid ISO datetime", details={'value': value}, cause=e)
 
 
-def reset_daily_strikes_job():
+def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
     """
     Job to reset daily strikes and clean all scheduled tasks (local time).
     
@@ -101,8 +239,16 @@ def reset_daily_strikes_job():
     - Tasks struck FOREVER (completed): Don't show in available tasks
     - All other scheduled tasks: Clear scheduling to return to available pool
     """
+    lock = _get_job_lock('daily_reset')
+    if not lock.acquire(blocking=False):
+        logger.warning("Daily reset job is already running; skipping duplicate execution")
+        return
+
     try:
-        logger.info("Starting daily strikes reset job")
+        if replay:
+            logger.info("Starting daily strikes reset job (replay=%s reason=%s)", replay, replay_reason)
+        else:
+            logger.info("Starting daily strikes reset job")
         
         data_manager = _get_data_manager()
         if not data_manager:
@@ -119,8 +265,42 @@ def reset_daily_strikes_job():
             logger.warning("No user ID available for daily reset")
             return
         
+        # Determine reset-time window for idempotency
+        reset_time_str = '08:00'
+        settings: Dict[str, Any] = {}
+        try:
+            settings = data_manager.load_settings(user_id) or {}
+            reset_time_str = settings.get('daily_reset_time', '08:00')
+        except DatabaseError:
+            logger.exception("Database error loading settings for daily reset")
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Error loading settings for daily reset")
+        reset_time_str = _validate_and_normalize_reset_time(reset_time_str)
+        with _STATE.lock:
+            _STATE.last_known_reset_time = reset_time_str
+        reset_hour, reset_minute = map(int, reset_time_str.split(':'))
+        today_reset_time = now.replace(hour=reset_hour, minute=reset_minute, second=0, microsecond=0)
+
+        settings_last_reset: Optional[datetime] = None
+        try:
+            settings_last_reset = _parse_iso_datetime(settings.get('last_daily_reset_at'))
+        except ValidationError:
+            logger.exception("Invalid last_daily_reset_at in settings")
+        file_last_reset = _read_last_run('daily_reset')
+        last_reset_dt = max([d for d in (settings_last_reset, file_last_reset) if d is not None], default=None)
+        if last_reset_dt is not None and _local_day(last_reset_dt) == today_str_local:
+            logger.info(
+                "Daily reset already ran (last_reset=%s); skipping",
+                last_reset_dt.isoformat(),
+            )
+            return
+
         # Load tasks for the user
-        tasks = data_manager.load_tasks_for_user(user_id)
+        try:
+            tasks = data_manager.load_tasks_for_user(user_id)
+        except DatabaseError:
+            logger.exception("Database error loading tasks for daily reset")
+            return
         if not tasks:
             logger.info("No tasks found for daily reset")
             return
@@ -135,7 +315,7 @@ def reset_daily_strikes_job():
                 strikes_for_day = 0
                 try:
                     strikes_for_day = int(daily_strikes.get(previous_day, 0) or 0)
-                except Exception:
+                except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
                     strikes_for_day = 0
 
                 completed_at = (t.get('completed_at') or '')
@@ -146,13 +326,17 @@ def reset_daily_strikes_job():
 
             if snapshot_tasks:
                 data_manager.save_planner_history_snapshot(user_id, previous_day, snapshot_tasks)
-        except Exception as e:
-            logger.warning(f"Failed to capture planner history snapshot: {e}")
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Failed to capture planner history snapshot")
         
         # 1) Clear today's strike flags and ALL scheduling for struck-today tasks
         reset_count = 0
         for task in tasks:
             if task.get('struck_today'):
+                struck_date = task.get('struck_date')
+                if replay and struck_date == today_str_local:
+                    # Don't clear strikes that were legitimately made today after reset time.
+                    continue
                 # Check if task was struck forever (completed)
                 is_struck_forever = task.get('completed', False)
                 
@@ -170,14 +354,21 @@ def reset_daily_strikes_job():
                     task['scheduled_duration'] = None
                     logger.debug(f"Task '{task.get('title', 'Unknown')}' unscheduled after today's strike reset")
         
-        # 2) Clear ALL remaining scheduled tasks (from any day, not just previous days)
-        # This ensures the planner is clean at the start of each day
+        # 2) Clear remaining scheduled tasks.
+        # For missed-reset replay we must be conservative and avoid wiping today's schedule.
         unscheduled = 0
         for t in tasks:
             # Only unschedule if task is not completed (struck forever)
             is_completed = t.get('completed', False)
             has_schedule = t.get('scheduled_date') is not None
+            scheduled_date = t.get('scheduled_date')
             
+            if not has_schedule or is_completed:
+                continue
+
+            if replay and scheduled_date == today_str_local:
+                continue
+
             if has_schedule and not is_completed:
                 t['scheduled_hour'] = None
                 t['scheduled_minute'] = None
@@ -191,23 +382,31 @@ def reset_daily_strikes_job():
             if success:
                 logger.info(f"Daily reset done: {reset_count} strikes cleared, {unscheduled} tasks unscheduled")
 
+                # Persist last-run markers.
+                _write_last_run('daily_reset', datetime.now())
+
                 # Persist last_daily_reset_at so missed reset detection is reliable even when
                 # the user changes daily_reset_time later.
                 try:
-                    settings = data_manager.load_settings(user_id) or {}
-                    settings['last_daily_reset_at'] = datetime.now().isoformat()
-                    data_manager.save_settings(user_id, settings)
-                except Exception as e:
-                    logger.warning(f"Failed to persist last_daily_reset_at: {e}")
+                    latest_settings = data_manager.load_settings(user_id) or {}
+                    latest_settings['last_daily_reset_at'] = datetime.now().isoformat()
+                    data_manager.save_settings(user_id, latest_settings)
+                except DatabaseError:
+                    logger.exception("Failed to persist last_daily_reset_at")
+                except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+                    logger.exception("Failed to persist last_daily_reset_at")
             else:
                 logger.error("Failed to save tasks after daily reset")
         else:
             logger.info("Daily reset: no changes needed")
             
-    except Exception as e:
-        logger.error(f"Error in daily reset job: {e}")
-        import traceback
-        logger.error(f"Daily reset traceback: {traceback.format_exc()}")
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Error in daily reset job")
+    finally:
+        try:
+            lock.release()
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Failed to release daily reset job lock")
 
 
 def check_and_run_missed_reset(reset_time_str: str, verbose: bool = True):
@@ -218,9 +417,17 @@ def check_and_run_missed_reset(reset_time_str: str, verbose: bool = True):
         reset_time_str: Reset time in HH:MM format
         verbose: Whether to log verbose messages
     """
+    lock = _get_job_lock('missed_reset_check')
+    if not lock.acquire(blocking=False):
+        if verbose:
+            logger.debug("Missed reset check already running; skipping")
+        return
+
     try:
         # Validate and normalize reset time
         reset_time_str = _validate_and_normalize_reset_time(reset_time_str)
+        with _STATE.lock:
+            _STATE.last_known_reset_time = reset_time_str
         reset_hour, reset_minute = map(int, reset_time_str.split(':'))
         
         # Use local time so it matches how the scheduler runs
@@ -249,36 +456,71 @@ def check_and_run_missed_reset(reset_time_str: str, verbose: bool = True):
             # to the newly computed today_reset_time.
             try:
                 settings = data_manager.load_settings(user_id) or {}
-            except Exception:
-                settings = {}
+            except DatabaseError:
+                logger.exception("Database error loading settings for missed reset check")
+                return
+            except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+                logger.exception("Error loading settings for missed reset check")
+                return
 
-            last_reset_dt = _parse_iso_datetime(settings.get('last_daily_reset_at'))
-            if last_reset_dt is not None and last_reset_dt >= today_reset_time:
+            settings_last_reset: Optional[datetime] = None
+            try:
+                settings_last_reset = _parse_iso_datetime(settings.get('last_daily_reset_at'))
+            except ValidationError:
+                logger.exception("Invalid last_daily_reset_at in settings")
+
+            file_last_reset = _read_last_run('daily_reset')
+            last_reset_dt = max([d for d in (settings_last_reset, file_last_reset) if d is not None], default=None)
+
+            if last_reset_dt is not None and _local_day(last_reset_dt) == today_str_local:
                 if verbose:
                     logger.debug(
                         f"👍 Missed reset check: last_daily_reset_at={settings.get('last_daily_reset_at')} is >= today's reset time; no reset needed"
                     )
                 return
             
-            tasks = data_manager.load_tasks_for_user(user_id)
+            try:
+                tasks = data_manager.load_tasks_for_user(user_id)
+            except DatabaseError:
+                logger.exception("Database error loading tasks for missed reset check")
+                return
             if not tasks:
                 return
 
             # With last_daily_reset_at in place, the safe behavior is:
             # - if any task is still struck_today after reset time, we missed the reset.
             # This avoids relying on struck_date (which is date-only and can be missing).
-            struck_count = sum(1 for t in tasks if t.get('struck_today'))
-            needs_reset = struck_count > 0
+            stale_struck_today = []
+            for t in tasks:
+                if not t.get('struck_today'):
+                    continue
+                if t.get('struck_date') == today_str_local:
+                    continue
+                stale_struck_today.append(t)
+
+            needs_reset = len(stale_struck_today) > 0
             if needs_reset:
-                logger.info(f"⏰ Missed reset detected! Current time {now.strftime('%H:%M')} is past reset time {reset_time_str}. Running reset now...")
-                reset_daily_strikes_job()
+                logger.warning(
+                    "Missed reset replay executing (now=%s reset_time=%s today_reset_time=%s stale_struck_today=%d last_reset=%s)",
+                    now.isoformat(),
+                    reset_time_str,
+                    today_reset_time.isoformat(),
+                    len(stale_struck_today),
+                    last_reset_dt.isoformat() if last_reset_dt else None,
+                )
+                reset_daily_strikes_job(replay=True, replay_reason='missed_reset')
             elif verbose:
                 logger.debug("👍 No tasks flagged for today; reset not needed")
         elif verbose:
             logger.info(f"⏳ Reset time {reset_time_str} is still upcoming today (current: {now.strftime('%H:%M')})")
             
-    except Exception as e:
-        logger.error(f"Error checking for missed reset: {e}")
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Error checking for missed reset")
+    finally:
+        try:
+            lock.release()
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Failed to release missed reset check lock")
 
 
 def setup_daily_reset():
@@ -293,25 +535,29 @@ def setup_daily_reset():
         
         # Get user ID for proper settings loading
         user_id = _get_user_id()
-        settings = data_manager.load_settings(user_id) or {}
+        try:
+            settings = data_manager.load_settings(user_id) or {}
+        except DatabaseError:
+            logger.exception("Database error loading settings for daily reset setup")
+            return
         reset_time = settings.get('daily_reset_time', '08:00')
         
         # Validate and normalize reset time
         reset_time = _validate_and_normalize_reset_time(reset_time)
+        with _STATE.lock:
+            _STATE.last_known_reset_time = reset_time
         
         # Check if we've already passed today's reset time
-        check_and_run_missed_reset(reset_time)
+        _run_job_with_correlation('missed_reset_check', check_and_run_missed_reset, reset_time)
         
-        # Clear any existing daily reset jobs
-        schedule.clear('daily_reset')
-        
-        # Schedule the daily reset with proper timezone handling
-        schedule.every().day.at(reset_time).do(reset_daily_strikes_job).tag('daily_reset')
+        with _STATE.schedule_lock:
+            schedule.clear('daily_reset')
+            schedule.every().day.at(reset_time).do(_run_job_with_correlation, 'daily_reset', reset_daily_strikes_job).tag('daily_reset')
         
         logger.info(f"✅ Daily reset scheduled for {reset_time} (user: {user_id})")
         
-    except Exception as e:
-        logger.error(f"Error setting up daily reset: {e}")
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Error setting up daily reset")
 
 
 def scheduler_worker(stop_event: threading.Event):
@@ -322,7 +568,8 @@ def scheduler_worker(stop_event: threading.Event):
     while not stop_event.is_set():
         try:
             # Run pending scheduled jobs
-            schedule.run_pending()
+            with _STATE.schedule_lock:
+                schedule.run_pending()
             
             # Periodically check for missed resets (every 15 minutes)
             now = datetime.now()
@@ -330,25 +577,37 @@ def scheduler_worker(stop_event: threading.Event):
                 data_manager = _get_data_manager()
                 if data_manager:
                     user_id = _get_user_id()
-                    settings = data_manager.load_settings(user_id) or {}
-                    reset_time = settings.get('daily_reset_time', '08:00')
-                    check_and_run_missed_reset(reset_time, verbose=False)  # Quiet mode for intervals
+                    try:
+                        settings = data_manager.load_settings(user_id) or {}
+                    except DatabaseError:
+                        logger.exception("Database error loading settings for missed reset interval check")
+                        settings = None
+                    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+                        logger.exception("Error loading settings for missed reset interval check")
+                        settings = None
+                    if settings is None:
+                        with _STATE.lock:
+                            reset_time = _STATE.last_known_reset_time
+                    else:
+                        reset_time = settings.get('daily_reset_time', '08:00')
+                    _run_job_with_correlation('missed_reset_check', check_and_run_missed_reset, reset_time, verbose=False)  # Quiet mode for intervals
                 last_missed_check = now
             
             # Sleep for 60 seconds or until stop requested
             stop_event.wait(timeout=60)
             
-        except Exception as e:
-            logger.error(f"Scheduler worker error: {e}")
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Scheduler worker error")
             # Wait a bit before retrying to prevent rapid error loops
             stop_event.wait(timeout=30)
 
 
 def start_scheduler():
     """Start the scheduler background thread with proper error handling."""
-    global _scheduler_thread, _stop_event
     try:
-        if _scheduler_thread and _scheduler_thread.is_alive():
+        with _STATE.lock:
+            existing_thread = _STATE.scheduler_thread
+        if existing_thread and existing_thread.is_alive():
             logger.info("Scheduler thread already running")
             return
 
@@ -356,36 +615,44 @@ def start_scheduler():
         setup_daily_reset()
         
         # Start scheduler thread
-        _stop_event = threading.Event()
-        _scheduler_thread = threading.Thread(
+        stop_event = threading.Event()
+        thread = threading.Thread(
             target=scheduler_worker,
-            args=(_stop_event,),
+            args=(stop_event,),
             daemon=True,
             name="SchedulerWorker",
         )
-        _scheduler_thread.start()
+        with _STATE.lock:
+            _STATE.stop_event = stop_event
+            _STATE.scheduler_thread = thread
+
+        thread.start()
         
         logger.info("Scheduler thread started successfully")
         
-    except Exception as e:
-        logger.error(f"Failed to start scheduler: {e}")
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Failed to start scheduler")
 
 
 def stop_scheduler(timeout: float = 10.0) -> None:
     """Stop the scheduler background thread gracefully if it is running."""
-    global _scheduler_thread, _stop_event
     try:
-        if not _scheduler_thread or not _scheduler_thread.is_alive():
+        with _STATE.lock:
+            thread = _STATE.scheduler_thread
+            stop_event = _STATE.stop_event
+
+        if not thread or not thread.is_alive():
             return
 
-        if _stop_event is None:
+        if stop_event is None:
             return
 
-        _stop_event.set()
-        _scheduler_thread.join(timeout=timeout)
+        stop_event.set()
+        thread.join(timeout=timeout)
     finally:
-        _scheduler_thread = None
-        _stop_event = None
+        with _STATE.lock:
+            _STATE.scheduler_thread = None
+            _STATE.stop_event = None
 
 
 # Deprecated: kept for backward compatibility

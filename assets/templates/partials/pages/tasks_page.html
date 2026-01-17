@@ -42,7 +42,16 @@
                         <input type="text" id="task-search-input" class="task-search-input" placeholder="Search tasks..." autocomplete="off">
                         <button class="task-search-close" id="task-search-close" title="Close search">&times;</button>
                     </div>
-                    <div class="project-filter-wrapper">
+                    <div class="task-controls-wrapper">
+                        <select id="task-sort" class="task-sort-select">
+                            <option value="default">Sort: Default</option>
+                            <option value="title">Sort: A-Z</option>
+                            <option value="title-desc">Sort: Z-A</option>
+                            <option value="priority">Sort: Priority</option>
+                            <option value="due-date">Sort: Due Date</option>
+                            <option value="created">Sort: Newest First</option>
+                            <option value="created-asc">Sort: Oldest First</option>
+                        </select>
                         <select id="project-filter" class="project-filter-select">
                             <option value="all">All Projects</option>
                         </select>

@@ -17,25 +17,44 @@ async function checkGitHubUpdate() {
         const branch = branchElement ? branchElement.value : 'main';
         showNotification('Checking GitHub for updates...', 'info');
 
-        const response = await fetch('/api/github/check-update', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ branch: branch })
-        });
+        let result = null;
+        if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+            result = await window.Utils.apiRequestJson(
+                '/api/github/check-update',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ branch: branch })
+                },
+                { expectObject: true, retries: 1, retryDelayMs: 750 }
+            );
+        } else {
+            const response = await fetch('/api/github/check-update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ branch: branch })
+            });
+            if (!response.ok) {
+                throw new Error(`Update check failed (${response.status})`);
+            }
+            result = await response.json();
+        }
 
-        const result = await response.json();
+        const updateAvailable = !!(result && result.update_available);
+        const currentVersion = (result && typeof result.current_version === 'string') ? result.current_version : '';
 
-        if (result.update_available) {
+        if (updateAvailable) {
             showGitHubUpdateModal(result);
             showNotification('GitHub update available!', 'success');
         } else {
-            showNotification(`You are up to date! (${result.current_version})`, 'success');
+            showNotification(`You are up to date!${currentVersion ? ` (${currentVersion})` : ''}`, 'success');
         }
     } catch (error) {
         console.error('Error checking GitHub update:', error);
-        showNotification('Error checking GitHub for updates', 'error');
+        const msg = (error && error.message) ? error.message : 'Error checking GitHub for updates';
+        showNotification(msg, 'error');
     }
 }
 
@@ -59,17 +78,30 @@ async function maybeAutoCheckForUpdatesWeekly() {
         const branchElement = document.getElementById('github-branch');
         const branch = branchElement ? branchElement.value : 'main';
 
-        const response = await fetch('/api/github/check-update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ branch })
-        });
+        let result = null;
+        if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+            result = await window.Utils.apiRequestJson(
+                '/api/github/check-update',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ branch })
+                },
+                { expectObject: true, retries: 0 }
+            );
+        } else {
+            const response = await fetch('/api/github/check-update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ branch })
+            });
 
-        if (!response.ok) {
-            return;
+            if (!response.ok) {
+                return;
+            }
+
+            result = await response.json();
         }
-
-        const result = await response.json();
         if (!result.update_available) {
             return;
         }
@@ -122,15 +154,30 @@ async function downloadGitHubUpdate() {
             }, 500);
         }
 
-        const response = await fetch('/api/github/download-update', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ branch: branch })
-        });
-
-        const result = await response.json();
+        let result = null;
+        if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+            result = await window.Utils.apiRequestJson(
+                '/api/github/download-update',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ branch: branch })
+                },
+                { expectObject: true, retries: 0, timeoutMs: 60000 }
+            );
+        } else {
+            const response = await fetch('/api/github/download-update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ branch: branch })
+            });
+            if (!response.ok) {
+                throw new Error(`Update download failed (${response.status})`);
+            }
+            result = await response.json();
+        }
 
         if (progressTimer) {
             clearInterval(progressTimer);
@@ -169,11 +216,15 @@ async function downloadGitHubUpdate() {
             if (progressDiv && progressText) {
                 progressText.textContent = 'Download failed.';
             }
-            showNotification(`Update failed: ${result.error}`, 'error');
+            showNotification(`Update failed: ${(result && result.error) ? result.error : 'Unknown error'}`, 'error');
         }
     } catch (error) {
         console.error('Error downloading GitHub update:', error);
-        showNotification('Error downloading update from GitHub', 'error');
+        const progressText = document.getElementById('github-progress-text');
+        if (progressText) {
+            progressText.textContent = 'Download failed.';
+        }
+        showNotification(error && error.message ? error.message : 'Error downloading update from GitHub', 'error');
     }
 }
 
@@ -300,6 +351,15 @@ async function downloadAndInstallUpdate() {
     updatePollInterval = setInterval(async () => {
         try {
             const res = await fetch('/api/updates/progress');
+            if (!res.ok) {
+                let errText = `Failed to fetch progress (HTTP ${res.status})`;
+                try {
+                    const body = await res.json();
+                    if (body && body.error) errText = body.error;
+                } catch (_) {}
+                throw new Error(errText);
+            }
+
             const status = await res.json();
             lastUpdateStatus = status;
             const st = (status.status || '').toLowerCase();
@@ -321,7 +381,16 @@ async function downloadAndInstallUpdate() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ update_file: fileName, backup_before_update: true })
                 });
-                if (!installResponse.ok) throw new Error('Failed to install update');
+                let installResult = null;
+                try { installResult = await installResponse.json(); } catch (_) {}
+                if (!installResponse.ok) {
+                    const msg = (installResult && installResult.error) ? installResult.error : 'Failed to install update';
+                    throw new Error(msg);
+                }
+                if (!(installResult && installResult.success)) {
+                    const msg = (installResult && installResult.error) ? installResult.error : 'Failed to install update';
+                    throw new Error(msg);
+                }
                 showNotification('Update installed successfully! Please restart the application.', 'success');
                 isUpdateDownloading = false;
                 closeUpdateModal();
@@ -341,6 +410,12 @@ async function downloadAndInstallUpdate() {
             }
         } catch (e) {
             console.error('Progress poll error:', e);
+            if (updatePollInterval) {
+                clearInterval(updatePollInterval);
+                updatePollInterval = null;
+            }
+            isUpdateDownloading = false;
+            showNotification('Update failed: ' + (e && e.message ? e.message : 'Progress polling failed'), 'error');
         }
     }, 800);
 
@@ -351,14 +426,17 @@ async function downloadAndInstallUpdate() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(currentUpdateInfo)
         });
+        let result = null;
+        try { result = await response.json(); } catch (_) {}
         if (!response.ok && response.status !== 202) {
-            throw new Error('Failed to start download');
+            const msg = (result && result.error) ? result.error : 'Failed to start download';
+            throw new Error(msg);
         }
     } catch (e) {
         clearInterval(updatePollInterval);
         updatePollInterval = null;
         isUpdateDownloading = false;
-        showNotification('Error starting update download', 'error');
+        showNotification('Error starting update download: ' + (e && e.message ? e.message : 'Unknown error'), 'error');
     }
 }
 
@@ -522,17 +600,30 @@ async function restoreBackup(backupName) {
             body: JSON.stringify({ backup_name: backupName })
         });
 
-        if (response.ok) {
-            showNotification('Backup restored successfully! Please refresh the page.', 'success');
-            setTimeout(() => {
-                window.location.reload();
-            }, 2000);
-        } else {
-            throw new Error('Failed to restore backup');
+        let result = null;
+        try { result = await response.json(); } catch (_) {}
+
+        if (!response.ok) {
+            const msg = (result && result.error)
+                ? result.error
+                : `Failed to restore backup (HTTP ${response.status})`;
+            throw new Error(msg);
         }
+
+        if (!(result && result.success)) {
+            const msg = (result && result.error)
+                ? result.error
+                : 'Failed to restore backup';
+            throw new Error(msg);
+        }
+
+        showNotification('Backup restored successfully! Please refresh the page.', 'success');
+        setTimeout(() => {
+            window.location.reload();
+        }, 2000);
     } catch (error) {
         console.error('Error restoring backup:', error);
-        showNotification('Error restoring backup', 'error');
+        showNotification('Error restoring backup: ' + (error && error.message ? error.message : 'Unknown error'), 'error');
     }
 }
 

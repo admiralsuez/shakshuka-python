@@ -39,6 +39,8 @@ def _get_user_id() -> str:
 
 
 def _get_data_manager():
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        return None
     return _app_context.data_manager if _app_context else None
 
 
@@ -61,7 +63,7 @@ def _get_local_ip() -> Optional[str]:
             s.close()
         if ip and ip != "127.0.0.1":
             return ip
-    except Exception:
+    except Exception:  # noqa: broad-except
         return None
     return None
 
@@ -99,8 +101,8 @@ def _require_mobile_token() -> Tuple[bool, Optional[Dict[str, Any]], str]:
                 "user_id": user_id,
             }
             return True, device, ""
-    except Exception as e:
-        logger.error("Error validating mobile token: %s", e)
+    except Exception:  # noqa: broad-except
+        logger.exception("Error validating mobile token")
         return False, None, "Token validation failed"
 
 
@@ -120,8 +122,8 @@ def get_pairing_code():
         pairing_cache = getattr(_app_context, "_mobile_pairing_codes", None)
         if pairing_cache is not None:
             pairing_cache[code] = datetime.now().isoformat()
-    except Exception:
-        pass
+    except Exception:  # noqa: broad-except - API route error handler must catch all exceptions
+        logger.exception("Failed to store mobile pairing code")
 
     ip = _get_local_ip()
     port = request.host.split(":")[-1] if request.host else "8989"
@@ -201,8 +203,10 @@ def pair_device():
 
     try:
         del pairing_cache[code]
-    except Exception:
-        pass
+    except KeyError:
+        logger.debug("Pairing code already removed from cache")
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to remove pairing code from cache")
 
     token = secrets.token_urlsafe(32)
     token_hash = _sha256_hex(token)
@@ -220,8 +224,8 @@ def pair_device():
                 (user_id, device_id, device_name, token_hash, user_id, device_id, now, now),
             )
             conn.commit()
-    except Exception as e:
-        logger.error("Failed to save paired device: %s", e)
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to save paired device")
         return jsonify({"success": False, "error": "Failed to save device"}), 500
 
     # Clear rate limit on successful pairing
@@ -262,8 +266,8 @@ def list_devices():
                 for row in rows
             ]
             return jsonify({"success": True, "devices": devices})
-    except Exception as e:
-        logger.error("Failed to list devices: %s", e)
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to list devices")
         return jsonify({"success": False, "error": "Failed to list devices"}), 500
 
 
@@ -290,8 +294,8 @@ def unpair_device(device_id: str):
             )
             conn.commit()
             return jsonify({"success": True, "message": "Device unpaired"})
-    except Exception as e:
-        logger.error("Failed to unpair device: %s", e)
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to unpair device")
         return jsonify({"success": False, "error": "Failed to unpair device"}), 500
 
 
@@ -335,8 +339,8 @@ def submit_inbox():
                 (now, user_id, device.get("device_id")),
             )
             conn.commit()
-    except Exception as e:
-        logger.error("Failed to save inbox submission: %s", e)
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to save inbox submission")
         return jsonify({"success": False, "error": "Failed to save submission"}), 500
 
     return jsonify({"success": True, "submission_id": submission_id, "received": len(tasks)})
@@ -369,7 +373,7 @@ def get_pending_inbox():
             payload = None
             try:
                 payload = json.loads(row[3]) if row[3] else None
-            except Exception:
+            except Exception:  # noqa: broad-except
                 payload = None
 
             return jsonify(
@@ -384,8 +388,8 @@ def get_pending_inbox():
                     },
                 }
             )
-    except Exception as e:
-        logger.error("Failed to load pending inbox: %s", e)
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to load pending inbox")
         return jsonify({"success": False, "error": "Failed to load inbox"}), 500
 
 
@@ -407,7 +411,7 @@ def _map_mobile_task_to_task_payload(mobile_task: Dict[str, Any]) -> Tuple[bool,
 
     try:
         duration_int = int(duration) if duration is not None else 60
-    except Exception:
+    except Exception:  # noqa: broad-except
         duration_int = 60
 
     if duration_int < 5:
@@ -508,8 +512,8 @@ def approve_inbox(submission_id: str):
 
         return jsonify({"success": True, "created": created_count, "tasks": created_tasks, "skipped": skipped})
 
-    except Exception as e:
-        logger.error("Failed to approve inbox submission %s: %s", submission_id, e)
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to approve inbox submission %s", submission_id)
         return jsonify({"success": False, "error": "Failed to approve submission"}), 500
 
 
@@ -544,8 +548,8 @@ def get_submission_status(submission_id: str):
             if result_json:
                 try:
                     result = json.loads(result_json)
-                except Exception:
-                    pass
+                except Exception:  # noqa: broad-except
+                    logger.exception("Failed to decode mobile inbox result_json")
 
             return jsonify({
                 "success": True,
@@ -554,8 +558,8 @@ def get_submission_status(submission_id: str):
                 "processed_at": processed_at,
                 "result": result,
             })
-    except Exception as e:
-        logger.error("Failed to get submission status %s: %s", submission_id, e)
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to get submission status %s", submission_id)
         return jsonify({"success": False, "error": "Failed to get status"}), 500
 
 
@@ -582,6 +586,127 @@ def reject_inbox(submission_id: str):
             )
             conn.commit()
         return jsonify({"success": True})
-    except Exception as e:
-        logger.error("Failed to reject inbox submission %s: %s", submission_id, e)
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to reject inbox submission %s", submission_id)
         return jsonify({"success": False, "error": "Failed to reject submission"}), 500
+
+
+@mobile_bp.route("/current-tasks", methods=["GET"])
+def get_current_tasks():
+    """Fetch current active tasks for mobile app offline viewing."""
+    ok, device, err = _require_mobile_token()
+    if not ok or not device:
+        return jsonify({"success": False, "error": err}), 401
+
+    dm = _get_data_manager()
+    if not dm:
+        return jsonify({"success": False, "error": "Data manager not available"}), 500
+
+    user_id = device.get("user_id")
+
+    try:
+        # Fetch active tasks (not completed, not struck forever)
+        all_tasks = dm.get_tasks_for_user(user_id)
+        if not all_tasks:
+            return jsonify({"success": True, "tasks": []})
+
+        # Filter to active tasks only
+        current_tasks = [
+            {
+                "id": t.get("id"),
+                "title": t.get("title"),
+                "description": t.get("description"),
+                "project": t.get("project"),
+                "due_date": t.get("due_date"),
+                "priority": t.get("priority"),
+                "estimated_duration": t.get("estimated_duration"),
+                "struck_today": t.get("struck_today", False),
+                "completed": t.get("completed", False),
+                "struck_forever": t.get("struck_forever", False),
+            }
+            for t in all_tasks
+            if not t.get("struck_forever") and not t.get("completed")
+        ]
+
+        return jsonify({"success": True, "tasks": current_tasks, "count": len(current_tasks)})
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to fetch current tasks for mobile")
+        return jsonify({"success": False, "error": "Failed to fetch tasks"}), 500
+
+
+@mobile_bp.route("/notes", methods=["GET"])
+def get_notes():
+    """Fetch notes for mobile app offline viewing."""
+    ok, device, err = _require_mobile_token()
+    if not ok or not device:
+        return jsonify({"success": False, "error": err}), 401
+
+    dm = _get_data_manager()
+    if not dm:
+        return jsonify({"success": False, "error": "Data manager not available"}), 500
+
+    user_id = device.get("user_id")
+
+    try:
+        notes = dm.load_notes_for_user(user_id)
+        if not notes:
+            return jsonify({"success": True, "notes": []})
+
+        # Return notes data for mobile
+        mobile_notes = [
+            {
+                "id": n.get("id"),
+                "title": n.get("title"),
+                "content": n.get("content", ""),
+                "created_at": n.get("created_at"),
+                "updated_at": n.get("updated_at"),
+            }
+            for n in notes
+        ]
+
+        return jsonify({"success": True, "notes": mobile_notes, "count": len(mobile_notes)})
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to fetch notes for mobile")
+        return jsonify({"success": False, "error": "Failed to fetch notes"}), 500
+
+
+@mobile_bp.route("/notes", methods=["POST"])
+def create_note():
+    """Create a note from mobile app."""
+    ok, device, err = _require_mobile_token()
+    if not ok or not device:
+        return jsonify({"success": False, "error": err}), 401
+
+    dm = _get_data_manager()
+    if not dm:
+        return jsonify({"success": False, "error": "Data manager not available"}), 500
+
+    data = request.json
+    if data is None or not isinstance(data, dict):
+        return jsonify({"success": False, "error": "Request must contain JSON object"}), 400
+
+    title = str(data.get("title", "")).strip()
+    content = str(data.get("content", "")).strip()
+
+    if not title:
+        return jsonify({"success": False, "error": "Title is required"}), 400
+
+    user_id = device.get("user_id")
+
+    try:
+        note = dm.create_note_for_user(user_id, {"title": title, "content": content})
+        if note:
+            return jsonify({
+                "success": True,
+                "note": {
+                    "id": note.get("id"),
+                    "title": note.get("title"),
+                    "content": note.get("content"),
+                    "created_at": note.get("created_at"),
+                    "updated_at": note.get("updated_at"),
+                }
+            })
+        return jsonify({"success": False, "error": "Failed to create note"}), 500
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to create note for mobile")
+        return jsonify({"success": False, "error": "Failed to create note"}), 500

@@ -376,21 +376,34 @@ class DailyPlannerV2 {
 
     async loadAvailableTasksFromAPI() {
         try {
-            const response = await apiCall('/api/planner-v2/tasks');
-            const data = await response.json();
+            let data = null;
+            if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+                data = await window.Utils.apiRequestJson('/api/planner-v2/tasks', {}, { expectObject: true, retries: 1, retryDelayMs: 500 });
+            } else {
+                const response = await apiCall('/api/planner-v2/tasks');
+                if (!response.ok) {
+                    throw new Error(`Failed to load tasks (${response.status})`);
+                }
+                data = await response.json();
+            }
             
-            if (data.success && data.available_tasks) {
+            if (data && data.success && Array.isArray(data.available_tasks)) {
                 this.availableTasks = data.available_tasks;
                 console.log('Loaded available tasks from API:', this.availableTasks.length);
                 console.log('Available tasks:', this.availableTasks);
                 this.renderAvailableTasks();
             } else {
-                console.error('Failed to load available tasks from API:', data.error);
-                this.renderAvailableTasks(); // Render empty state
+                console.warn('Invalid or empty available tasks response:', data);
+                this.availableTasks = [];
+                this.renderAvailableTasks();
             }
         } catch (error) {
             console.error('Error loading available tasks from API:', error);
-            this.renderAvailableTasks(); // Render empty state
+            this.availableTasks = [];
+            this.renderAvailableTasks();
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                window.Utils.safeShowNotification('Failed to load available tasks', 'error');
+            }
         }
     }
 
@@ -963,13 +976,12 @@ class DailyPlannerV2 {
         try {
             console.log('Scheduling task via API:', { taskId, hour, minute, duration });
             
-            // Format hour and minute with leading zeros (HH:MM format)
             const formattedHour = String(hour).padStart(2, '0');
             const formattedMinute = String(minute).padStart(2, '0');
             const scheduledHour = `${formattedHour}:${formattedMinute}`;
             
             const requestBody = {
-                hour: scheduledHour,  // API expects "HH:MM" string format
+                hour: scheduledHour,
                 duration: duration,
                 date: this.getDateKey(this.selectedDate)
             };
@@ -977,39 +989,52 @@ class DailyPlannerV2 {
             console.log('Request body:', requestBody);
             console.log('API endpoint:', `/api/tasks/${taskId}/schedule`);
             
-            const response = await apiCall(`/api/tasks/${taskId}/schedule`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(requestBody)
-            });
+            let response = null;
+            let data = null;
+            if (window.Utils && typeof window.Utils.apiCall === 'function') {
+                response = await window.Utils.apiCall(`/api/tasks/${taskId}/schedule`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+            } else {
+                response = await apiCall(`/api/tasks/${taskId}/schedule`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+            }
 
             console.log('Response status:', response.status);
             console.log('Response ok:', response.ok);
 
-if (response.ok) {
+            if (response.ok) {
                 console.log('Task scheduled successfully');
-                // Refresh the available tasks
                 this.loadAvailableTasks();
-                // Refresh scheduled tasks
                 this.requestLoadScheduledTasks();
                 try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
             } else if (response.status === 409) {
-                // Conflict error - show user-friendly message
-                const errorData = await response.json();
-                console.error('Schedule conflict:', errorData);
-                
-                // Show styled alert modal
-                this.showConflictAlert(errorData.message || 'This time slot conflicts with another task');
+                data = await response.json().catch(() => ({ message: 'This time slot conflicts with another task' }));
+                console.error('Schedule conflict:', data);
+                this.showConflictAlert(data.message || 'This time slot conflicts with another task');
             } else {
-                const errorText = await response.text();
-                console.error('Failed to schedule task:', response.status, errorText);
-                alert('Failed to schedule task. Please try again.');
+                data = await response.json().catch(() => null);
+                const msg = (data && (data.error || data.message)) ? (data.error || data.message) : `Failed to schedule task (${response.status})`;
+                console.error('Failed to schedule task:', response.status, msg);
+                if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                    window.Utils.safeShowNotification(msg, 'error');
+                } else {
+                    alert(msg);
+                }
             }
         } catch (error) {
             console.error('Error scheduling task:', error);
-            alert('An error occurred while scheduling the task.');
+            const msg = (error && error.message) ? error.message : 'An error occurred while scheduling the task.';
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                window.Utils.safeShowNotification(msg, 'error');
+            } else {
+                alert(msg);
+            }
         }
     }
 
@@ -1162,33 +1187,44 @@ if (response.ok) {
 
     async unscheduleTaskViaAPI(taskId) {
         try {
-            const response = await apiCall(`/api/tasks/${taskId}/unschedule`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            });
+            let response = null;
+            if (window.Utils && typeof window.Utils.apiCall === 'function') {
+                response = await window.Utils.apiCall(`/api/tasks/${taskId}/unschedule`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            } else {
+                response = await apiCall(`/api/tasks/${taskId}/unschedule`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
 
-if (response.ok) {
+            if (response.ok) {
                 console.log('Task unscheduled successfully');
-                // Optimistically remove from UI immediately
                 this.removeScheduledElementsByTaskId(taskId);
-                // Refresh the available tasks
                 this.loadAvailableTasks();
-                // Refresh scheduled tasks
                 this.requestLoadScheduledTasks();
                 try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
             } else if (response.status === 404) {
-                // Task no longer exists (likely deleted) — remove any remnants from planner UI
                 console.warn('Unschedule 404: task not found; removing from planner view');
                 this.removeScheduledElementsByTaskId(taskId);
                 this.loadAvailableTasks();
                 this.loadScheduledTasksFromBackend();
             } else {
-                console.error('Failed to unschedule task:', response.statusText);
+                const data = await response.json().catch(() => null);
+                const msg = (data && (data.error || data.message)) ? (data.error || data.message) : `Failed to unschedule task (${response.status})`;
+                console.error('Failed to unschedule task:', msg);
+                if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                    window.Utils.safeShowNotification(msg, 'error');
+                }
             }
         } catch (error) {
             console.error('Error unscheduling task:', error);
+            const msg = (error && error.message) ? error.message : 'Error unscheduling task';
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                window.Utils.safeShowNotification(msg, 'error');
+            }
         }
     }
 
@@ -1388,22 +1424,28 @@ if (response.ok) {
     loadScheduledTasksFromBackend() {
         console.log('=== loadScheduledTasksFromBackend START ===');
         console.log('Fetching from: /api/planner-v2/schedule');
-        // Return the promise chain so callers can await/catch
-        return apiCall('/api/planner-v2/schedule')
-        .then(response => {
-            console.log('Response status:', response.status, response.statusText);
-            return response.json();
-        })
-        .then(data => {
+        
+        const fetchSchedule = async () => {
+            let data = null;
+            if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+                data = await window.Utils.apiRequestJson('/api/planner-v2/schedule', {}, { expectObject: true, retries: 1, retryDelayMs: 500 });
+            } else {
+                const response = await apiCall('/api/planner-v2/schedule');
+                console.log('Response status:', response.status, response.statusText);
+                if (!response.ok) {
+                    throw new Error(`Failed to load schedule (${response.status})`);
+                }
+                data = await response.json();
+            }
+            
             console.log('Backend response received:', data);
             console.log('Response success:', data.success);
             console.log('Scheduled tasks in response:', data.scheduled_tasks);
             
-            if (data.success && data.scheduled_tasks) {
+            if (data && data.success && data.scheduled_tasks && typeof data.scheduled_tasks === 'object') {
                 console.log('Number of scheduled dates:', Object.keys(data.scheduled_tasks).length);
                 console.log('Scheduled dates:', Object.keys(data.scheduled_tasks));
                 
-                // Convert serializable format back to Map
                 this.scheduledTasks.clear();
                 Object.entries(data.scheduled_tasks).forEach(([dateKey, dayTasks]) => {
                     console.log('Processing date:', dateKey, 'with hours:', Object.keys(dayTasks));
@@ -1423,13 +1465,21 @@ if (response.ok) {
                 console.log('About to call loadScheduledTasks()...');
                 this.loadScheduledTasks();
             } else {
-                console.warn('No scheduled tasks found or API error:', data);
+                console.warn('Invalid or empty scheduled tasks response:', data);
+                this.scheduledTasks.clear();
+                this.loadScheduledTasks();
             }
             console.log('=== loadScheduledTasksFromBackend END ===');
-        })
-        .catch(error => {
+        };
+        
+        return fetchSchedule().catch(error => {
             console.error('Error loading scheduled tasks:', error);
             console.error('Error stack:', error.stack);
+            this.scheduledTasks.clear();
+            this.loadScheduledTasks();
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                window.Utils.safeShowNotification('Failed to load scheduled tasks', 'error');
+            }
         });
     }
 

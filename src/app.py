@@ -49,9 +49,12 @@ from src.routes.updates_routes import updates_bp, init_updates_routes
 from src.routes.backups_routes import backups_bp, init_backups_routes
 from src.routes.github_update_routes import github_update_bp, init_github_update_routes
 from src.routes.mobile_routes import mobile_bp, init_mobile_routes
+from src.routes.core_routes import core_bp, init_core_routes
 from src.services import scheduler as scheduler_service
 from src.services import autosave as autosave_service
 from src.services import tray as tray_service
+
+from src.exceptions import DatabaseError, ValidationError
 
 # Flask app configuration
 app = create_app()
@@ -128,14 +131,15 @@ def _is_newer_version(new_version: str, current_version: str) -> bool:
         new_parts += [0] * (max_len - len(new_parts))
         cur_parts += [0] * (max_len - len(cur_parts))
         return new_parts > cur_parts
-    except Exception:
+    except (TypeError, ValueError):
+        logger.exception("Error comparing versions: %r vs %r", new_version, current_version)
         return False
 
 # Now that logging is ready, record the working directory
 try:
     logger.info(f"Working directory set to: {os.getcwd()}")
-except Exception:
-    pass
+except Exception:  # noqa: broad-except
+    logger.exception("Failed to log working directory")
 
 # Issue #5: Import TTL cache for CSRF tokens
 from cachetools import TTLCache
@@ -288,6 +292,9 @@ class AppContext:
 
 # Initialize application context
 from src.core.app_context import app_context
+from src.core.di import set_extension
+
+set_extension(app, 'app_context', app_context)
 
 # Issue #29: Configure CORS with proper origins
 if '*' in ALLOWED_ORIGINS:
@@ -320,88 +327,6 @@ def log_response_info(response):
         logger.info(f"Response: {response.status_code}")
     return response
 
-# Font file serving with correct MIME types
-@app.route('/static/webfonts/<filename>')
-def serve_font(filename):
-    """Serve font files with correct MIME types"""
-    font_dir = os.path.join(app.static_folder, 'webfonts')
-    font_path = os.path.join(font_dir, filename)
-    
-    if not os.path.exists(font_path):
-        return "Font file not found", 404
-    
-    # Determine MIME type based on file extension
-    if filename.endswith('.woff2'):
-        mimetype = 'font/woff2'
-    elif filename.endswith('.woff'):
-        mimetype = 'font/woff'
-    elif filename.endswith('.ttf'):
-        mimetype = 'font/ttf'
-    elif filename.endswith('.otf'):
-        mimetype = 'font/otf'
-    else:
-        mimetype = 'application/octet-stream'
-    
-    return send_file(font_path, mimetype=mimetype)
-
-# Health check endpoints
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Basic health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'version': _get_app_version()
-    })
-
-@app.route('/api/health/detailed', methods=['GET'])
-def detailed_health_check():
-    """Detailed health check with system information"""
-    try:
-        health_info = {
-            'status': 'healthy',
-            'timestamp': datetime.now().isoformat(),
-            'version': _get_app_version(),
-            'components': {}
-        }
-
-        # Check data manager
-        try:
-            if app_context.data_manager:
-                health_info['components']['data_manager'] = 'healthy'
-            else:
-                health_info['components']['data_manager'] = 'not_initialized'
-        except Exception as e:
-            health_info['components']['data_manager'] = f'error: {str(e)}'
-
-        # Check update manager
-        try:
-            if app_context.update_manager:
-                health_info['components']['update_manager'] = 'healthy'
-            else:
-                health_info['components']['update_manager'] = 'not_initialized'
-        except Exception as e:
-            health_info['components']['update_manager'] = f'error: {str(e)}'
-
-        # Check file system
-        try:
-            data_dir = "data"
-            if os.path.exists(data_dir):
-                health_info['components']['filesystem'] = 'healthy'
-            else:
-                health_info['components']['filesystem'] = 'directory_missing'
-        except Exception as e:
-            health_info['components']['filesystem'] = f'error: {str(e)}'
-
-        return jsonify(health_info)
-
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
-
 # validate_input function removed - was unused dead code (40 lines)
 
 # Helper function to ensure data manager is initialized
@@ -419,6 +344,10 @@ def get_user_id():
     """Get user ID - authentication disabled, always return default user"""
     # Always return valid user ID, never None
     return DEFAULT_USER_ID
+
+
+set_extension(app, 'ensure_data_manager', ensure_data_manager)
+set_extension(app, 'get_user_id', get_user_id)
 
 # Old auth decorators removed - using PIN authentication now
 # CSRF validation handled by security_manager for specific endpoints
@@ -455,13 +384,13 @@ def rate_limit(f):
             if hasattr(result, 'status_code'):
                 try:
                     status_code = int(result.status_code)
-                except Exception:
+                except Exception:  # noqa: broad-except
                     status_code = 200
             elif isinstance(result, tuple) and len(result) >= 2:
                 possible_status = result[1]
                 try:
                     status_code = int(getattr(possible_status, 'value', possible_status))
-                except Exception:
+                except Exception:  # noqa: broad-except
                     status_code = 200
             
             monitor.record_request(endpoint, method, response_time, status_code)
@@ -527,6 +456,19 @@ def sanitize_input(data):
     return data
 
 
+# Initialize and register core routes blueprint after helper functions
+init_core_routes(
+    app_context=app_context,
+    get_user_id_func=get_user_id,
+    ensure_data_manager_func=ensure_data_manager,
+    root_dir=root_dir,
+    config=config,
+    get_app_version_func=_get_app_version,
+    setup_daily_reset_func=lambda: setup_daily_reset(),
+    stop_system_tray_func=lambda: stop_system_tray(),
+)
+app.register_blueprint(core_bp)
+
 # Initialize and register task + notes routes blueprints after helper functions
 init_task_routes(
     app_context=app_context,
@@ -552,7 +494,7 @@ app.register_blueprint(pin_bp)
 init_mobile_routes(app_context=app_context, get_user_id_func=get_user_id, ensure_data_manager_func=ensure_data_manager)
 app.register_blueprint(mobile_bp)
 
-init_planner_routes(app_context=app_context, get_user_id_func=get_user_id)
+init_planner_routes(app_context=app_context, get_user_id_func=get_user_id, ensure_data_manager_func=ensure_data_manager)
 app.register_blueprint(planner_bp)
 
 init_monitoring_routes(
@@ -674,8 +616,12 @@ def auto_save_worker():
                 try:
                     user_id = get_user_id()
                     settings = app_context.data_manager.load_settings(user_id) or {}
-                except Exception as e:
-                    logger.warning(f"Failed to load settings for auto-save: {e}")
+                except DatabaseError:
+                    logger.exception("Failed to load settings for auto-save")
+                    settings = {}
+                except Exception:  # noqa: broad-except
+                    logger.exception("Failed to load settings for auto-save")
+                    settings = {}
             
             interval = settings.get('autosave_interval', 30)
             
@@ -711,7 +657,11 @@ def auto_save_worker():
                     continue
                 
                 # Load current tasks
-                tasks = app_context.data_manager.load_tasks_for_user(user_id)
+                try:
+                    tasks = app_context.data_manager.load_tasks_for_user(user_id)
+                except DatabaseError:
+                    logger.exception("Auto-save skipped: database error loading tasks")
+                    continue
                 
                 # Only save if there are changes since last save
                 current_time = time.time()
@@ -742,14 +692,14 @@ def auto_save_worker():
                 else:
                     logger.error(f"Auto-save failed for user {user_id}")
                 
-            except Exception as save_error:
-                logger.error(f"Auto-save error for user {user_id or 'unknown'}: {save_error}")
+            except Exception:  # noqa: broad-except
+                logger.exception("Auto-save error for user %s", user_id or 'unknown')
             finally:
                 # Always clear the save in progress flag
                 app_context.set_save_in_progress(False)
                 
-        except Exception as e:
-            logger.error(f"Auto-save worker error: {e}")
+        except Exception:  # noqa: broad-except
+            logger.exception("Auto-save worker error")
             # Wait a bit before retrying to prevent rapid error loops
             time.sleep(5)
     
@@ -793,7 +743,11 @@ def scheduler_worker(stop_event: threading.Event):
             if (now - last_missed_check).total_seconds() >= 900:  # 15 minutes
                 if app_context.data_manager:
                     user_id = get_user_id()
-                    settings = app_context.data_manager.load_settings(user_id) or {}
+                    try:
+                        settings = app_context.data_manager.load_settings(user_id) or {}
+                    except DatabaseError:
+                        logger.exception("Database error loading settings for missed reset interval check")
+                        settings = {}
                     reset_time = settings.get('daily_reset_time', '08:00')
                     check_and_run_missed_reset(reset_time, verbose=False)  # Quiet mode for intervals
                 last_missed_check = now
@@ -803,8 +757,8 @@ def scheduler_worker(stop_event: threading.Event):
             # Sleep for 60 seconds or until stop requested
             stop_event.wait(timeout=60)
             
-        except Exception as e:
-            logger.error(f"Scheduler worker error: {e}")
+        except Exception:  # noqa: broad-except
+            logger.exception("Scheduler worker error")
             # Wait a bit before retrying to prevent rapid error loops
             stop_event.wait(timeout=30)
 def check_and_run_missed_reset(reset_time_str, verbose=True):
@@ -835,7 +789,11 @@ def check_and_run_missed_reset(reset_time_str, verbose=True):
                 logger.warning(f"[DEBUG] Skipping missed reset - user_id: {user_id}, data_manager: {app_context.data_manager is not None}")
                 return
             
-            tasks = app_context.data_manager.load_tasks_for_user(user_id)
+            try:
+                tasks = app_context.data_manager.load_tasks_for_user(user_id)
+            except DatabaseError:
+                logger.exception("[DEBUG] Skipping missed reset - database error loading tasks")
+                return
             logger.info(f"[DEBUG] Loaded {len(tasks)} tasks")
             if not tasks:
                 return
@@ -845,12 +803,12 @@ def check_and_run_missed_reset(reset_time_str, verbose=True):
             logger.info(f"[DEBUG] Tasks with struck_today=True: {struck_count}")
             
             if needs_reset:
-                logger.info(f"⏰ Missed reset detected! Current time {now.strftime('%H:%M')} is past reset time {reset_time_str}. Running reset now...")
+                logger.info(f" Missed reset detected! Current time {now.strftime('%H:%M')} is past reset time {reset_time_str}. Running reset now...")
                 reset_daily_strikes_job()
             elif verbose:
-                logger.debug("👍 No tasks flagged for today; reset not needed")
+                logger.debug(" No tasks flagged for today; reset not needed")
         elif verbose:
-            logger.info(f"⏳ Reset time {reset_time_str} is still upcoming today (current: {now.strftime('%H:%M')})")
+            logger.info(f" Reset time {reset_time_str} is still upcoming today (current: {now.strftime('%H:%M')})")
             
     except Exception as e:
         logger.error(f"Error checking for missed reset: {e}")
@@ -864,7 +822,11 @@ def setup_daily_reset():
         
         # Get user ID for proper settings loading
         user_id = get_user_id()
-        settings = app_context.data_manager.load_settings(user_id) or {}
+        try:
+            settings = app_context.data_manager.load_settings(user_id) or {}
+        except DatabaseError:
+            logger.exception("Database error loading settings for daily reset setup")
+            return
         reset_time = settings.get('daily_reset_time', '08:00')
         
         # Validate and normalize reset time
@@ -879,7 +841,7 @@ def setup_daily_reset():
         # Schedule the daily reset with proper timezone handling
         schedule.every().day.at(reset_time).do(reset_daily_strikes_job).tag('daily_reset')
         
-        logger.info(f"✅ Daily reset scheduled for {reset_time} (user: {user_id})")
+        logger.info(f" Daily reset scheduled for {reset_time} (user: {user_id})")
         
     except Exception as e:
         logger.error(f"Error setting up daily reset: {e}")
@@ -910,7 +872,11 @@ def reset_daily_strikes_job():
             return
         
         # Load tasks for the user
-        tasks = app_context.data_manager.load_tasks_for_user(user_id)
+        try:
+            tasks = app_context.data_manager.load_tasks_for_user(user_id)
+        except DatabaseError:
+            logger.exception("Daily reset skipped: database error loading tasks")
+            return
         if not tasks:
             logger.info("No tasks found for daily reset")
             return
@@ -1020,69 +986,6 @@ def _validate_and_normalize_reset_time(reset_time_str):
 def validate_reset_time(reset_time_str):
     return _validate_and_normalize_reset_time(reset_time_str)
 
-@app.route('/')
-def index():
-    """Serve the main application page - authentication disabled"""
-    # Authentication disabled - serve dashboard directly
-
-    # Load version information (works both in dev and when frozen)
-    try:
-        version = _get_app_version()
-    except Exception as e:
-        logger.warning(f"Failed to read version.json via _get_app_version, falling back to 1.0.0: {e}")
-        version = '1.0.0'
-
-    return render_template(
-        'index_modular.html',
-        version=version,
-        config=config
-    )
-
-@app.route('/companion')
-def companion():
-    """Serve the web-based mobile companion page for iOS and other devices"""
-    return render_template('companion.html')
-
-
-@app.route('/companion/manifest.webmanifest')
-def companion_manifest():
-    """Serve the PWA manifest for the web companion"""
-    companion_dir = os.path.join(root_dir, 'assets', 'static', 'companion')
-    return send_from_directory(companion_dir, 'manifest.webmanifest', mimetype='application/manifest+json')
-
-
-@app.route('/companion/sw.js')
-def companion_sw():
-    """Serve the service worker for the web companion (must be under /companion scope)"""
-    companion_dir = os.path.join(root_dir, 'assets', 'static', 'companion')
-    return send_from_directory(companion_dir, 'sw.js', mimetype='application/javascript')
-
-@app.route('/favicon.ico')
-def favicon():
-    """Serve the favicon"""
-    try:
-        # Handle both development and PyInstaller executable modes
-        if getattr(sys, 'frozen', False):
-            # Running as compiled executable
-            base_path = os.path.dirname(sys.executable)
-            root_dir = base_path
-        else:
-            # Running as Python script
-            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
-        favicon_path = os.path.join(root_dir, 'assets', 'static', 'images', 'icon.ico')
-        logger.info(f"Looking for favicon at: {favicon_path}")
-        
-        if os.path.exists(favicon_path):
-            return send_from_directory(os.path.dirname(favicon_path), 'icon.ico', mimetype='image/x-icon')
-        else:
-            logger.warning(f"Favicon not found at: {favicon_path}")
-            return '', 404
-    except Exception as e:
-        logger.error(f"Error serving favicon: {e}")
-        return '', 404
-
-@app.route('/api/changelog')
 def get_changelog():
     """Serve the changelog file"""
     try:
@@ -1107,7 +1010,6 @@ def get_changelog():
         logger.error(f"Error reading changelog: {e}")
         return 'Error reading changelog.', 500
 
-@app.route('/api/analytics')
 def get_analytics():
     """Return decoupled analytics counters backed by SQLite, not JSON.
 
@@ -1126,34 +1028,10 @@ def get_analytics():
             'success': False,
             'today_date': datetime.now().strftime('%Y-%m-%d'),
             'today_strikes': 0,
-            'total_strikes': 0,
-        }), 200
+           'total_strikes': 0,
+       }), 200
 
 
-@app.route('/api/analytics/strike-calendar', methods=['GET'])
-def get_strike_calendar():
-    """Return strike contribution calendar counts for a given month.
-
-    Contribution = any task struck (today or forever) on that date.
-    Data is persisted in the main tasks SQLite database via strike_events.
-    """
-    user_id = get_user_id()
-    if not ensure_data_manager():
-        return jsonify({'success': False, 'error': 'Failed to initialize data manager'}), 500
-
-    try:
-        month = request.args.get('month')
-        if not month:
-            month = datetime.now().strftime('%Y-%m')
-        data = app_context.data_manager.get_strike_contributions_for_month(user_id, month)
-        months = app_context.data_manager.list_strike_contribution_months(user_id, limit=36)
-        return jsonify({'success': True, **data, 'months': months})
-    except Exception as e:
-        logger.error(f"Strike calendar error: {e}")
-        return jsonify({'success': False, 'month': datetime.now().strftime('%Y-%m'), 'days': {}, 'added': {}, 'max': 0, 'months': []}), 200
-
-
-@app.route('/api/analytics/daily-recap', methods=['GET'])
 def get_daily_recap():
     """Return recap metrics for a given day (defaults to yesterday).
 
@@ -1168,15 +1046,20 @@ def get_daily_recap():
         if not day:
             day = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
 
-        recap = app_context.data_manager.get_daily_recap(user_id, day) or {}
+        recap = app_context.data_manager.get_daily_recap(user_id, day)
         seen = app_context.data_manager.was_recap_seen(user_id, day)
         return jsonify({'success': True, 'seen': bool(seen), **recap})
-    except Exception as e:
-        logger.error(f"Daily recap error: {e}")
-        return jsonify({'success': False, 'seen': False, 'day': (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')}), 200
+    except ValidationError as e:
+        logger.exception("Invalid daily recap request")
+        return jsonify(e.to_dict()), 400
+    except DatabaseError:
+        logger.exception("Database error building daily recap")
+        return jsonify({'success': False, 'error': 'Database error building daily recap'}), 503
+    except Exception:  # noqa: broad-except
+        logger.exception("Daily recap error")
+        return jsonify({'success': False, 'error': 'Daily recap error'}), 500
 
 
-@app.route('/api/analytics/daily-recap/seen', methods=['POST'])
 def mark_daily_recap_seen():
     user_id = get_user_id()
     if not ensure_data_manager():
@@ -1187,12 +1070,17 @@ def mark_daily_recap_seen():
         day = payload.get('day') or (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
         ok = app_context.data_manager.mark_recap_seen(user_id, day)
         return jsonify({'success': bool(ok), 'day': day})
-    except Exception as e:
-        logger.error(f"Mark recap seen error: {e}")
-        return jsonify({'success': False}), 200
+    except ValidationError as e:
+        logger.exception("Invalid mark recap seen request")
+        return jsonify(e.to_dict()), 400
+    except DatabaseError:
+        logger.exception("Database error marking recap seen")
+        return jsonify({'success': False, 'error': 'Database error marking recap seen'}), 503
+    except Exception:  # noqa: broad-except
+        logger.exception("Mark recap seen error")
+        return jsonify({'success': False, 'error': 'Mark recap seen error'}), 500
 
 
-@app.route('/api/analytics/summary', methods=['GET'])
 def get_analytics_summary():
     """Consolidated analytics endpoint - returns all dashboard data in one call.
     
@@ -1210,10 +1098,15 @@ def get_analytics_summary():
         analytics = get_analytics_counters()
         
         # Get tasks for stats calculation
-        tasks = app_context.data_manager.load_tasks_for_user(user_id) or []
+        try:
+            tasks = app_context.data_manager.load_tasks_for_user(user_id)
+        except DatabaseError:
+            logger.exception("Database error loading tasks for analytics summary")
+            return jsonify({'success': False, 'error': 'Database error loading tasks'}), 503
+        tasks = tasks or []
         try:
             tasks = [t for t in tasks if isinstance(t, dict)]
-        except Exception:
+        except Exception:  # noqa: broad-except
             tasks = []
         
         # Calculate task stats
@@ -1239,7 +1132,11 @@ def get_analytics_summary():
             return best
 
         # Load user settings for streak calculation
-        user_settings = app_context.data_manager.load_settings(user_id) or {}
+        try:
+            user_settings = app_context.data_manager.load_settings(user_id) or {}
+        except DatabaseError:
+            logger.exception("Database error loading settings for analytics summary")
+            return jsonify({'success': False, 'error': 'Database error loading settings'}), 503
         streak_skip_weekends = bool(user_settings.get('streak_skip_weekends', False))
         streak_count_new_tasks = bool(user_settings.get('streak_count_new_tasks', False))
         streak_count_settings = bool(user_settings.get('streak_count_settings', False))
@@ -1249,18 +1146,22 @@ def get_analytics_summary():
         completion_current = 0
         completion_best = 0
         try:
-            conn = app_context.data_manager._get_pooled_connection()
             from src.db.analytics_queries import get_productivity_streak
-            completion_current = get_productivity_streak(
-                conn, user_id,
-                skip_weekends=streak_skip_weekends,
-                count_new_tasks=streak_count_new_tasks,
-                count_settings=streak_count_settings
-            )
-            app_context.data_manager._return_connection(conn)
-        except Exception as e:
-            logger.warning(f"Error calculating completion streak: {e}")
-            completion_current = 0
+
+            with app_context.data_manager.pooled_connection() as conn:
+                completion_current = get_productivity_streak(
+                    conn,
+                    user_id,
+                    skip_weekends=streak_skip_weekends,
+                    count_new_tasks=streak_count_new_tasks,
+                    count_settings=streak_count_settings,
+                )
+        except DatabaseError:
+            logger.exception("Database error calculating completion streak")
+            return jsonify({'success': False, 'error': 'Database error calculating streak'}), 503
+        except Exception:  # noqa: broad-except
+            logger.exception("Error calculating completion streak")
+            return jsonify({'success': False, 'error': 'Error calculating streak'}), 500
 
         try:
             completion_days = set()
@@ -1276,28 +1177,27 @@ def get_analytics_summary():
                 d = s.split('T')[0] if 'T' in s else s
                 try:
                     completion_days.add(datetime.strptime(d, '%Y-%m-%d').date())
-                except Exception:
+                except Exception:  # noqa: broad-except
                     continue
             completion_best = _longest_consecutive_run(sorted(completion_days))
-        except Exception:
+        except Exception:  # noqa: broad-except
             completion_best = 0
 
         # Strike streak: consecutive days with at least one strike event.
         strike_current = 0
         strike_best = 0
-        conn = None
         try:
-            conn = app_context.data_manager._get_pooled_connection()
-            cur = conn.cursor()
-            cur.execute(
-                '''
-                SELECT DISTINCT day
-                FROM strike_events
-                WHERE user_id = ?
-                ''',
-                (user_id,),
-            )
-            rows = cur.fetchall() or []
+            with app_context.data_manager.pooled_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    '''
+                    SELECT DISTINCT day
+                    FROM strike_events
+                    WHERE user_id = ?
+                    ''',
+                    (user_id,),
+                )
+                rows = cur.fetchall() or []
             days_set = set()
             for r in rows:
                 if not r:
@@ -1307,7 +1207,7 @@ def get_analytics_summary():
                     continue
                 try:
                     days_set.add(datetime.strptime(str(day_val), '%Y-%m-%d').date())
-                except Exception:
+                except Exception:  # noqa: broad-except
                     continue
 
             if days_set:
@@ -1325,48 +1225,39 @@ def get_analytics_summary():
                     while (anchor - timedelta(days=s)) in days_set:
                         s += 1
                     strike_current = s
-
-        except Exception as e:
-            logger.warning(f"Error calculating strike streak: {e}")
-            strike_current = 0
-            strike_best = 0
-        finally:
-            try:
-                if conn is not None:
-                    app_context.data_manager._return_connection(conn)
-            except Exception:
-                pass
+        except DatabaseError:
+            logger.exception("Database error calculating strike streak")
+            return jsonify({'success': False, 'error': 'Database error calculating strike streak'}), 503
+        except Exception:  # noqa: broad-except
+            logger.exception("Error calculating strike streak")
+            return jsonify({'success': False, 'error': 'Error calculating strike streak'}), 500
         
         # Get completed forever count
         completed_forever = len([t for t in tasks if t.get('struck_forever')])
         
         # Get additional metrics from database
         try:
-            conn = app_context.data_manager._get_pooled_connection()
-            cur = conn.cursor()
-            
-            # Settings changes count
-            cur.execute('SELECT COUNT(*) FROM settings_change_events WHERE user_id = ?', (user_id,))
-            settings_changes = cur.fetchone()[0]
-            
-            # Tasks added count
-            cur.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ?', (user_id,))
-            tasks_added = cur.fetchone()[0]
-            
-            # Tasks retried count (will be 0 until retry tracking is implemented)
-            tasks_retried = 0
-            
-            app_context.data_manager._return_connection(conn)
-        except Exception as e:
-            logger.warning(f"Error fetching additional metrics: {e}")
-            settings_changes = 0
-            tasks_added = total_tasks
-            tasks_retried = 0
+            with app_context.data_manager.pooled_connection() as conn:
+                cur = conn.cursor()
+
+                cur.execute('SELECT COUNT(*) FROM settings_change_events WHERE user_id = ?', (user_id,))
+                settings_changes = cur.fetchone()[0]
+
+                cur.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ?', (user_id,))
+                tasks_added = cur.fetchone()[0]
+
+                tasks_retried = 0
+        except DatabaseError:
+            logger.exception("Database error fetching additional metrics")
+            return jsonify({'success': False, 'error': 'Database error fetching metrics'}), 503
+        except Exception:  # noqa: broad-except
+            logger.exception("Error fetching additional metrics")
+            return jsonify({'success': False, 'error': 'Error fetching metrics'}), 500
         
         # Calculate tasks with dates and time from current tasks
         tasks_with_dates_live = len([t for t in tasks if t.get('due_date')])
         tasks_with_time_live = len([t for t in tasks if t.get('estimated_duration') or t.get('duration')])
-        tasks_planned_live = len([t for t in tasks if t.get('planned_date')])
+        tasks_planned_all_time = analytics.get('tasks_planned', 0)
         
         return jsonify({
             'success': True,
@@ -1401,10 +1292,10 @@ def get_analytics_summary():
             'tasks_edited': analytics.get('tasks_edited', 0),
             'tasks_with_dates': tasks_with_dates_live,
             'tasks_with_time': tasks_with_time_live,
-            'tasks_planned': tasks_planned_live
+            'tasks_planned': tasks_planned_all_time
         })
         
-    except Exception:
+    except Exception:  # noqa: broad-except
         logger.exception("Analytics summary error")
         return jsonify({
             'success': False,
@@ -1425,7 +1316,6 @@ def get_analytics_summary():
         }), 200
 
 
-@app.route('/api/account', methods=['GET'])
 def get_account_info():
     try:
         pin = app_context.pin_manager
@@ -1439,11 +1329,10 @@ def get_account_info():
         logger.error(f"/api/account error: {e}")
         return jsonify({'username': DEFAULT_USER_ID, 'authenticated': False}), 200
 
-@app.route('/login', methods=['GET', 'POST'])
 def login():
     """Login page - authentication disabled, redirect to dashboard"""
     # Authentication disabled - redirect to dashboard
-    return redirect(url_for('index'))
+    return redirect(url_for('core.index'))
 
 
 
@@ -1451,16 +1340,14 @@ def login():
 # Task Management Endpoints
 # ============================================
 
-@app.route('/api/settings/autostart', methods=['GET'])
 def get_autostart_status():
     try:
         enabled = app_context.autostart_manager.is_autostart_enabled() if app_context.autostart_manager else False
         cmd = app_context.autostart_manager.get_autostart_command() if app_context.autostart_manager else None
         return jsonify({ 'enabled': bool(enabled), 'command': cmd })
-    except Exception:
+    except Exception:  # noqa: broad-except
         return jsonify({ 'enabled': False }), 200
 
-@app.route('/api/settings', methods=['GET'])
 def get_settings():
     """Get application settings for the authenticated user with race condition protection"""
     user_id = get_user_id()
@@ -1492,6 +1379,7 @@ def get_settings():
                         'timezone': 'UTC',
                         'language': 'en',
                         'mini_analytics_interval': 5,
+                        'settings_layout': 'scroll',
                     }
                     logger.warning(f"Using default settings for user {user_id} after {max_retries} failed attempts")
         
@@ -1505,6 +1393,7 @@ def get_settings():
                 'timezone': 'UTC',
                 'language': 'en',
                 'mini_analytics_interval': 5,
+                'settings_layout': 'scroll',
             }
         
         # Add autostart status (thread-safe)
@@ -1524,6 +1413,7 @@ def get_settings():
             'timezone': settings.get('timezone', 'UTC'),
             'language': settings.get('language', 'en'),
             'mini_analytics_interval': settings.get('mini_analytics_interval', 5),
+            'settings_layout': settings.get('settings_layout', 'scroll'),
             'autostart_enabled': bool(settings.get('autostart_enabled', False)),
             'quick_project_from_title': bool(settings.get('quick_project_from_title', False)),
             'casual_dates': bool(settings.get('casual_dates', False)),
@@ -1533,6 +1423,9 @@ def get_settings():
             'finish': settings.get('finish', 'glossy'),
             'intensity': settings.get('intensity', '5'),
         }
+
+        if validated_settings.get('settings_layout') not in ['scroll', 'tabs']:
+            validated_settings['settings_layout'] = 'scroll'
         
         logger.info(f"Successfully loaded settings for user {user_id}")
         return jsonify(validated_settings)
@@ -1548,10 +1441,10 @@ def get_settings():
             'daily_reset_time': '06:00',
             'timezone': 'UTC',
             'language': 'en',
+            'settings_layout': 'scroll',
             'autostart_enabled': False
         })
 
-@app.route('/api/settings', methods=['PUT'])
 def update_settings():
     """Update application settings for the authenticated user with race condition protection"""
     user_id = get_user_id()
@@ -1628,10 +1521,15 @@ def update_settings():
             mai = settings_data['mini_analytics_interval']
             try:
                 mai = int(mai)
-            except Exception:
+            except Exception:  # noqa: broad-except
                 mai = None
             if mai in [0, 5, 10, 20, 30, 60]:
                 validated_updates['mini_analytics_interval'] = mai
+
+        if 'settings_layout' in settings_data:
+            layout = settings_data['settings_layout']
+            if isinstance(layout, str) and layout in ['scroll', 'tabs']:
+                validated_updates['settings_layout'] = layout
         
         # Notifications validation
         if 'notifications' in settings_data:
@@ -1744,8 +1642,10 @@ def update_settings():
             # Record a settings-change event for daily recap/history (best effort)
             try:
                 app_context.data_manager.add_settings_change_event(user_id)
-            except Exception:
-                pass
+            except DatabaseError:
+                logger.exception("Database error recording settings change event")
+            except Exception:  # noqa: broad-except
+                logger.exception("Error recording settings change event")
             # If daily reset time was changed, reschedule the reset job
             if daily_reset_time_changed:
                 try:
@@ -1766,7 +1666,6 @@ def update_settings():
         return jsonify({'error': 'Failed to update settings'}), 500
 
 
-@app.route('/api/export', methods=['GET'])
 def export_data():
     user_id = get_user_id()
     try:
@@ -1774,15 +1673,26 @@ def export_data():
         if not dm:
             return jsonify({'error': 'Data manager not initialized'}), 500
 
-        tasks = dm.load_tasks_for_user(user_id)
+        try:
+            tasks = dm.load_tasks_for_user(user_id)
+        except DatabaseError:
+            logger.exception("Database error loading tasks for export (user %s)", user_id)
+            return jsonify({'error': 'Database error loading tasks'}), 503
         notes = dm.load_notes_for_user(user_id)
-        settings = dm.load_settings(user_id)
-        planner_v2_schedule = dm.load_planner_v2_schedule(user_id)
-
-        days = dm.load_planner_history_days(user_id, limit=30)
-        planner_history = {}
-        for day in days:
-            planner_history[day] = dm.load_planner_history_for_day(user_id, day)
+        try:
+            settings = dm.load_settings(user_id)
+        except DatabaseError:
+            logger.exception("Database error loading settings for export (user %s)", user_id)
+            return jsonify({'error': 'Database error loading settings'}), 503
+        try:
+            planner_v2_schedule = dm.load_planner_v2_schedule(user_id)
+            days = dm.load_planner_history_days(user_id, limit=30)
+            planner_history = {}
+            for day in days:
+                planner_history[day] = dm.load_planner_history_for_day(user_id, day)
+        except DatabaseError:
+            logger.exception("Database error exporting planner data (user %s)", user_id)
+            return jsonify({'error': 'Database error exporting planner data'}), 503
 
         return jsonify({
             'exported_at': datetime.now().isoformat(),
@@ -1793,12 +1703,11 @@ def export_data():
             'planner_v2_schedule': planner_v2_schedule,
             'planner_history': planner_history,
         })
-    except Exception as e:
-        logger.error(f"Failed to export data for user {user_id}: {e}", exc_info=True)
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to export data for user %s", user_id)
         return jsonify({'error': 'Failed to export data'}), 500
 
 
-@app.route('/api/clear', methods=['POST'])
 def clear_data():
     user_id = get_user_id()
     try:
@@ -1822,11 +1731,18 @@ def clear_data():
             _safe_delete(conn, 'DELETE FROM planner_v2_schedule WHERE user_id = ?', (user_id,))
             _safe_delete(conn, 'DELETE FROM planner_task_history WHERE user_id = ?', (user_id,))
             _safe_delete(conn, 'DELETE FROM strike_today_report_history WHERE user_id = ?', (user_id,))
+            _safe_delete(conn, 'DELETE FROM deleted_tasks WHERE user_id = ?', (user_id,))
             _safe_delete(conn, 'DELETE FROM sessions WHERE user_id = ?', (user_id,))
             _safe_delete(conn, 'DELETE FROM user_preferences WHERE user_id = ?', (user_id,))
             _safe_delete(conn, 'DELETE FROM settings WHERE user_id = ?', (user_id,))
 
             conn.commit()
+
+        try:
+            from src.analytics_manager import reset_analytics_counters
+            reset_analytics_counters()
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to reset analytics counters during clear-data")
 
         return jsonify({'success': True})
     except Exception as e:
@@ -1846,7 +1762,6 @@ def _validate_time_format(time_str: str) -> bool:
     except (ValueError, IndexError):
         return False
 
-@app.route('/api/shutdown', methods=['POST'])
 def shutdown_server():
     """Shutdown the server (for system tray quit)"""
     global shutdown_requested
@@ -1906,8 +1821,8 @@ if __name__ == '__main__':
                             proc.terminate()
                             killed_count += 1
                             
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                        pass
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                        logger.debug("Process iteration exception during termination attempt: %s", e)
                 
                 if killed_count > 0:
                     print(f"Terminated {killed_count} existing instance(s). Waiting 3 seconds...")
@@ -1924,8 +1839,8 @@ if __name__ == '__main__':
                                 if any(keyword in cmdline for keyword in ['main.py', 'app.py', 'shakshuka']):
                                     print(f"Force killing remaining Python Shakshuka (PID: {proc.info['pid']})...")
                                     proc.kill()
-                        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                            pass
+                        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                            logger.debug("Process iteration exception during force-kill attempt: %s", e)
                     
                     time.sleep(2)
                     break
@@ -1974,8 +1889,8 @@ if __name__ == '__main__':
                         if mutex:
                             try:
                                 win32event.CloseHandle(mutex)
-                            except:
-                                pass
+                            except Exception:  # noqa: broad-except
+                                logger.exception("Failed to close mutex handle")
                         time.sleep(1)
                 
                 print("Failed to acquire mutex after 3 attempts. Exiting...")
@@ -2002,8 +1917,8 @@ if __name__ == '__main__':
                         print(f"Lock acquisition failed (attempt {attempt + 1}): {e}")
                         try:
                             os.close(lock_fd)
-                        except:
-                            pass
+                        except OSError:
+                            logger.exception("Failed to close lock file descriptor")
                         time.sleep(1)
                 
                 print("Failed to acquire lock after 3 attempts. Another instance may be running.")
@@ -2036,8 +1951,29 @@ if __name__ == '__main__':
         
         def open_browser():
             import time
-            time.sleep(1.5)  # Wait for server to start
-            webbrowser.open(f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}")
+            import urllib.request
+
+            connect_host = '127.0.0.1'
+            url = f"http://{connect_host}:{config.DEFAULT_PORT}"
+            health_url = f"{url.rstrip('/')}/health"
+            deadline = time.time() + 20
+            last_error: Exception | None = None
+
+            while time.time() < deadline:
+                try:
+                    with urllib.request.urlopen(health_url, timeout=0.5) as resp:
+                        if getattr(resp, 'status', None) == 200:
+                            break
+                except Exception as e:
+                    last_error = e
+                time.sleep(0.25)
+
+            try:
+                webbrowser.open(url)
+            except Exception:  # noqa: broad-except
+                logger.exception("Could not open browser")
+                if last_error is not None:
+                    logger.warning("Last /health check error before opening browser: %s", last_error)
         
         # Start browser in a separate thread
         browser_thread = threading.Thread(target=open_browser)
@@ -2060,8 +1996,8 @@ if __name__ == '__main__':
             try:
                 sys.stdout.reconfigure(encoding='utf-8')
                 sys.stderr.reconfigure(encoding='utf-8')
-            except:
-                pass
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to configure console encoding")
         
         # Suppress Flask banner and CLI to avoid encoding issues
         os.environ['FLASK_SKIP_DOTENV'] = '1'
@@ -2151,7 +2087,8 @@ def create_system_tray_icon() -> Optional[Any]:
             import requests
             try:
                 requests.post(f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}/api/shutdown", timeout=1)
-            except:
+            except Exception:  # noqa: broad-except
+                logger.exception("Shutdown API call failed; forcing process exit")
                 # Fallback to direct exit if API call fails
                 import os
                 os._exit(0)
@@ -2228,7 +2165,7 @@ def create_icon_image() -> Any:
         try:
             from PIL import Image as _Image
             return _Image.new('RGBA', (64, 64), color='#FF8C42')
-        except Exception:
+        except Exception:  # noqa: broad-except
             return None
 
 def start_system_tray() -> None:
@@ -2270,8 +2207,8 @@ def shutdown_application() -> None:
                 if mutex:
                     win32event.CloseHandle(mutex)
                     logger.info("Single instance mutex cleaned up")
-            except:
-                pass
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to clean up single instance mutex")
         else:  # Unix-like systems
             import tempfile
             lock_file = os.path.join(tempfile.gettempdir(), 'shakshuka.lock')
@@ -2279,16 +2216,16 @@ def shutdown_application() -> None:
                 if os.path.exists(lock_file):
                     os.remove(lock_file)
                     logger.info("Single instance lock file cleaned up")
-            except:
-                pass
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to remove single instance lock file")
     except Exception as e:
         logger.warning(f"Error cleaning up single instance resources: {e}")
 
     # Stop any background threads
     try:
         stop_scheduler(timeout=5)
-    except:
-        pass
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to stop scheduler during shutdown")
 
     logger.info("Application shutdown complete")
     sys.exit(0)

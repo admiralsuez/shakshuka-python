@@ -566,6 +566,7 @@ function setupEventListeners() {
     safeAddEventListener('autostart-toggle', 'change', updateAutostart);
     safeAddEventListener('autosave-interval', 'change', updateAutosaveInterval);
     safeAddEventListener('mini-analytics-interval', 'change', updateMiniAnalyticsInterval);
+    safeAddEventListener('settings-layout', 'change', updateSettingsLayout);
     safeAddEventListener('quick-project-from-title', 'change', updateQuickProjectFromTitle);
     safeAddEventListener('casual-dates-toggle', 'change', updateCasualDates);
     safeAddEventListener('daily-reset-time', 'change', updateDailyResetTime);
@@ -1020,26 +1021,32 @@ function _renderTasksNow(filter, projectFilterArg) {
 
     console.log('Filtered tasks:', filteredTasks.length, filteredTasks);
     
-    // Sort tasks: active tasks first, then struck tasks, and group tasks due today
-    const _today = new Date();
-    const todayStr = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-${String(_today.getDate()).padStart(2, '0')}`;
-    const sortedTasks = filteredTasks.sort((a, b) => {
-        // First, handle struck_today so completed/struck tasks fall to the bottom
-        if (a.struck_today && b.struck_today) return 0;
-        if (a.struck_today) return 1;
-        if (b.struck_today) return -1;
-        if (!a.struck_today && b.struck_today) return -1;
+    // Use sortTasksForDisplay from tasks.js if available, otherwise use default sorting
+    let sortedTasks;
+    if (window.Tasks && typeof window.Tasks.sortTasksForDisplay === 'function') {
+        sortedTasks = window.Tasks.sortTasksForDisplay(filteredTasks);
+    } else if (typeof sortTasksForDisplay === 'function') {
+        sortedTasks = sortTasksForDisplay(filteredTasks);
+    } else {
+        // Fallback: Sort tasks with struck tasks at the bottom, due today at top
+        const _today = new Date();
+        const todayStr = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-${String(_today.getDate()).padStart(2, '0')}`;
+        sortedTasks = [...filteredTasks].sort((a, b) => {
+            // First, handle struck_today so completed/struck tasks fall to the bottom
+            if (a.struck_today && b.struck_today) return 0;
+            if (a.struck_today) return 1;
+            if (b.struck_today) return -1;
 
-        // Within the same struck status, move tasks due today to the front of the queue
-        const aDueToday = !a.struck_today && a.due_date && String(a.due_date).split('T')[0] === todayStr;
-        const bDueToday = !b.struck_today && b.due_date && String(b.due_date).split('T')[0] === todayStr;
+            // Within the same struck status, move tasks due today to the front of the queue
+            const aDueToday = !a.struck_today && a.due_date && String(a.due_date).split('T')[0] === todayStr;
+            const bDueToday = !b.struck_today && b.due_date && String(b.due_date).split('T')[0] === todayStr;
 
-        if (aDueToday && !bDueToday) return -1;
-        if (!aDueToday && bDueToday) return 1;
+            if (aDueToday && !bDueToday) return -1;
+            if (!aDueToday && bDueToday) return 1;
 
-        // Otherwise, keep original relative order
-        return 0;
-    });
+            return 0;
+        });
+    }
     
     if (sortedTasks.length === 0) {
         // Customize empty state message based on current filter
@@ -1394,6 +1401,8 @@ async function loadSettings() {
         // Use backend autostart flag
         document.getElementById('autostart-toggle').checked = !!(settings.autostart_enabled);
         document.getElementById('autosave-interval').value = settings.autosave_interval || 30;
+        const settingsLayoutEl = document.getElementById('settings-layout');
+        if (settingsLayoutEl) settingsLayoutEl.value = settings.settings_layout || 'scroll';
         document.getElementById('theme-selector').value = settings.theme || 'light';
         document.getElementById('finish-selector').value = settings.finish || 'glossy';
         document.getElementById('intensity-selector').value = settings.intensity || '5';
@@ -1429,6 +1438,12 @@ async function loadSettings() {
         }
         
         applyThemeAndDPI();
+
+        try {
+            if (window.Settings && typeof window.Settings.applySettingsLayout === 'function') {
+                window.Settings.applySettingsLayout();
+            }
+        } catch (e) {}
         
         // Hide loading screen after settings are applied
         hideLoadingScreen();
@@ -2071,6 +2086,9 @@ async function saveQuickTask() {
 // Helper function for authenticated API calls with credentials
 // This replaces makeAuthenticatedRequest with better FormData handling
 async function apiCall(url, options = {}) {
+    if (window.Utils && typeof window.Utils.apiCall === 'function') {
+        return window.Utils.apiCall(url, options);
+    }
     const headers = {
         ...options.headers
     };

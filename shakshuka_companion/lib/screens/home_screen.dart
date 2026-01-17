@@ -7,6 +7,8 @@ import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import 'add_task_screen.dart';
 import 'qr_scanner_screen.dart';
+import 'desktop_tasks_screen.dart';
+import 'notes_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -312,7 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    'v1.1 • $_totalTasksSent tasks sent',
+                    'v1.3 • $_totalTasksSent tasks sent',
                     style: TextStyle(fontSize: 12, color: Colors.grey[400]),
                   ),
                 ],
@@ -405,6 +407,16 @@ class _HomeScreenState extends State<HomeScreen> {
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: const [
+              _ChangelogEntry(
+                version: '1.3.0',
+                date: '2026-01-16',
+                changes: [
+                  'View desktop tasks from mobile',
+                  'View and create notes synced with PC',
+                  'Offline caching for tasks and notes',
+                  'New drawer menu with Desktop Tasks and Notes',
+                ],
+              ),
               _ChangelogEntry(
                 version: '1.2.0',
                 date: '2025-12-28',
@@ -541,14 +553,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ListTile(
                 leading: Icon(
                   _storage.isPaired ? Icons.link : Icons.link_off,
-                  color: _storage.isPaired ? Colors.green : Colors.grey,
+                  color: _storage.isPaired 
+                      ? const Color(0xFFE85D04) 
+                      : Colors.grey[600],
                 ),
                 title: Text(_storage.isPaired ? 'Paired' : 'Pair with PC'),
                 subtitle: _storage.isPaired
                     ? Text(
                         _isConnected ? 'Connected' : 'Offline',
                         style: TextStyle(
-                          color: _isConnected ? Colors.green : Colors.orange,
+                          color: _isConnected ? const Color(0xFFE85D04) : Colors.orange,
                           fontSize: 12,
                         ),
                       )
@@ -558,8 +572,53 @@ class _HomeScreenState extends State<HomeScreen> {
                   _openScanner();
                 },
               ),
+              const Divider(color: Colors.grey),
               ListTile(
-                leading: const Icon(Icons.bar_chart, color: Colors.blue),
+                leading: Icon(
+                  Icons.computer,
+                  color: _storage.isPaired 
+                      ? const Color(0xFFE85D04) 
+                      : Colors.grey[600],
+                ),
+                title: const Text('Desktop Tasks'),
+                subtitle: Text(
+                  'View tasks from PC',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DesktopTasksScreen()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.note,
+                  color: _storage.isPaired 
+                      ? const Color(0xFFE85D04) 
+                      : Colors.grey[600],
+                ),
+                title: const Text('Notes'),
+                subtitle: Text(
+                  'View & create notes',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const NotesScreen()),
+                  );
+                },
+              ),
+              const Divider(color: Colors.grey),
+              ListTile(
+                leading: Icon(
+                  Icons.bar_chart,
+                  color: Colors.grey[400],
+                ),
                 title: const Text('Stats'),
                 subtitle: Text(
                   '$_totalTasksSent tasks sent',
@@ -576,15 +635,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       ? Icons.notifications 
                       : Icons.notifications_off,
                   color: _notifications.notificationsEnabled 
-                      ? Colors.green 
-                      : Colors.grey,
+                      ? const Color(0xFFE85D04) 
+                      : Colors.grey[600],
                 ),
                 title: Text(
                   'Notifications',
                   style: TextStyle(
                     color: _notifications.notificationsEnabled 
                         ? Colors.white 
-                        : Colors.grey,
+                        : Colors.grey[600],
                   ),
                 ),
                 subtitle: Text(
@@ -614,10 +673,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.history, color: Colors.purple),
+                leading: Icon(
+                  Icons.history,
+                  color: Colors.grey[400],
+                ),
                 title: const Text('Changelog'),
                 subtitle: Text(
-                  'v1.2.0',
+                  'v1.3.0',
                   style: TextStyle(fontSize: 12, color: Colors.grey[400]),
                 ),
                 onTap: () {
@@ -627,7 +689,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const Divider(color: Colors.grey),
               ListTile(
-                leading: const Icon(Icons.info_outline, color: Colors.grey),
+                leading: Icon(
+                  Icons.info_outline,
+                  color: Colors.grey[400],
+                ),
                 title: const Text('About'),
                 onTap: () {
                   Navigator.pop(context);
@@ -638,7 +703,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text(
-                  'v1.2.0',
+                  'v1.3.0',
                   style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 ),
               ),

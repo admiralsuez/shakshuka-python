@@ -3,6 +3,7 @@ Shakshuka Build Script
 Builds executable and installer using modular build system.
 """
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -19,6 +20,29 @@ def main():
     """Main build process"""
     print("Shakshuka Build Script")
     print("=" * 50)
+
+    try:
+        root = Path(__file__).resolve().parents[1]
+        
+        # Check Python exception policy
+        checker = root / 'scripts' / 'exception_policy_check.py'
+        if checker.exists():
+            print("Running Python exception policy check...")
+            proc = subprocess.run([sys.executable, str(checker), 'src'], cwd=str(root))
+            if proc.returncode != 0:
+                print("Python exception policy check failed. Fix violations before building.")
+                return
+        
+        # Check Flutter companion exception policy
+        companion_checker = root / 'scripts' / 'companion_exception_policy_check.py'
+        if companion_checker.exists() and (root / 'shakshuka_companion').exists():
+            print("Running Flutter companion exception policy check...")
+            proc = subprocess.run([sys.executable, str(companion_checker)], cwd=str(root))
+            if proc.returncode != 0:
+                print("Flutter companion exception policy check failed. Fix violations before building.")
+                return
+    except Exception:  # noqa: broad-except
+        print("Warning: exception policy check could not be run")
     
     if sys.platform != 'win32':
         print("Warning: This build script is designed for Windows.")

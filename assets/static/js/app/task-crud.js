@@ -2,6 +2,51 @@
 let taskOperationLock = false;
 const TASK_OPERATION_TIMEOUT = 10000; // 10 seconds
 
+function _safeNotify(message, type) {
+    try {
+        if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+            window.Utils.safeShowNotification(message, type || 'info');
+            return;
+        }
+        if (typeof showNotification === 'function') {
+            showNotification(message, type || 'info');
+        }
+    } catch (e) {
+        console.error('Notification error:', e);
+    }
+}
+
+function _isTaskObject(obj) {
+    return obj && typeof obj === 'object' && typeof obj.id === 'string' && obj.id.trim().length > 0;
+}
+
+async function _apiRequestTask(url, options) {
+    if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+        const data = await window.Utils.apiRequestJson(url, options || {}, { expectObject: true, retries: 0 });
+        if (!_isTaskObject(data)) {
+            const err = new Error('Invalid task payload from server');
+            err.data = data;
+            err.url = url;
+            throw err;
+        }
+        return data;
+    }
+
+    if (typeof apiCall !== 'function') {
+        throw new Error('apiCall not available');
+    }
+    const resp = await apiCall(url, options || {});
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok) {
+        const msg = (data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${resp.status}`;
+        throw new Error(msg);
+    }
+    if (!_isTaskObject(data)) {
+        throw new Error('Invalid task payload from server');
+    }
+    return data;
+}
+
 function acquireTaskOperationLock() {
     if (taskOperationLock) {
         return false;
@@ -43,21 +88,12 @@ async function createTask(taskData) {
             throw new Error('Task title is required');
         }
         
-        const response = await fetch('/api/tasks', {
+        const newTask = await _apiRequestTask('/api/tasks', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(taskData)
         });
-
-        console.log('Response status:', response.status);
-        console.log('Response ok:', response.ok);
-
-        if (response.ok) {
-            console.log('Response is OK, parsing JSON...');
-            const newTask = await response.json();
-            console.log('New task created:', newTask);
+        console.log('New task created:', newTask);
             
             console.log('Adding task to AppState...');
             await AppState.addTask(newTask);
@@ -89,13 +125,9 @@ async function createTask(taskData) {
             showNotification('Task created successfully!', 'success');
             console.log('Task creation completed successfully');
             return newTask;
-        } else {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `Failed to create task (${response.status})`);
-        }
     } catch (error) {
         console.error('Error creating task:', error);
-        showNotification(error.message || 'Error creating task', 'error');
+        _safeNotify(error.message || 'Error creating task', 'error');
         return null;
     } finally {
         releaseTaskOperationLock();
@@ -111,16 +143,11 @@ async function updateTask(taskId, taskData) {
     }
     
     try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
+        const updatedTask = await _apiRequestTask(`/api/tasks/${taskId}`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(taskData)
         });
-
-        if (response.ok) {
-            const updatedTask = await response.json();
             await AppState.updateTask(taskId, updatedTask);
             
             updateDashboardStats();
@@ -142,15 +169,12 @@ async function updateTask(taskId, taskData) {
             
             showNotification('Task updated successfully!', 'success');
             return updatedTask;
-        } else {
-            throw new Error('Failed to update task');
-        }
     } catch (error) {
         console.error('Error updating task:', error);
         if (error.message && error.message.toLowerCase().includes('login')) {
-            showNotification('Please log in to update tasks', 'error');
+            _safeNotify('Please log in to update tasks', 'error');
         } else {
-            showNotification('Error updating task', 'error');
+            _safeNotify(error.message || 'Error updating task', 'error');
         }
         return null;
     } finally {
@@ -167,14 +191,36 @@ async function deleteTask(taskId) {
     }
     
     try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
+        const currentPage = (AppState && typeof AppState.get === 'function') ? AppState.get('currentPage') : null;
+        const tasksPageEl = document.getElementById('tasks-page');
+        const isTasksPageActive = Boolean(tasksPageEl && tasksPageEl.classList && tasksPageEl.classList.contains('active'));
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        if (currentPage === 'tasks' && isTasksPageActive) {
+            headers['X-Delete-Source'] = 'tasklist';
+        }
 
-        if (response.ok) {
+        if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+            try {
+                await window.Utils.apiRequestJson(`/api/tasks/${taskId}`, { method: 'DELETE', headers }, { expectObject: true, retries: 0 });
+            } catch (e) {
+                // If task is already gone server-side, we can still safely remove it locally.
+                if (!(e && typeof e.status === 'number' && e.status === 404)) {
+                    throw e;
+                }
+            }
+        } else {
+            const response = await apiCall(`/api/tasks/${taskId}`, { method: 'DELETE', headers });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                // If task is already gone server-side, we can still safely remove it locally.
+                if (response.status !== 404) {
+                    throw new Error(err.error || 'Failed to delete task');
+                }
+            }
+        }
+
             await AppState.removeTask(taskId);
             updateDashboardStats();
             
@@ -194,18 +240,22 @@ async function deleteTask(taskId) {
             } else if (AppState.get('currentPage') === 'analytics') {
                 // Analytics page doesn't need re-rendering, stats are updated via updateDashboardStats()
             }
-            
-            showNotification('Task deleted successfully!', 'success');
+
+            if (currentPage === 'tasks' && isTasksPageActive && typeof window.undoDeleteTask === 'function') {
+                showNotification('Task deleted. Click to undo.', 'info', {
+                    durationMs: 3000,
+                    onClick: () => window.undoDeleteTask(taskId)
+                });
+            } else {
+                showNotification('Task deleted successfully!', 'success');
+            }
             return true;
-        } else {
-            throw new Error('Failed to delete task');
-        }
     } catch (error) {
         console.error('Error deleting task:', error);
         if (error.message && error.message.toLowerCase().includes('login')) {
-            showNotification('Please log in to delete tasks', 'error');
+            _safeNotify('Please log in to delete tasks', 'error');
         } else {
-            showNotification('Error deleting task', 'error');
+            _safeNotify(error.message || 'Error deleting task', 'error');
         }
         return false;
     } finally {
@@ -222,12 +272,9 @@ async function completeTask(taskId) {
     }
     
     try {
-        const response = await fetch(`/api/tasks/${taskId}/complete`, {
+        const completedTask = await _apiRequestTask(`/api/tasks/${taskId}/complete`, {
             method: 'POST'
         });
-
-        if (response.ok) {
-            const completedTask = await response.json();
             await AppState.updateTask(taskId, completedTask);
             
             updateDashboardStats();
@@ -250,15 +297,12 @@ async function completeTask(taskId) {
             
             showNotification('Task completed! 🎉', 'success');
             return completedTask;
-        } else {
-            throw new Error('Failed to complete task');
-        }
     } catch (error) {
         console.error('Error completing task:', error);
         if (error.message && error.message.toLowerCase().includes('login')) {
-            showNotification('Please log in to complete tasks', 'error');
+            _safeNotify('Please log in to complete tasks', 'error');
         } else {
-            showNotification('Error completing task', 'error');
+            _safeNotify(error.message || 'Error completing task', 'error');
         }
         return null;
     } finally {

@@ -2,7 +2,7 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Shakshuka"
-#define MyAppVersion "18.0"
+#define MyAppVersion "19.4"
 #define MyAppPublisher "vibinandvanshika.in"
 #define MyAppURL "https://github.com/shakshuka-python"
 #define MyAppExeName "Shakshuka.exe"
@@ -21,12 +21,12 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 AppContact=support@vibinandvanshika.in
 AppCopyright=Copyright (C) 2025 vibinandvanshika.in
-VersionInfoVersion=18.0.0.0
+VersionInfoVersion=19.4.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Shakshuka Task Manager - Professional productivity tool
 VersionInfoCopyright=Copyright (C) 2025 vibinandvanshika.in
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=18.0.0.0
+VersionInfoProductVersion=19.4.0.0
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
@@ -108,6 +108,95 @@ Filename: "{app}\Stop-Shakshuka.bat"; RunOnceId: "StopShakshuka"
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Shakshuka"; ValueData: "wscript.exe ""{app}\Start-Shakshuka-Silent.vbs"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Code]
+var
+  ShutdownForm: TSetupForm;
+  ShutdownTitle: TNewStaticText;
+  ShutdownLabel: TNewStaticText;
+  ShutdownProgress: TNewProgressBar;
+
+procedure ShowShutdownForm(const Msg: String);
+begin
+  if ShutdownForm <> nil then
+  begin
+    if ShutdownLabel <> nil then
+      ShutdownLabel.Caption := Msg;
+    try
+      ShutdownForm.Update;
+    except
+    end;
+    Exit;
+  end;
+
+  ShutdownForm := CreateCustomForm;
+  ShutdownForm.BorderStyle := bsDialog;
+  ShutdownForm.Caption := '{#MyAppName} Setup';
+  ShutdownForm.ClientWidth := ScaleX(520);
+  ShutdownForm.ClientHeight := ScaleY(170);
+  ShutdownForm.Position := poScreenCenter;
+  ShutdownForm.Color := clWhite;
+  ShutdownForm.Font.Name := 'Segoe UI';
+  ShutdownForm.Font.Size := 10;
+
+  ShutdownTitle := TNewStaticText.Create(ShutdownForm);
+  ShutdownTitle.Parent := ShutdownForm;
+  ShutdownTitle.Left := ScaleX(20);
+  ShutdownTitle.Top := ScaleY(22);
+  ShutdownTitle.Width := ShutdownForm.ClientWidth - ScaleX(40);
+  ShutdownTitle.Height := ScaleY(24);
+  ShutdownTitle.AutoSize := False;
+  ShutdownTitle.Caption := 'Closing {#MyAppName}...';
+  ShutdownTitle.Font.Size := 12;
+  ShutdownTitle.Font.Style := [fsBold];
+  ShutdownTitle.Font.Color := clBlack;
+
+  ShutdownLabel := TNewStaticText.Create(ShutdownForm);
+  ShutdownLabel.Parent := ShutdownForm;
+  ShutdownLabel.Left := ScaleX(20);
+  ShutdownLabel.Top := ScaleY(58);
+  ShutdownLabel.Width := ShutdownForm.ClientWidth - ScaleX(40);
+  ShutdownLabel.Height := ScaleY(44);
+  ShutdownLabel.WordWrap := True;
+  ShutdownLabel.AutoSize := False;
+  ShutdownLabel.Caption := Msg;
+  ShutdownLabel.Font.Size := 10;
+  ShutdownLabel.Font.Color := $00666666;
+
+  ShutdownProgress := TNewProgressBar.Create(ShutdownForm);
+  ShutdownProgress.Parent := ShutdownForm;
+  ShutdownProgress.Left := ScaleX(20);
+  ShutdownProgress.Top := ScaleY(118);
+  ShutdownProgress.Width := ShutdownForm.ClientWidth - ScaleX(40);
+  ShutdownProgress.Height := ScaleY(16);
+  ShutdownProgress.Min := 0;
+  ShutdownProgress.Max := 100;
+  ShutdownProgress.Position := 10;
+
+  ShutdownForm.Show;
+  ShutdownForm.BringToFront;
+  ShutdownForm.Update;
+end;
+
+procedure HideShutdownForm();
+begin
+  if ShutdownForm = nil then
+    Exit;
+
+  try
+    ShutdownForm.Hide;
+  except
+  end;
+
+  try
+    ShutdownForm.Free;
+  except
+  end;
+
+  ShutdownForm := nil;
+  ShutdownTitle := nil;
+  ShutdownLabel := nil;
+  ShutdownProgress := nil;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
@@ -144,6 +233,7 @@ var
   UninstallString: String;
   InstalledDir: String;
   UninstallKey: String;
+  HasExistingInstall: Boolean;
 begin
   Result := True;
 
@@ -153,6 +243,14 @@ begin
   // then fall back to taskkill.
   UninstallKey := 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{' + '{#MyAppId}' + '}_is1';
   InstalledDir := '';
+  HasExistingInstall := RegQueryStringValue(HKEY_LOCAL_MACHINE, UninstallKey, 'UninstallString', UninstallString);
+
+  if HasExistingInstall then
+  begin
+    ShowShutdownForm('Checking for previous installation...');
+    if ShutdownProgress <> nil then ShutdownProgress.Position := 5;
+  end;
+
   if not RegQueryStringValue(HKEY_LOCAL_MACHINE, UninstallKey, 'Inno Setup: App Path', InstalledDir) then
   begin
     if not RegQueryStringValue(HKEY_LOCAL_MACHINE, UninstallKey, 'InstallLocation', InstalledDir) then
@@ -161,18 +259,28 @@ begin
     end;
   end;
 
-  if (InstalledDir <> '') and FileExists(InstalledDir + '\{#MyAppExeName}') then
+  if HasExistingInstall and (InstalledDir <> '') and FileExists(InstalledDir + '\{#MyAppExeName}') then
   begin
+    ShowShutdownForm('Closing {#MyAppName} (if running)...');
+    if ShutdownProgress <> nil then ShutdownProgress.Position := 25;
     Exec(InstalledDir + '\{#MyAppExeName}', '--shutdown', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Sleep(1500);
+    if ShutdownProgress <> nil then ShutdownProgress.Position := 55;
   end;
 
   // Last-resort: force kill any remaining Shakshuka.exe.
-  Exec('taskkill', '/F /T /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(1000);
+  if HasExistingInstall then
+  begin
+    ShowShutdownForm('Ensuring {#MyAppName} is closed...');
+    if ShutdownProgress <> nil then ShutdownProgress.Position := 75;
+    Exec('taskkill', '/F /T /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(1000);
+    if ShutdownProgress <> nil then ShutdownProgress.Position := 100;
+    HideShutdownForm();
+  end;
   
   // Check for existing installation
-  if RegQueryStringValue(HKEY_LOCAL_MACHINE, UninstallKey, 'UninstallString', UninstallString) then
+  if HasExistingInstall then
   begin
     if MsgBox('Shakshuka is already installed. Do you want to update to the latest version?', mbConfirmation, MB_YESNO) = IDYES then
     begin

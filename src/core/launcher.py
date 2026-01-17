@@ -7,6 +7,7 @@ import time
 import threading
 import webbrowser
 import logging
+import urllib.request
 from werkzeug.serving import run_simple
 
 from src.core import config
@@ -126,16 +127,32 @@ class ApplicationLauncher:
                 logger.warning(f"Could not start system tray: {e}")
             return False  # Non-critical, app continues
     
-    def open_browser_delayed(self, url, delay=1.5):
-        """Open browser after a delay"""
+    def open_browser_delayed(self, url, delay=0.2):
+        """Open browser after the server is ready."""
+
         def open_browser():
             time.sleep(delay)
+            health_url = f"{url.rstrip('/')}/health"
+            deadline = time.time() + 20
+            last_error: Exception | None = None
+
+            while time.time() < deadline:
+                try:
+                    with urllib.request.urlopen(health_url, timeout=0.5) as resp:
+                        if getattr(resp, 'status', None) == 200:
+                            break
+                except Exception as e:
+                    last_error = e
+                time.sleep(0.25)
+
             try:
                 webbrowser.open(url)
                 logger.info(f"Opened browser at {url}")
-            except Exception as e:
-                logger.error(f"Could not open browser: {e}")
-        
+            except Exception:  # noqa: broad-except
+                logger.exception("Could not open browser")
+                if last_error is not None:
+                    logger.warning("Last /health check error before opening browser: %s", last_error)
+
         browser_thread = threading.Thread(target=open_browser, daemon=True)
         browser_thread.start()
     
@@ -221,8 +238,8 @@ class ApplicationLauncher:
             print("\n\n👋 Shutting down Shakshuka...")
             try:
                 monitor.stop()
-            except Exception:
-                pass
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to stop monitoring")
             return True
             
         except Exception as e:
@@ -231,8 +248,8 @@ class ApplicationLauncher:
             print("\nPlease check the logs for more details.")
             try:
                 monitor.stop()
-            except Exception:
-                pass
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to stop monitoring after launch error")
             return False
 
 

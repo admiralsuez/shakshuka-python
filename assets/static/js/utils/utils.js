@@ -1,20 +1,5 @@
 // Utility Functions Module
 
-// Helper function to get CSRF token
-async function getCSRFToken() {
-    if (!window.csrfToken) {
-        try {
-            const response = await apiCall('/api/csrf-token');
-            const data = await response.json();
-            window.csrfToken = data.csrf_token;
-        } catch (error) {
-            console.error('Failed to get CSRF token:', error);
-            window.csrfToken = null;
-        }
-    }
-    return window.csrfToken;
-}
-
 // Helper function to make authenticated requests with CSRF token
 async function makeAuthenticatedRequest(url, options = {}) {
     const defaultHeaders = {
@@ -34,6 +19,192 @@ async function makeAuthenticatedRequest(url, options = {}) {
     return fetch(url, fetchOptions);
 }
 
+function _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function _isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function _normalizeHeaders(headers) {
+    const out = {};
+    try {
+        if (headers && typeof headers === 'object') {
+            Object.keys(headers).forEach(k => {
+                out[k] = headers[k];
+            });
+        }
+    } catch (e) {
+        return {};
+    }
+    return out;
+}
+
+function _hasHeader(headers, name) {
+    const target = String(name || '').toLowerCase();
+    return Object.keys(headers || {}).some(k => String(k).toLowerCase() === target);
+}
+
+async function apiCall(url, options = {}) {
+    const headers = _normalizeHeaders(options.headers);
+    if (!(options.body instanceof FormData) && !_hasHeader(headers, 'content-type')) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    const timeoutMs = (typeof options.timeoutMs === 'number' && options.timeoutMs > 0) ? options.timeoutMs : 15000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+        try { controller.abort(); } catch (e) { /* no-op */ }
+    }, timeoutMs);
+
+    try {
+        return await fetch(url, {
+            ...options,
+            credentials: 'include',
+            headers,
+            signal: controller.signal
+        });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+function _extractApiErrorMessage(status, data, fallbackText) {
+    try {
+        if (data && typeof data === 'object') {
+            const msg = data.error || data.message;
+            if (typeof msg === 'string' && msg.trim()) return msg;
+        }
+    } catch (e) { /* no-op */ }
+    if (typeof fallbackText === 'string' && fallbackText.trim()) return fallbackText;
+    return `HTTP ${status}`;
+}
+
+async function apiRequestJson(url, options = {}, config = {}) {
+    const method = String(options.method || 'GET').toUpperCase();
+    const isIdempotent = method === 'GET' || method === 'HEAD';
+    const retries = (typeof config.retries === 'number') ? config.retries : (isIdempotent ? 1 : 0);
+    const retryDelayMs = (typeof config.retryDelayMs === 'number' && config.retryDelayMs >= 0) ? config.retryDelayMs : 500;
+    const validate = (typeof config.validate === 'function') ? config.validate : null;
+    const expectObject = config.expectObject === true;
+    const expectArray = config.expectArray === true;
+    const expectSuccess = config.expectSuccess === true;
+
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+            const resp = await apiCall(url, options);
+            const status = resp.status;
+
+            const contentType = String(resp.headers.get('content-type') || '').toLowerCase();
+            const likelyJson = contentType.includes('application/json') || contentType.includes('+json') || config.forceJson === true;
+
+            let data = null;
+            let text = '';
+
+            if (status !== 204) {
+                if (likelyJson) {
+                    data = await resp.json().catch(() => null);
+                } else {
+                    text = await resp.text().catch(() => '');
+                    data = null;
+                }
+            }
+
+            if (!resp.ok) {
+                const msg = _extractApiErrorMessage(status, data, text);
+                const err = new Error(msg);
+                err.status = status;
+                err.data = data;
+                err.url = url;
+
+                if (attempt < retries && isIdempotent && (status === 408 || status === 429 || status === 502 || status === 503 || status === 504)) {
+                    lastError = err;
+                    await _sleep(retryDelayMs * (attempt + 1));
+                    continue;
+                }
+
+                throw err;
+            }
+
+            if (expectObject && !_isPlainObject(data)) {
+                const err = new Error('Invalid response shape (expected object)');
+                err.status = status;
+                err.data = data;
+                err.url = url;
+                throw err;
+            }
+            if (expectArray && !Array.isArray(data)) {
+                const err = new Error('Invalid response shape (expected array)');
+                err.status = status;
+                err.data = data;
+                err.url = url;
+                throw err;
+            }
+            if (expectSuccess) {
+                if (!_isPlainObject(data) || data.success !== true) {
+                    const err = new Error(_extractApiErrorMessage(status, data, 'Operation failed'));
+                    err.status = status;
+                    err.data = data;
+                    err.url = url;
+                    throw err;
+                }
+            }
+            if (validate) {
+                const ok = validate(data);
+                if (!ok) {
+                    const err = new Error('Invalid response shape');
+                    err.status = status;
+                    err.data = data;
+                    err.url = url;
+                    throw err;
+                }
+            }
+
+            return data;
+        } catch (e) {
+            lastError = e;
+            const status = e && typeof e.status === 'number' ? e.status : null;
+            if (attempt < retries && isIdempotent && (status == null || status === 408 || status === 429 || status === 502 || status === 503 || status === 504)) {
+                await _sleep(retryDelayMs * (attempt + 1));
+                continue;
+            }
+            throw e;
+        }
+    }
+
+    throw lastError || new Error('Request failed');
+}
+
+async function apiRequestOk(url, options = {}, config = {}) {
+    return await apiRequestJson(url, options, { ...config, expectSuccess: true, expectObject: true });
+}
+
+async function waitForHealthy(config = {}) {
+    const timeoutMs = (typeof config.timeoutMs === 'number' && config.timeoutMs > 0) ? config.timeoutMs : 12000;
+    const intervalMs = (typeof config.intervalMs === 'number' && config.intervalMs > 0) ? config.intervalMs : 250;
+    const deadline = Date.now() + timeoutMs;
+    let lastError = null;
+
+    while (Date.now() < deadline) {
+        try {
+            const resp = await fetch('/health', { cache: 'no-store' });
+            if (resp && resp.ok) return true;
+        } catch (e) {
+            lastError = e;
+        }
+        await _sleep(intervalMs);
+    }
+
+    try {
+        if (lastError) Logger.warn('Backend health check timed out:', lastError);
+    } catch (e) { }
+
+    return false;
+}
+
 // Debug flag + helper (can be toggled via devtools if needed)
 const DEBUG = false;
 function debugLog(...args) {
@@ -42,16 +213,35 @@ function debugLog(...args) {
     }
 }
 
+// Elements that are intentionally optional (loaded dynamically or page-specific)
+const OPTIONAL_ELEMENTS = [
+    // Quick actions - may not exist on all pages
+    'quick-add-btn', 'focus-mode-btn', 'schedule-btn', 'sidebar-toggle',
+    // Session management - disabled feature
+    'reset-session-btn',
+    // Settings elements - only exist on settings page
+    'daily-reset-time', 'github-branch', 'update-channel', 'check-interval',
+    // GitHub update modal - dynamically loaded
+    'close-github-update-modal', 'cancel-github-update', 'download-github-update',
+    // Import functionality - modal loaded on demand
+    'import-tasks-btn', 'close-import-modal', 'cancel-import', 'confirm-import',
+    'import-file', 'download-sample',
+    // Password modal - feature removed
+    'close-password-modal', 'cancel-password', 'save-password',
+    // Planner-specific elements
+    'add-task-to-planner', 'prev-day', 'next-day'
+];
+
 // Helper function to safely add event listeners
 function safeAddEventListener(elementId, event, handler) {
     const element = document.getElementById(elementId);
     if (element) {
         element.addEventListener(event, handler);
-    } else {
-        // Only log if it's not a password-related element (since password functionality was removed)
-        if (!elementId.includes('password') && !elementId.includes('Password')) {
-            console.warn(`Element with ID '${elementId}' not found, skipping event listener`);
-        }
+    } else if (!OPTIONAL_ELEMENTS.includes(elementId) &&
+               !elementId.includes('password') &&
+               !elementId.includes('Password')) {
+        // Only warn for unexpected missing elements
+        console.debug(`Element '${elementId}' not found (may be loaded later)`);
     }
 }
 
@@ -254,17 +444,6 @@ function getElementPosition(element) {
     };
 }
 
-// Helper function to animate element
-function animateElement(element, keyframes, options = {}) {
-    const defaultOptions = {
-        duration: 300,
-        easing: 'ease-in-out',
-        fill: 'forwards'
-    };
-
-    return element.animate(keyframes, { ...defaultOptions, ...options });
-}
-
 // Helper function to show loading state
 function showLoading(element, text = 'Loading...') {
     if (element) {
@@ -343,49 +522,6 @@ function downloadFile(data, filename, type = 'application/json') {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
-}
-
-// Helper function to read file as text
-function readFileAsText(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = (e) => reject(e);
-        reader.readAsText(file);
-    });
-}
-
-// Helper function to read file as data URL
-function readFileAsDataURL(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = (e) => reject(e);
-        reader.readAsDataURL(file);
-    });
-}
-
-// Helper function to get query parameters
-function getQueryParams() {
-    const params = new URLSearchParams(window.location.search);
-    const result = {};
-    for (const [key, value] of params) {
-        result[key] = value;
-    }
-    return result;
-}
-
-// Helper function to set query parameters
-function setQueryParams(params) {
-    const url = new URL(window.location);
-    Object.keys(params).forEach(key => {
-        if (params[key] !== null && params[key] !== undefined) {
-            url.searchParams.set(key, params[key]);
-        } else {
-            url.searchParams.delete(key);
-        }
-    });
-    window.history.pushState({}, '', url);
 }
 
 // Helper function to scroll to element
@@ -478,12 +614,12 @@ function waitForElement(selector, callback, timeout = 5000) {
 
 // Export functions for use in other modules
 window.Utils = {
-    getCSRFToken,
     makeAuthenticatedRequest,
-    safeAddEventListener,
+    apiCall,
+    apiRequestJson,
+    apiRequestOk,
+    waitForHealthy,
     safeShowNotification,
-    debugLog,
-    Logger,
     sanitizeHTML,
     formatDate,
     formatTime,
@@ -493,7 +629,6 @@ window.Utils = {
     deepClone,
     isElementVisible,
     getElementPosition,
-    animateElement,
     showLoading,
     hideLoading,
     isValidEmail,
@@ -501,14 +636,8 @@ window.Utils = {
     formatFileSize,
     copyToClipboard,
     downloadFile,
-    readFileAsText,
-    readFileAsDataURL,
-    getQueryParams,
-    setQueryParams,
     scrollToElement,
-    isElementInViewport,
-    getSiblings,
-    animateClassChange,
-    ready,
-    waitForElement
+    Logger,
+    safeAddEventListener,
+    debugLog
 };

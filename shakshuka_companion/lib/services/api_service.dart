@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/task.dart';
 import '../models/paired_device.dart';
@@ -59,12 +61,16 @@ class ApiService {
       return {'success': false, 'message': 'Cannot connect to server'};
     } on http.ClientException {
       return {'success': false, 'message': 'Connection failed'};
-    } catch (e) {
+    } on TimeoutException {
+      return {'success': false, 'message': 'Connection timeout'};
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Pairing error: $e');
       return {'success': false, 'message': 'Error: $e'};
     }
   }
 
-  Future<Map<String, dynamic>> uploadTasks(List<LocalTask> tasks) async {
+  Future<Map<String, dynamic>> uploadTasks(List<LocalTask> tasks, {int retries = 1}) async {
     final device = _storage.getPairedDevice();
     if (device == null) {
       return {'success': false, 'message': 'Not paired with any PC'};
@@ -74,69 +80,119 @@ class ApiService {
       return {'success': false, 'message': 'No tasks to upload'};
     }
 
-    try {
-      final uri = Uri.parse('${device.serverUrl}/api/mobile/inbox');
-      final response = await http
-          .post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ${device.token}',
-            },
-            body: jsonEncode({
-              'tasks': tasks.map((t) => t.toJson()).toList(),
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
+    for (int attempt = 0; attempt <= retries; attempt++) {
+      try {
+        final uri = Uri.parse('${device.serverUrl}/api/mobile/inbox');
+        final response = await http
+            .post(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ${device.token}',
+              },
+              body: jsonEncode({
+                'tasks': tasks.map((t) => t.toJson()).toList(),
+              }),
+            )
+            .timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['success'] == true) {
+            return {
+              'success': true,
+              'message': 'Uploaded ${tasks.length} task(s) to PC inbox!',
+              'submission_id': data['submission_id'],
+            };
+          }
           return {
-            'success': true,
-            'message': 'Uploaded ${tasks.length} task(s) to PC inbox!',
-            'submission_id': data['submission_id'],
+            'success': false,
+            'message': data['error'] ?? 'Upload failed'
+          };
+        } else if (response.statusCode == 401) {
+          // Device was unpaired from desktop - clear local pairing
+          await _storage.clearPairing();
+          return {
+            'success': false,
+            'message': 'Device was unpaired from PC. Please pair again before sending tasks.',
+            'unpaired': true,
+          };
+        } else {
+          return {
+            'success': false,
+            'message': 'Server error: ${response.statusCode}'
           };
         }
-        return {
-          'success': false,
-          'message': data['error'] ?? 'Upload failed'
-        };
-      } else if (response.statusCode == 401) {
-        // Device was unpaired from desktop - clear local pairing
-        await _storage.clearPairing();
-        return {
-          'success': false,
-          'message': 'Device was unpaired from PC. Please pair again before sending tasks.',
-          'unpaired': true,
-        };
-      } else {
-        return {
-          'success': false,
-          'message': 'Server error: ${response.statusCode}'
-        };
       }
-    } on SocketException {
-      return {'success': false, 'message': 'Cannot connect to PC'};
-    } on http.ClientException {
-      return {'success': false, 'message': 'Connection failed'};
-    } catch (e) {
-      return {'success': false, 'message': 'Error: $e'};
+      on SocketException catch (e) {
+        debugPrint('Upload attempt ${attempt + 1}/${retries + 1}: SocketException - $e');
+        if (attempt < retries) {
+          await Future.delayed(Duration(seconds: 2 + attempt));
+          continue;
+        }
+        return {'success': false, 'message': 'Cannot connect to PC. Check network connection.'};
+      }
+      on http.ClientException catch (e) {
+        debugPrint('Upload attempt ${attempt + 1}/${retries + 1}: ClientException - $e');
+        if (attempt < retries) {
+          await Future.delayed(Duration(seconds: 2 + attempt));
+          continue;
+        }
+        return {'success': false, 'message': 'Connection failed. Try again.'};
+      }
+      on TimeoutException catch (e) {
+        debugPrint('Upload attempt ${attempt + 1}/${retries + 1}: TimeoutException - $e');
+        if (attempt < retries) {
+          await Future.delayed(Duration(seconds: 2 + attempt));
+          continue;
+        }
+        return {'success': false, 'message': 'Connection timeout. Try again.'};
+      }
+      catch (e) { // noqa: broad-catch
+        debugPrint('Upload tasks error: $e');
+        if (attempt < retries) {
+          await Future.delayed(Duration(seconds: 2 + attempt));
+          continue;
+        }
+        return {'success': false, 'message': 'Error: $e'};
+      }
     }
+    return {'success': false, 'message': 'Upload failed after retries'};
   }
 
-  Future<bool> testConnection() async {
+  Future<bool> testConnection({int retries = 2}) async {
     final device = _storage.getPairedDevice();
     if (device == null) return false;
 
-    try {
-      final uri = Uri.parse('${device.serverUrl}/health');
-      final response =
-          await http.get(uri).timeout(const Duration(seconds: 5));
-      return response.statusCode == 200;
-    } catch (_) {
-      return false;
+    for (int attempt = 0; attempt <= retries; attempt++) {
+      try {
+        final uri = Uri.parse('${device.serverUrl}/health');
+        final response =
+            await http.get(uri).timeout(const Duration(seconds: 5));
+        if (response.statusCode == 200) {
+          return true;
+        }
+      }
+      on SocketException catch (e) {
+        debugPrint('Connection test attempt ${attempt + 1}/${retries + 1}: SocketException - $e');
+        if (attempt < retries) {
+          await Future.delayed(Duration(seconds: 1 + attempt)); // Exponential backoff
+        }
+      }
+      on TimeoutException catch (e) {
+        debugPrint('Connection test attempt ${attempt + 1}/${retries + 1}: TimeoutException - $e');
+        if (attempt < retries) {
+          await Future.delayed(Duration(seconds: 1 + attempt));
+        }
+      }
+      catch (e) { // noqa: broad-catch
+        debugPrint('Connection test error: $e');
+        if (attempt < retries) {
+          await Future.delayed(Duration(seconds: 1 + attempt));
+        }
+      }
     }
+    return false;
   }
 
   Future<Map<String, dynamic>> checkSubmissionStatus(String submissionId) async {
@@ -163,8 +219,221 @@ class ApiService {
         };
       }
       return {'success': false, 'message': 'Failed to get status'};
-    } catch (e) {
+    } on TimeoutException {
+      return {'success': false, 'message': 'Connection timeout'};
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Check submission status error: $e');
       return {'success': false, 'message': 'Error: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchCurrentTasks() async {
+    final device = _storage.getPairedDevice();
+    if (device == null) {
+      return {'success': false, 'message': 'Not paired'};
+    }
+
+    try {
+      final uri = Uri.parse('${device.serverUrl}/api/mobile/current-tasks');
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'Bearer ${device.token}',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          // Cache tasks locally for offline viewing
+          await _storage.cacheCurrentTasks(data['tasks'] ?? []);
+          return {
+            'success': true,
+            'tasks': data['tasks'],
+            'count': data['count'],
+          };
+        }
+        return {'success': false, 'message': data['error'] ?? 'Failed to fetch'};
+      } else if (response.statusCode == 401) {
+        await _storage.clearPairing();
+        return {'success': false, 'message': 'Session expired', 'unpaired': true};
+      }
+      return {'success': false, 'message': 'Server error: ${response.statusCode}'};
+    } on SocketException {
+      // Return cached tasks when offline
+      final cached = await _storage.getCachedCurrentTasks();
+      if (cached.isNotEmpty) {
+        return {
+          'success': true,
+          'tasks': cached,
+          'count': cached.length,
+          'offline': true,
+        };
+      }
+      return {'success': false, 'message': 'Cannot connect to PC'};
+    } on TimeoutException {
+      final cached = await _storage.getCachedCurrentTasks();
+      if (cached.isNotEmpty) {
+        return {
+          'success': true,
+          'tasks': cached,
+          'count': cached.length,
+          'offline': true,
+        };
+      }
+      return {'success': false, 'message': 'Connection timeout'};
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Fetch current tasks error: $e');
+      return {'success': false, 'message': 'Error: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchNotes() async {
+    final device = _storage.getPairedDevice();
+    if (device == null) {
+      return {'success': false, 'message': 'Not paired'};
+    }
+
+    try {
+      final uri = Uri.parse('${device.serverUrl}/api/mobile/notes');
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'Bearer ${device.token}',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          await _storage.cacheNotes(data['notes'] ?? []);
+          return {
+            'success': true,
+            'notes': data['notes'],
+            'count': data['count'],
+          };
+        }
+        return {'success': false, 'message': data['error'] ?? 'Failed to fetch'};
+      } else if (response.statusCode == 401) {
+        await _storage.clearPairing();
+        return {'success': false, 'message': 'Session expired', 'unpaired': true};
+      }
+      return {'success': false, 'message': 'Server error: ${response.statusCode}'};
+    } on SocketException {
+      final cached = await _storage.getCachedNotes();
+      if (cached.isNotEmpty) {
+        return {
+          'success': true,
+          'notes': cached,
+          'count': cached.length,
+          'offline': true,
+        };
+      }
+      return {'success': false, 'message': 'Cannot connect to PC'};
+    } on TimeoutException {
+      final cached = await _storage.getCachedNotes();
+      if (cached.isNotEmpty) {
+        return {
+          'success': true,
+          'notes': cached,
+          'count': cached.length,
+          'offline': true,
+        };
+      }
+      return {'success': false, 'message': 'Connection timeout'};
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Fetch notes error: $e');
+      return {'success': false, 'message': 'Error: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> createNote(String title, String content) async {
+    final device = _storage.getPairedDevice();
+    if (device == null) {
+      // Queue note for offline sync
+      await _storage.queueOfflineNote(title, content);
+      return {
+        'success': true,
+        'message': 'Note queued for sync when online',
+        'offline': true,
+      };
+    }
+
+    try {
+      final uri = Uri.parse('${device.serverUrl}/api/mobile/notes');
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ${device.token}',
+            },
+            body: jsonEncode({
+              'title': title,
+              'content': content,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          return {
+            'success': true,
+            'note': data['note'],
+            'message': 'Note created successfully',
+          };
+        }
+        return {'success': false, 'message': data['error'] ?? 'Failed to create note'};
+      } else if (response.statusCode == 401) {
+        await _storage.clearPairing();
+        return {'success': false, 'message': 'Session expired', 'unpaired': true};
+      }
+      return {'success': false, 'message': 'Server error: ${response.statusCode}'};
+    } on SocketException {
+      await _storage.queueOfflineNote(title, content);
+      return {
+        'success': true,
+        'message': 'Note queued for sync when online',
+        'offline': true,
+      };
+    } on TimeoutException {
+      await _storage.queueOfflineNote(title, content);
+      return {
+        'success': true,
+        'message': 'Note queued for sync when online',
+        'offline': true,
+      };
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Create note error: $e');
+      return {'success': false, 'message': 'Error: $e'};
+    }
+  }
+
+  Future<void> syncOfflineNotes() async {
+    final queue = await _storage.getOfflineNotesQueue();
+    if (queue.isEmpty) return;
+
+    debugPrint('Syncing ${queue.length} offline notes');
+    final successful = <String>[];
+
+    for (final note in queue) {
+      final result = await createNote(
+        note['title'] as String,
+        note['content'] as String,
+      );
+      if (result['success'] == true && result['offline'] != true) {
+        successful.add(note['id'] as String);
+      }
+    }
+
+    if (successful.isNotEmpty) {
+      await _storage.removeOfflineNotes(successful);
+      debugPrint('Synced ${successful.length} offline notes');
     }
   }
 }

@@ -19,7 +19,7 @@
 
                 <div class="settings-container">
                     <div class="settings-section">
-                        <h3>Additional Customization</h3>
+                        <h3>Customization</h3>
                         <div class="setting-item">
                             <label>
                                 <input type="checkbox" id="autostart-toggle">
@@ -48,6 +48,15 @@
                                     <option value="20">20 seconds</option>
                                     <option value="30">30 seconds</option>
                                     <option value="60">60 seconds</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Settings view:
+                                <select id="settings-layout">
+                                    <option value="scroll">Scrollable</option>
+                                    <option value="tabs">Tabs</option>
                                 </select>
                             </label>
                         </div>
@@ -177,22 +186,8 @@
                             </label>
                         </div>
                     </div>
-                    <div class="settings-section">
-                        <h3>Data Management</h3>
-                        <div class="setting-item data-actions-row">
-                            <button class="btn-secondary" id="export-data-btn">
-                                <i class="fas fa-download"></i>
-                                Export Data
-                            </button>
-                            <button class="btn-danger" id="clear-data-btn">
-                                <i class="fas fa-trash"></i>
-                                Clear All Data
-                            </button>
-                        </div>
-                    </div>
-
                     <div class="settings-section updates-backups">
-                        <h3>Updates & Backups</h3>
+                        <h3>Update and Backup</h3>
                         <div class="setting-item updates-actions-row">
                             <button class="btn-secondary" id="check-updates-btn">
                                 <i class="fas fa-sync"></i>
@@ -209,6 +204,17 @@
                             <button class="btn-secondary" id="manage-backups-btn">
                                 <i class="fas fa-history"></i>
                                 Manage Backups
+                            </button>
+                        </div>
+
+                        <div class="setting-item data-actions-row">
+                            <button class="btn-secondary" id="export-data-btn">
+                                <i class="fas fa-download"></i>
+                                Export Data
+                            </button>
+                            <button class="btn-danger" id="clear-data-btn">
+                                <i class="fas fa-trash"></i>
+                                Clear All Data
                             </button>
                         </div>
                         
