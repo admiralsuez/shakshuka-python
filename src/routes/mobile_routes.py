@@ -606,7 +606,7 @@ def get_current_tasks():
 
     try:
         # Fetch active tasks (not completed, not struck forever)
-        all_tasks = dm.get_tasks_for_user(user_id)
+        all_tasks = dm.load_tasks_for_user(user_id)
         if not all_tasks:
             return jsonify({"success": True, "tasks": []})
 
