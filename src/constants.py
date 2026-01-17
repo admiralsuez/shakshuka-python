@@ -1,9 +1,32 @@
 """
 Application-wide constants and enums
+
+All environment variables are centralized here with sensible defaults.
+Consumers should import from this module rather than reading os.getenv directly.
 """
 import os
 from enum import Enum, auto
 from typing import Final
+
+
+# =============================================================================
+# Server Configuration (from environment)
+# =============================================================================
+DEFAULT_HOST: Final[str] = os.getenv('SHAKSHUKA_HOST', '0.0.0.0')
+DEFAULT_PORT: Final[int] = int(os.getenv('SHAKSHUKA_PORT', '8989'))
+DEBUG_MODE: Final[bool] = os.getenv('SHAKSHUKA_DEBUG', 'true').lower() in {'1', 'true', 'yes'}
+AUTH_ENABLED: Final[bool] = os.getenv('SHAKSHUKA_AUTH_ENABLED', 'false').lower() in {'1', 'true', 'yes'}
+
+# =============================================================================
+# Database Configuration
+# =============================================================================
+DB_POOL_SIZE: Final[int] = int(os.getenv('SHAKSHUKA_DB_POOL_SIZE', '5'))
+
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+LOG_LEVEL: Final[str] = os.getenv('SHAKSHUKA_LOG_LEVEL', 'INFO')
+LOG_FORMAT: Final[str] = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
 
 class TaskStatus(str, Enum):
@@ -38,10 +61,13 @@ class RecurrenceType(str, Enum):
     MONTHLY = "monthly"
     YEARLY = "yearly"
 
-# Database configuration
-MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 0.1
-DB_CONNECTION_TIMEOUT = 30
+# =============================================================================
+# Retry and Database Connection Configuration
+# =============================================================================
+MAX_RETRIES: Final[int] = int(os.getenv('SHAKSHUKA_MAX_RETRIES', '3'))
+RETRY_DELAY_SECONDS: Final[float] = float(os.getenv('SHAKSHUKA_RETRY_DELAY', '0.1'))
+DB_CONNECTION_TIMEOUT: Final[int] = int(os.getenv('SHAKSHUKA_DB_TIMEOUT', '30'))
+DB_POOL_WAIT_TIMEOUT: Final[float] = float(os.getenv('SHAKSHUKA_DB_POOL_WAIT_TIMEOUT', '5'))
 
 # CSRF configuration
 CSRF_TOKEN_EXPIRY_SECONDS = 3600  # 1 hour

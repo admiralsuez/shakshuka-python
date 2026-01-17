@@ -10,6 +10,7 @@ reinstalls and works in both dev and frozen modes.
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import json
@@ -17,6 +18,11 @@ from datetime import datetime, date
 from typing import Dict, Any
 
 from src.utils.paths import get_user_data_dir
+
+logger = logging.getLogger(__name__)
+
+# Valid counter names for increment/decrement operations
+_VALID_COUNTERS = frozenset(['tasks_deleted', 'tasks_edited', 'tasks_with_dates', 'tasks_with_time', 'tasks_planned'])
 
 _DB_FILENAME = "analytics.db"
 _JSON_FILENAME = "analytics.json"  # legacy file for one-time migration
@@ -57,26 +63,13 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     )
 
     # Add new columns if they don't exist (for migration)
-    try:
-        conn.execute("ALTER TABLE analytics ADD COLUMN tasks_deleted INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE analytics ADD COLUMN tasks_edited INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE analytics ADD COLUMN tasks_with_dates INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE analytics ADD COLUMN tasks_with_time INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE analytics ADD COLUMN tasks_planned INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
+    # OperationalError with "duplicate column" is expected if column exists
+    for col in ('tasks_deleted', 'tasks_edited', 'tasks_with_dates', 'tasks_with_time', 'tasks_planned'):
+        try:
+            conn.execute(f"ALTER TABLE analytics ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError as e:
+            if 'duplicate column' not in str(e).lower():
+                logger.warning("analytics schema migration warning for %s: %s", col, e)
 
     cur = conn.execute("SELECT COUNT(*) AS c FROM analytics")
     count = cur.fetchone()[0]
@@ -113,18 +106,21 @@ def _maybe_migrate_from_json(conn: sqlite3.Connection) -> None:
     try:
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f) or {}
-    except Exception:
-        # If JSON is invalid, keep existing DB values
+    except (OSError, json.JSONDecodeError) as e:
+        # If JSON is invalid or unreadable, keep existing DB values
+        logger.warning("analytics JSON migration skipped (invalid file): %s", e)
         return
 
     today = str(data.get("today_date") or row["today_date"] or date.today().isoformat())
     try:
         today_strikes = int(data.get("today_strikes", row["today_strikes"] or 0))
-    except Exception:
+    except (ValueError, TypeError) as e:
+        logger.warning("analytics JSON migration: invalid today_strikes value, using DB fallback: %s", e)
         today_strikes = int(row["today_strikes"] or 0)
     try:
         total_strikes = int(data.get("total_strikes", row["total_strikes"] or 0))
-    except Exception:
+    except (ValueError, TypeError) as e:
+        logger.warning("analytics JSON migration: invalid total_strikes value, using DB fallback: %s", e)
         total_strikes = int(row["total_strikes"] or 0)
 
     now = datetime.now().isoformat()
@@ -137,9 +133,9 @@ def _maybe_migrate_from_json(conn: sqlite3.Connection) -> None:
     # Try to rename the legacy file so we don't re-migrate on every call
     try:
         os.rename(json_path, json_path + ".bak")
-    except Exception:
-        # Best-effort only
-        pass
+    except OSError as e:
+        # Best-effort only, but log for visibility
+        logger.debug("analytics JSON backup rename failed: %s", e)
 
 
 def init_analytics_db() -> None:
@@ -191,8 +187,9 @@ def get_analytics_counters() -> Dict[str, Any]:
                     (stored_today, today_strikes, now),
                 )
                 conn.commit()
-            except Exception:
-                pass
+            except sqlite3.Error as e:
+                # Log but don't break user flow - read still returns correct data
+                logger.warning("analytics day rollover write failed: %s", e)
 
         return {
             "today_date": stored_today,
@@ -255,16 +252,84 @@ def increment_analytics_counter(counter_name: str) -> None:
     """Increment a specific analytics counter by 1.
     
     Valid counter names: tasks_deleted, tasks_edited, tasks_with_dates, tasks_with_time, tasks_planned
+    
+    Logs warning for invalid counter names but never raises to avoid breaking user flows.
     """
-    valid_counters = ['tasks_deleted', 'tasks_edited', 'tasks_with_dates', 'tasks_with_time', 'tasks_planned']
-    if counter_name not in valid_counters:
+    if not isinstance(counter_name, str):
+        logger.warning("increment_analytics_counter: counter_name must be str, got %s", type(counter_name).__name__)
+        return
+    if counter_name not in _VALID_COUNTERS:
+        logger.warning("increment_analytics_counter: invalid counter_name %r", counter_name)
         return
     
+    try:
+        with _get_connection() as conn:
+            _ensure_schema(conn)
+            now = datetime.now().isoformat()
+            conn.execute(
+                f"UPDATE analytics SET {counter_name} = {counter_name} + 1, updated_at = ? WHERE id = 1",
+                (now,),
+            )
+            conn.commit()
+    except sqlite3.Error as e:
+        # Log but don't break user flow
+        logger.warning("increment_analytics_counter failed for %s: %s", counter_name, e)
+
+
+def decrement_analytics_counter(counter_name: str, amount: int = 1) -> None:
+    """Decrement a specific analytics counter.
+    
+    Logs warning for invalid inputs but never raises to avoid breaking user flows.
+    """
+    if not isinstance(counter_name, str):
+        logger.warning("decrement_analytics_counter: counter_name must be str, got %s", type(counter_name).__name__)
+        return
+    if counter_name not in _VALID_COUNTERS:
+        logger.warning("decrement_analytics_counter: invalid counter_name %r", counter_name)
+        return
+    try:
+        n = int(amount)
+    except (TypeError, ValueError) as e:
+        logger.warning("decrement_analytics_counter: invalid amount %r, defaulting to 1: %s", amount, e)
+        n = 1
+    if n <= 0:
+        logger.debug("decrement_analytics_counter: amount %d <= 0, skipping", n)
+        return
+
+    try:
+        with _get_connection() as conn:
+            _ensure_schema(conn)
+            now = datetime.now().isoformat()
+            conn.execute(
+                f"UPDATE analytics SET {counter_name} = CASE WHEN {counter_name} - ? < 0 THEN 0 ELSE {counter_name} - ? END, updated_at = ? WHERE id = 1",
+                (n, n, now),
+            )
+            conn.commit()
+    except sqlite3.Error as e:
+        # Log but don't break user flow
+        logger.warning("decrement_analytics_counter failed for %s: %s", counter_name, e)
+
+
+def reset_analytics_counters() -> None:
     with _get_connection() as conn:
         _ensure_schema(conn)
+        _maybe_migrate_from_json(conn)
+        today = date.today().isoformat()
         now = datetime.now().isoformat()
         conn.execute(
-            f"UPDATE analytics SET {counter_name} = {counter_name} + 1, updated_at = ? WHERE id = 1",
-            (now,),
+            """
+            UPDATE analytics
+            SET today_date = ?,
+                today_strikes = 0,
+                total_strikes = 0,
+                tasks_deleted = 0,
+                tasks_edited = 0,
+                tasks_with_dates = 0,
+                tasks_with_time = 0,
+                tasks_planned = 0,
+                updated_at = ?
+            WHERE id = 1
+            """,
+            (today, now),
         )
         conn.commit()

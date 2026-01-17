@@ -9,12 +9,13 @@ import logging
 from typing import List, Dict, Any, Optional
 import uuid
 import shutil
-from queue import Queue, Empty
+from queue import Queue, Empty, Full
+from contextlib import contextmanager
 
-from src.exceptions import DatabaseException, DataManagerException, TaskNotFoundException
+from src.exceptions import DatabaseError, DatabaseException, DataManagerException, TaskNotFoundException, ValidationError
 from src.constants import DEFAULT_USER_ID
 from src.constants import (
-    MAX_RETRIES, RETRY_DELAY_SECONDS, DB_CONNECTION_TIMEOUT,
+    MAX_RETRIES, RETRY_DELAY_SECONDS, DB_CONNECTION_TIMEOUT, DB_POOL_WAIT_TIMEOUT,
     BACKUP_RETENTION_DAYS, MAX_BACKUP_SIZE_BYTES
 )
 
@@ -39,6 +40,11 @@ class SQLiteDataManager:
         # Connection pool (Issue #23)
         self._pool_size = pool_size
         self._connection_pool = Queue(maxsize=pool_size)
+
+        self._pool_get_count = 0
+        self._pool_timeout_count = 0
+        self._pool_return_count = 0
+        self._pool_high_watermark_in_use = 0
         
         # Create data directory if it doesn't exist
         try:
@@ -78,33 +84,90 @@ class SQLiteDataManager:
                 self._connection_pool.put(conn)
             self.logger.info("Connection pool initialized with %d connections", self._pool_size)
         except Exception as e:
-            self.logger.error("Failed to initialize connection pool: %s", e)
+            self.logger.exception("Failed to initialize connection pool")
             raise DatabaseException(f"Failed to initialize connection pool: {e}")
     
     def _get_pooled_connection(self):
         """Get connection from pool with timeout (Issue #23, #3)"""
+        start = time.monotonic()
+        in_use = None
         try:
-            conn = self._connection_pool.get(timeout=DB_CONNECTION_TIMEOUT)
+            conn = self._connection_pool.get(timeout=DB_POOL_WAIT_TIMEOUT)
+            self._pool_get_count += 1
+            try:
+                in_use = self._pool_size - self._connection_pool.qsize()
+                if in_use > self._pool_high_watermark_in_use:
+                    self._pool_high_watermark_in_use = in_use
+            except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                in_use = None
+            waited = time.monotonic() - start
+            if waited >= max(0.5, DB_POOL_WAIT_TIMEOUT * 0.5):
+                self.logger.warning("Waited %.3fs for pooled DB connection (in_use=%s)", waited, in_use)
             return conn
         except Empty:
-            raise DatabaseException("Connection pool exhausted - timeout waiting for connection")
+            self._pool_timeout_count += 1
+            try:
+                stats = self.get_pool_stats()
+            except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                stats = None
+            self.logger.error("Connection pool exhausted (wait_timeout=%.3fs) stats=%s", DB_POOL_WAIT_TIMEOUT, stats)
+            raise DatabaseError(message="Connection pool exhausted - timeout waiting for connection")
     
     def _return_connection(self, conn):
         """Return connection to pool (Issue #3)"""
         try:
             if conn:
                 self._connection_pool.put(conn, block=False)
-        except Exception as e:
-            self.logger.warning("Failed to return connection to pool: %s", e)
-            # Create new connection to maintain pool size
+                self._pool_return_count += 1
+        except Full:
+            self.logger.error("Connection pool full while returning connection; closing returned connection")
             try:
-                new_conn = sqlite3.connect(self.db_path, timeout=DB_CONNECTION_TIMEOUT, check_same_thread=False)
-                new_conn.execute('PRAGMA foreign_keys = ON')
-                new_conn.execute('PRAGMA journal_mode = WAL')
-                new_conn.row_factory = sqlite3.Row
-                self._connection_pool.put(new_conn, block=False)
-            except Exception as pool_e:
-                self.logger.error("Failed to create replacement connection: %s", pool_e)
+                conn.close()
+            except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                self.logger.exception("Failed to close connection after pool full")
+        except Exception:  # noqa: broad-except - Data layer defensive exception handling
+            self.logger.exception("Failed to return connection to pool")
+            try:
+                conn.close()
+            except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                self.logger.exception("Failed to close connection after return failure")
+
+    @contextmanager
+    def pooled_connection(self):
+        conn = self._get_pooled_connection()
+        try:
+            yield conn
+        finally:
+            try:
+                conn.rollback()
+            except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                self.logger.exception("Failed to rollback pooled DB connection")
+            try:
+                self._return_connection(conn)
+            except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                self.logger.exception("Failed to return pooled DB connection")
+
+    def get_pool_stats(self) -> Dict[str, Any]:
+        try:
+            available = self._connection_pool.qsize()
+        except Exception:  # noqa: broad-except - Data layer defensive exception handling
+            available = None
+        in_use = None
+        try:
+            if isinstance(available, int):
+                in_use = self._pool_size - available
+        except Exception:  # noqa: broad-except - Data layer defensive exception handling
+            in_use = None
+
+        return {
+            'pool_size': self._pool_size,
+            'available': available,
+            'in_use': in_use,
+            'get_count': self._pool_get_count,
+            'return_count': self._pool_return_count,
+            'timeout_count': self._pool_timeout_count,
+            'high_watermark_in_use': self._pool_high_watermark_in_use,
+        }
     
     def _init_database(self):
         """Initialize SQLite database with required tables"""
@@ -192,6 +255,20 @@ class SQLiteDataManager:
                         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
                     )
                 ''')
+
+                conn.execute(
+                    '''
+                    CREATE TABLE IF NOT EXISTS deleted_tasks (
+                        user_id TEXT NOT NULL,
+                        task_id TEXT NOT NULL,
+                        task_json TEXT NOT NULL,
+                        deleted_at TEXT NOT NULL,
+                        PRIMARY KEY (user_id, task_id)
+                    )
+                    '''
+                )
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_tasks_user_id ON deleted_tasks (user_id)')
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_tasks_deleted_at ON deleted_tasks (deleted_at)')
                 
                 # Create indexes for better performance
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks (user_id)')
@@ -348,6 +425,33 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.error(f"Migration 015 failed: {e}")
             raise
+
+    def _migration_016_deleted_tasks(self, conn) -> List[Dict[str, Any]]:
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            conn.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS deleted_tasks (
+                    user_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    task_json TEXT NOT NULL,
+                    deleted_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, task_id)
+                )
+                '''
+            )
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_tasks_user_id ON deleted_tasks (user_id)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_deleted_tasks_deleted_at ON deleted_tasks (deleted_at)')
+
+            migrations_applied.append({
+                'version': 16,
+                'description': 'Created deleted_tasks table',
+                'sql': 'CREATE TABLE deleted_tasks'
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 016 failed: {e}")
+            raise
     
     def _run_migrations(self):
         """Run database migrations with comprehensive error handling and rollback"""
@@ -431,6 +535,9 @@ class SQLiteDataManager:
                     # Migration 15: Add settings_events table for streak tracking
                     if migration_version < 15:
                         migrations_applied.extend(self._migration_015_settings_events(conn))
+
+                    if migration_version < 16:
+                        migrations_applied.extend(self._migration_016_deleted_tasks(conn))
                     
                     # Update migration version
                     if migrations_applied:
@@ -444,8 +551,11 @@ class SQLiteDataManager:
                     
                 except Exception as inner_e:
                     # Rollback transaction on any error
-                    conn.rollback()
-                    self.logger.error(f"Migration transaction failed: {inner_e}")
+                    try:
+                        conn.rollback()
+                    except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                        self.logger.exception("Migration rollback failed")
+                    self.logger.exception("Migration transaction failed")
                     
                     # Restore backup if created
                     if backup_created:
@@ -458,10 +568,156 @@ class SQLiteDataManager:
                     raise inner_e
                 
         except Exception as e:
-            self.logger.error(f"Error running database migrations: {e}")
-            # Don't raise - migrations are not critical for basic functionality
-            # But log the error for debugging
-            self.logger.error(f"Migration failed at version {migration_version}, backup created: {backup_created}")
+            self.logger.exception(
+                "Error running database migrations (migration_version=%s, backup_created=%s)",
+                migration_version,
+                backup_created,
+            )
+            raise DatabaseError(
+                message="Database migrations failed",
+                details={
+                    'migration_version': migration_version,
+                    'backup_created': backup_created,
+                },
+                cause=e,
+            )
+
+    def save_deleted_task_snapshot(self, user_id: str, task: Dict[str, Any]) -> bool:
+        try:
+            self._ensure_user_exists(user_id)
+            task_id = str(task.get('id') or '').strip()
+            if not task_id:
+                return False
+
+            payload = json.dumps(task)
+            now = datetime.now().isoformat()
+
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                conn.execute(
+                    'INSERT OR REPLACE INTO deleted_tasks (user_id, task_id, task_json, deleted_at) VALUES (?, ?, ?, ?)',
+                    (user_id, task_id, payload, now)
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving deleted task snapshot for user {user_id}: {e}")
+            return False
+
+    def _sanitize_text(self, value: Any, max_len: int) -> str:
+        if value is None:
+            return ''
+        if not isinstance(value, str):
+            value = str(value)
+        value = value.strip()
+        if len(value) > max_len:
+            value = value[:max_len]
+        return value
+
+    def _normalize_task_dict(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        if task is None or not isinstance(task, dict):
+            return {}
+
+        normalized = dict(task)
+
+        normalized['id'] = self._sanitize_text(normalized.get('id'), 64)
+        normalized['title'] = self._sanitize_text(normalized.get('title'), 200)
+        normalized['description'] = self._sanitize_text(normalized.get('description', ''), 10000)
+        normalized['project'] = self._sanitize_text(normalized.get('project', ''), 200)
+        normalized['priority'] = self._sanitize_text(normalized.get('priority', 'medium'), 32) or 'medium'
+        normalized['status'] = self._sanitize_text(normalized.get('status', 'pending'), 32) or 'pending'
+
+        if 'completed' in normalized:
+            normalized['completed'] = bool(normalized.get('completed'))
+        else:
+            normalized['completed'] = False
+
+        if 'struck_forever' in normalized:
+            normalized['struck_forever'] = bool(normalized.get('struck_forever'))
+        else:
+            normalized['struck_forever'] = False
+
+        if 'struck_today' in normalized:
+            normalized['struck_today'] = bool(normalized.get('struck_today'))
+        else:
+            normalized['struck_today'] = False
+
+        try:
+            normalized['strike_count'] = int(normalized.get('strike_count', 0) or 0)
+        except Exception:  # noqa: broad-except - Data layer defensive exception handling
+            normalized['strike_count'] = 0
+
+        try:
+            normalized['estimated_duration'] = int(normalized.get('estimated_duration', 60) or 60)
+        except Exception:  # noqa: broad-except - Data layer defensive exception handling
+            normalized['estimated_duration'] = 60
+
+        daily_strikes = normalized.get('daily_strikes', {})
+        if not isinstance(daily_strikes, dict):
+            daily_strikes = {}
+        normalized['daily_strikes'] = daily_strikes
+
+        now_iso = datetime.now().isoformat()
+        normalized['created_at'] = normalized.get('created_at') or now_iso
+        normalized['updated_at'] = normalized.get('updated_at') or now_iso
+
+        if 'strike_report' in normalized:
+            normalized['strike_report'] = self._sanitize_text(normalized.get('strike_report'), 5000)
+
+        return normalized
+
+
+    def restore_deleted_task_snapshot(self, user_id: str, task_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            self._ensure_user_exists(user_id)
+            task_id = str(task_id or '').strip()
+            if not task_id:
+                return None
+
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                cur = conn.execute(
+                    'SELECT task_json FROM deleted_tasks WHERE user_id = ? AND task_id = ?',
+                    (user_id, task_id)
+                )
+                row = cur.fetchone()
+                if not row:
+                    conn.rollback()
+                    return None
+
+                exists_cur = conn.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ? AND id = ?', (user_id, task_id))
+                if exists_cur.fetchone()[0] != 0:
+                    conn.rollback()
+                    return None
+
+                try:
+                    task = json.loads(row['task_json']) if row['task_json'] else None
+                except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                    task = None
+
+                if not isinstance(task, dict) or not str(task.get('id') or '').strip():
+                    conn.rollback()
+                    return None
+
+                task_row = self._task_dict_to_row(task, user_id)
+                conn.execute(
+                    '''
+                    INSERT INTO tasks (
+                        id, user_id, title, description, project, priority, status,
+                        completed, completed_at, due_date, estimated_duration, scheduled_hour,
+                        scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
+                        daily_strikes, refreshed_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    task_row
+                )
+                conn.execute('DELETE FROM deleted_tasks WHERE user_id = ? AND task_id = ?', (user_id, task_id))
+                conn.commit()
+
+            return task
+        except Exception as e:
+            self.logger.exception("Error restoring deleted task snapshot for user %s, task %s", user_id, task_id)
+            raise DatabaseError(message="Error restoring deleted task snapshot", details={'user_id': user_id, 'task_id': task_id}, cause=e)
     
     def _get_migration_version(self, conn) -> int:
         """Get current migration version from database"""
@@ -471,6 +727,7 @@ class SQLiteDataManager:
             return result[0] if result else 0
         except sqlite3.OperationalError:
             # Migration version table doesn't exist, create it
+            self.logger.info("migration_version table missing; creating")
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS migration_version (
                     version INTEGER PRIMARY KEY,
@@ -583,7 +840,7 @@ class SQLiteDataManager:
                             created_dt_local = created_dt.astimezone().replace(tzinfo=None)
                         else:
                             created_dt_local = created_dt
-                    except Exception:
+                    except Exception:  # noqa: broad-except - Data layer defensive exception handling
                         created_dt_local = created_dt.replace(tzinfo=None)
 
                     if created_dt_local < cutoff_date:
@@ -604,16 +861,34 @@ class SQLiteDataManager:
             with self._get_connection() as conn:
                 cursor = conn.execute('SELECT backup_path FROM migration_backups ORDER BY created_at DESC LIMIT 1')
                 result = cursor.fetchone()
-                
-                if result:
-                    backup_path = result[0]
-                    import shutil
-                    shutil.copy2(backup_path, self.db_path)
-                    self.logger.info(f"Restored from backup: {backup_path}")
-                else:
-                    self.logger.warning("No migration backup found to restore")
+
+                if not result:
+                    raise DatabaseError(message="No migration backup found to restore")
+
+                backup_path = result[0]
+                self._verify_db_integrity(backup_path)
+                shutil.copy2(backup_path, self.db_path)
+                self._verify_db_integrity(self.db_path)
+                self.logger.info("Restored from backup: %s", backup_path)
         except Exception as e:
-            self.logger.error(f"Failed to restore migration backup: {e}")
+            self.logger.exception("Failed to restore migration backup")
+            raise DatabaseError(message="Failed to restore migration backup", cause=e)
+
+    def _verify_db_integrity(self, db_path: str) -> None:
+        if not db_path or not isinstance(db_path, str):
+            raise ValidationError(message="Invalid db_path")
+        try:
+            with sqlite3.connect(db_path, timeout=DB_CONNECTION_TIMEOUT) as conn:
+                row = conn.execute('PRAGMA integrity_check').fetchone()
+                value = None
+                if row:
+                    value = row[0]
+                if str(value).lower() != 'ok':
+                    raise DatabaseError(message="Database integrity_check failed", details={'db_path': db_path, 'result': value})
+        except DatabaseError:
+            raise
+        except Exception as e:
+            raise DatabaseError(message="Database integrity_check failed", details={'db_path': db_path}, cause=e)
     
     def _migration_001_analytics_columns(self, conn) -> List[Dict]:
         """Migration 1: Add analytics columns to tasks table"""
@@ -1003,10 +1278,23 @@ class SQLiteDataManager:
     
     def _get_connection(self):
         """Get a database connection with proper configuration"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute('PRAGMA foreign_keys = ON')
-        conn.execute('PRAGMA journal_mode = WAL')
-        conn.row_factory = sqlite3.Row  # Enable dict-like access
+        if not self.db_path or not isinstance(self.db_path, str):
+            raise ValidationError(message="Invalid db_path")
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=DB_CONNECTION_TIMEOUT, check_same_thread=False)
+        except Exception as e:
+            raise DatabaseError(message="Database unavailable", details={'db_path': self.db_path}, cause=e)
+        try:
+            conn.execute('PRAGMA foreign_keys = ON')
+            conn.execute('PRAGMA journal_mode = WAL')
+            conn.row_factory = sqlite3.Row  # Enable dict-like access
+            conn.execute('SELECT 1')
+        except Exception as e:
+            try:
+                conn.close()
+            except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                self.logger.exception("Failed to close unhealthy connection")
+            raise DatabaseError(message="Database connection health check failed", details={'db_path': self.db_path}, cause=e)
         return conn
     
     def _ensure_user_exists(self, user_id: str) -> bool:
@@ -1074,6 +1362,10 @@ class SQLiteDataManager:
         if not isinstance(tasks, list):
             self.logger.error("Tasks must be a list")
             return False
+
+        if len(tasks) > 200:
+            self.logger.error(f"Too many tasks provided: {len(tasks)} (max 200)")
+            return False
         
         # Check for duplicate IDs
         task_ids = set()
@@ -1090,6 +1382,7 @@ class SQLiteDataManager:
     
     def _task_dict_to_row(self, task: Dict[str, Any], user_id: str) -> tuple:
         """Convert task dictionary to database row"""
+        task = self._normalize_task_dict(task)
         return (
             task['id'],
             user_id,
@@ -1125,7 +1418,7 @@ class SQLiteDataManager:
             raw = row['daily_strikes'] if 'daily_strikes' in row.keys() else None
             if raw:
                 daily_strikes = json.loads(raw)
-        except Exception:
+        except Exception:  # noqa: broad-except - Data layer defensive exception handling
             daily_strikes = {}
         
         return {
@@ -1155,54 +1448,52 @@ class SQLiteDataManager:
         }
     
     # Task Management Methods
-    def load_tasks_for_user(self, user_id: str) -> List[Dict[str, Any]]:
+    def load_tasks_for_user(self, user_id: str) -> Optional[List[Dict[str, Any]]]:
         """Load tasks for a specific user from database with comprehensive error handling and failsafes"""
-        conn = None
         try:
             self._ensure_user_exists(user_id)
             
-            conn = self._get_pooled_connection()
-            # Use read-only transaction for consistency
-            conn.execute('BEGIN IMMEDIATE TRANSACTION')
-                        
-            try:
-                cursor = conn.execute('''
-                    SELECT * FROM tasks 
-                    WHERE user_id = ? 
-                    ORDER BY created_at DESC
-                ''', (user_id,))
-                
-                rows = cursor.fetchall()
-                
-                # Validate each row before conversion
-                tasks = []
-                for row in rows:
+            with self.pooled_connection() as conn:
+                conn.execute('BEGIN')
+
+                try:
+                    cursor = conn.execute('''
+                        SELECT * FROM tasks 
+                        WHERE user_id = ? 
+                        ORDER BY created_at DESC
+                    ''', (user_id,))
+
+                    rows = cursor.fetchall()
+
+                    tasks = []
+                    for row in rows:
+                        try:
+                            task_dict = self._row_to_task_dict(row)
+                            if self._validate_task(task_dict):
+                                tasks.append(task_dict)
+                            else:
+                                self.logger.warning("Invalid task data found for user %s, skipping corrupted task", user_id)
+                        except Exception as row_e:
+                            self.logger.warning("Failed to convert row for user %s: %s", user_id, row_e)
+                            continue
+
+                    conn.commit()
+                    self.logger.info("Successfully loaded %d tasks for user %s", len(tasks), user_id)
+                    return tasks
+                except Exception as inner_e:
                     try:
-                        task_dict = self._row_to_task_dict(row)
-                        # Validate the converted task
-                        if self._validate_task(task_dict):
-                            tasks.append(task_dict)
-                        else:
-                            self.logger.warning("Invalid task data found for user %s, skipping corrupted task", user_id)
-                    except Exception as row_e:
-                        self.logger.warning("Failed to convert row for user %s: %s", user_id, row_e)
-                        continue
-                
-                conn.commit()  # Commit read transaction
-                self.logger.info("Successfully loaded %d tasks for user %s", len(tasks), user_id)
-                return tasks
-                
-            except Exception as inner_e:
-                conn.rollback()
-                self.logger.error("Transaction failed for user %s: %s", user_id, inner_e)
-                raise inner_e
-                
+                        conn.rollback()
+                    except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                        self.logger.exception("Rollback failed for user %s", user_id)
+                    self.logger.exception("Transaction failed for user %s", user_id)
+                    raise
+
         except Exception as e:
-            self.logger.error("Error loading tasks for user %s: %s", user_id, e)
-            return []  # Return empty list as failsafe
-        finally:
-            if conn:
-                self._return_connection(conn)
+            self.logger.exception("Error loading tasks for user %s", user_id)
+            raise DatabaseError(
+                message=f"Error loading tasks for user {user_id}",
+                cause=e,
+            )
     
     def save_tasks_for_user(self, user_id: str, tasks: List[Dict[str, Any]]) -> bool:
         """Save tasks for a specific user to database with atomic transaction and failsafes"""
@@ -1210,31 +1501,28 @@ class SQLiteDataManager:
         retry_delay = 0.1
         
         for attempt in range(max_retries):
-            with self._lock:
-                try:
-                    # Validate data first
-                    if not self._validate_tasks(tasks):
+            try:
+                with self._lock:
+                    tasks_normalized = [self._normalize_task_dict(t) for t in (tasks or [])]
+
+                    if not self._validate_tasks(tasks_normalized):
                         self.logger.error(f"Task validation failed for user {user_id}")
                         return False
-                    
+
                     self._ensure_user_exists(user_id)
-                    
+
                     with self._get_connection() as conn:
-                        # Start transaction
                         conn.execute('BEGIN IMMEDIATE TRANSACTION')
-                        
+
                         try:
-                            # Create backup of existing tasks before deletion (failsafe)
                             backup_tasks = []
                             cursor = conn.execute('SELECT * FROM tasks WHERE user_id = ?', (user_id,))
                             for row in cursor.fetchall():
                                 backup_tasks.append(self._row_to_task_dict(row))
-                            
-                            # Delete existing tasks for user
+
                             conn.execute('DELETE FROM tasks WHERE user_id = ?', (user_id,))
-                            
-                            # Insert new tasks
-                            task_rows = [self._task_dict_to_row(task, user_id) for task in tasks]
+
+                            task_rows = [self._task_dict_to_row(task, user_id) for task in tasks_normalized]
                             conn.executemany('''
                                 INSERT INTO tasks (
                                     id, user_id, title, description, project, priority, status,
@@ -1243,25 +1531,21 @@ class SQLiteDataManager:
                                     daily_strikes, refreshed_at, created_at, updated_at
                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_rows)
-                            
-                            # Verify insertion was successful
+
                             count_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ?', (user_id,))
                             inserted_count = count_cursor.fetchone()[0]
-                            
-                            if inserted_count != len(tasks):
-                                raise Exception(f"Insertion verification failed: expected {len(tasks)}, got {inserted_count}")
-                            
-                            # Commit transaction
+
+                            if inserted_count != len(tasks_normalized):
+                                raise Exception(f"Insertion verification failed: expected {len(tasks_normalized)}, got {inserted_count}")
+
                             conn.commit()
-                            self.logger.info(f"Successfully saved {len(tasks)} tasks for user {user_id}")
+                            self.logger.info(f"Successfully saved {len(tasks_normalized)} tasks for user {user_id}")
                             return True
-                            
+
                         except Exception as inner_e:
-                            # Rollback transaction on any error
                             conn.rollback()
                             self.logger.error(f"Transaction failed for user {user_id}, attempt {attempt + 1}: {inner_e}")
-                            
-                            # Restore backup if this is the last attempt
+
                             if attempt == max_retries - 1 and backup_tasks:
                                 try:
                                     self.logger.warning(f"Restoring backup for user {user_id} after final failure")
@@ -1281,16 +1565,15 @@ class SQLiteDataManager:
                                 except Exception as restore_e:
                                     conn.rollback()
                                     self.logger.error(f"Failed to restore backup for user {user_id}: {restore_e}")
-                            
-                            raise inner_e
-                            
-                except Exception as e:
-                    self.logger.error(f"Error saving tasks for user {user_id}, attempt {attempt + 1}: {e}")
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
-                        continue
-                    else:
-                        return False
+
+                            raise
+
+            except Exception as e:
+                self.logger.error(f"Error saving tasks for user {user_id}, attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (2 ** attempt))
+                    continue
+                return False
         
         return False
     
@@ -1300,29 +1583,26 @@ class SQLiteDataManager:
         retry_delay = 0.1
         
         for attempt in range(max_retries):
-            with self._lock:
-                try:
+            try:
+                with self._lock:
                     self._ensure_user_exists(user_id)
-                    
-                    # Generate task ID if not provided
+
+                    if task_data is None or not isinstance(task_data, dict):
+                        return None
+
                     if 'id' not in task_data:
                         task_data['id'] = str(uuid.uuid4())
-                    
-                    # Validate task
+
+                    task_data = self._normalize_task_dict(task_data)
+
                     if not self._validate_task(task_data):
                         self.logger.error(f"Task validation failed for user {user_id}")
                         return None
-                    
+
                     with self._get_connection() as conn:
-                        # Start transaction
                         conn.execute('BEGIN IMMEDIATE TRANSACTION')
-                        
+
                         try:
-                            # Check for duplicate task ID
-                            cursor = conn.execute('SELECT id FROM tasks WHERE id = ? AND user_id = ?', (task_data['id'], user_id))
-                            if cursor.fetchone():
-                                raise Exception(f"Task with ID {task_data['id']} already exists for user {user_id}")
-                            
                             task_row = self._task_dict_to_row(task_data, user_id)
                             conn.execute('''
                                 INSERT INTO tasks (
@@ -1332,66 +1612,60 @@ class SQLiteDataManager:
                                     daily_strikes, refreshed_at, created_at, updated_at
                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_row)
-                            
-                            # Verify insertion
-                            verify_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE id = ? AND user_id = ?', (task_data['id'], user_id))
-                            if verify_cursor.fetchone()[0] != 1:
-                                raise Exception("Task insertion verification failed")
-                            
+
                             conn.commit()
-                            
-                            # Return the created task
+
                             cursor = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_data['id'],))
                             row = cursor.fetchone()
                             if row:
                                 created_task = self._row_to_task_dict(row)
                                 self.logger.info(f"Successfully created task {task_data['id']} for user {user_id}")
                                 return created_task
-                            else:
-                                raise Exception("Task not found after creation")
-                                
+                            raise Exception("Task not found after creation")
+
+                        except sqlite3.IntegrityError as ie:
+                            conn.rollback()
+                            self.logger.error(f"Integrity error creating task for user {user_id}: {ie}")
+                            return None
                         except Exception as inner_e:
                             conn.rollback()
                             self.logger.error(f"Transaction failed for user {user_id}, attempt {attempt + 1}: {inner_e}")
-                            raise inner_e
-                            
-                except Exception as e:
-                    self.logger.error(f"Error creating task for user {user_id}, attempt {attempt + 1}: {e}")
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
-                        continue
-                    else:
-                        return None
+                            raise
+
+            except Exception as e:
+                self.logger.error(f"Error creating task for user {user_id}, attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (2 ** attempt))
+                    continue
+                return None
         
         return None
     
     def get_task_by_id(self, user_id: str, task_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific task by ID (Issue #6 - avoid N+1 query problem)"""
-        conn = None
         try:
-            conn = self._get_pooled_connection()
-            cursor = conn.execute(
-                'SELECT * FROM tasks WHERE id = ? AND user_id = ?',
-                (task_id, user_id)
-            )
-            row = cursor.fetchone()
-            
-            if row:
-                return self._row_to_task_dict(row)
-            return None
-            
+            with self.pooled_connection() as conn:
+                cursor = conn.execute(
+                    'SELECT * FROM tasks WHERE id = ? AND user_id = ?',
+                    (task_id, user_id)
+                )
+                row = cursor.fetchone()
+
+                if row:
+                    return self._row_to_task_dict(row)
+                return None
         except Exception as e:
-            self.logger.error("Error getting task %s for user %s: %s", task_id, user_id, e)
-            return None
-        finally:
-            if conn:
-                self._return_connection(conn)
+            self.logger.exception("Error getting task %s for user %s", task_id, user_id)
+            raise DatabaseError(message=f"Error getting task {task_id} for user {user_id}", cause=e)
     
     def bulk_create_tasks(self, user_id: str, tasks: List[Dict[str, Any]]) -> bool:
         """Bulk create tasks without loading existing tasks (Issue #12)"""
-        conn = None
         try:
             self._ensure_user_exists(user_id)
+
+            if not isinstance(tasks, list) or len(tasks) > 200:
+                self.logger.error(f"Too many tasks for bulk_create_tasks: {0 if not isinstance(tasks, list) else len(tasks)} (max 200)")
+                return False
             
             # Validate all tasks
             for task in tasks:
@@ -1400,35 +1674,34 @@ class SQLiteDataManager:
                 if not self._validate_task(task):
                     raise DataManagerException(f"Task validation failed: {task.get('title', 'unknown')}")
             
-            conn = self._get_pooled_connection()
-            conn.execute('BEGIN IMMEDIATE TRANSACTION')
-            
-            try:
-                # Bulk insert
-                task_rows = [self._task_dict_to_row(task, user_id) for task in tasks]
-                conn.executemany('''
-                    INSERT INTO tasks (
-                        id, user_id, title, description, project, priority, status,
-                        completed, completed_at, due_date, estimated_duration, scheduled_hour,
-                        scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today,
-                        struck_date, strike_report, strike_count, daily_strikes, refreshed_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', task_rows)
-                
-                conn.commit()
-                self.logger.info("Bulk created %d tasks for user %s", len(tasks), user_id)
-                return True
-                
-            except Exception as inner_e:
-                conn.rollback()
-                raise DatabaseException(f"Bulk insert failed: {inner_e}")
-                
+            with self.pooled_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+
+                try:
+                    task_rows = [self._task_dict_to_row(task, user_id) for task in tasks]
+                    conn.executemany('''
+                        INSERT INTO tasks (
+                            id, user_id, title, description, project, priority, status,
+                            completed, completed_at, due_date, estimated_duration, scheduled_hour,
+                            scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today,
+                            struck_date, strike_report, strike_count, daily_strikes, refreshed_at, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', task_rows)
+
+                    conn.commit()
+                    self.logger.info("Bulk created %d tasks for user %s", len(tasks), user_id)
+                    return True
+
+                except Exception as inner_e:
+                    try:
+                        conn.rollback()
+                    except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                        self.logger.exception("Rollback failed during bulk_create_tasks")
+                    raise DatabaseError(message="Bulk insert failed", cause=inner_e)
+
         except Exception as e:
-            self.logger.error("Error bulk creating tasks for user %s: %s", user_id, e)
-            return False
-        finally:
-            if conn:
-                self._return_connection(conn)
+            self.logger.exception("Error bulk creating tasks for user %s", user_id)
+            raise DatabaseError(message=f"Error bulk creating tasks for user {user_id}", cause=e)
     
     def update_task_for_user(self, user_id: str, task_id: str, task_data: Dict[str, Any]) -> bool:
         """Update a specific task for a user with transaction safety"""
@@ -1436,36 +1709,36 @@ class SQLiteDataManager:
         retry_delay = 0.1
         
         for attempt in range(max_retries):
-            with self._lock:
-                try:
+            try:
+                with self._lock:
                     with self._get_connection() as conn:
-                        # Start transaction
                         conn.execute('BEGIN IMMEDIATE TRANSACTION')
-                        
+
+                        backup_row = None
                         try:
-                            # Check if task exists and belongs to user
-                            cursor = conn.execute('''
+                            cursor = conn.execute(
+                                '''
                                 SELECT id FROM tasks WHERE id = ? AND user_id = ?
-                            ''', (task_id, user_id))
-                            
+                                ''',
+                                (task_id, user_id),
+                            )
+
                             if not cursor.fetchone():
                                 self.logger.error(f"Task {task_id} not found for user {user_id}")
                                 conn.rollback()
                                 return False
-                            
-                            # Create backup of original task (failsafe)
+
                             backup_cursor = conn.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
                             backup_row = backup_cursor.fetchone()
                             if not backup_row:
-                                raise Exception("Task disappeared during update")
+                                raise Exception('Task disappeared during update')
 
-                            # Merge incoming payload over existing persisted task so partial updates
-                            # never clobber strike/schedule fields (e.g. struck_today) back to defaults.
                             existing_task = self._row_to_task_dict(backup_row)
                             merged_task = {**existing_task, **(task_data or {})}
-                            
-                            # Update task
-                            conn.execute('''
+                            merged_task = self._normalize_task_dict(merged_task)
+
+                            conn.execute(
+                                '''
                                 UPDATE tasks SET
                                     title = ?, description = ?, project = ?, priority = ?,
                                     status = ?, completed = ?, completed_at = ?, due_date = ?, estimated_duration = ?,
@@ -1473,46 +1746,48 @@ class SQLiteDataManager:
                                     struck_forever = ?, struck_today = ?, struck_date = ?,
                                     strike_report = ?, strike_count = ?, daily_strikes = ?, refreshed_at = ?, updated_at = ?
                                 WHERE id = ? AND user_id = ?
-                            ''', (
-                                merged_task.get('title', ''),
-                                merged_task.get('description', ''),
-                                merged_task.get('project', ''),
-                                merged_task.get('priority', 'medium'),
-                                merged_task.get('status', 'pending'),
-                                merged_task.get('completed', False),
-                                merged_task.get('completed_at'),
-                                merged_task.get('due_date'),
-                                merged_task.get('estimated_duration', 60),
-                                merged_task.get('scheduled_hour'),
-                                merged_task.get('scheduled_minute'),
-                                merged_task.get('scheduled_date'),
-                                merged_task.get('scheduled_duration'),
-                                merged_task.get('struck_forever', False),
-                                merged_task.get('struck_today', False),
-                                merged_task.get('struck_date'),
-                                merged_task.get('strike_report'),
-                                merged_task.get('strike_count', 0),
-                                json.dumps(merged_task.get('daily_strikes', {})),
-                                merged_task.get('refreshed_at'),
-                                datetime.now().isoformat(),
-                                task_id,
-                                user_id
-                            ))
-                            
-                            # Verify update was successful
+                                ''',
+                                (
+                                    merged_task.get('title', ''),
+                                    merged_task.get('description', ''),
+                                    merged_task.get('project', ''),
+                                    merged_task.get('priority', 'medium'),
+                                    merged_task.get('status', 'pending'),
+                                    merged_task.get('completed', False),
+                                    merged_task.get('completed_at'),
+                                    merged_task.get('due_date'),
+                                    merged_task.get('estimated_duration', 60),
+                                    merged_task.get('scheduled_hour'),
+                                    merged_task.get('scheduled_minute'),
+                                    merged_task.get('scheduled_date'),
+                                    merged_task.get('scheduled_duration'),
+                                    merged_task.get('struck_forever', False),
+                                    merged_task.get('struck_today', False),
+                                    merged_task.get('struck_date'),
+                                    merged_task.get('strike_report'),
+                                    merged_task.get('strike_count', 0),
+                                    json.dumps(merged_task.get('daily_strikes', {})),
+                                    merged_task.get('refreshed_at'),
+                                    datetime.now().isoformat(),
+                                    task_id,
+                                    user_id,
+                                ),
+                            )
+
                             verify_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
                             if verify_cursor.fetchone()[0] != 1:
-                                raise Exception("Task update verification failed")
-                            
+                                raise Exception('Task update verification failed')
+
                             conn.commit()
                             self.logger.info(f"Successfully updated task {task_id} for user {user_id}")
                             return True
-                            
+
                         except Exception as inner_e:
                             conn.rollback()
-                            self.logger.error(f"Transaction failed for user {user_id}, task {task_id}, attempt {attempt + 1}: {inner_e}")
-                            
-                            # Restore backup if this is the last attempt
+                            self.logger.error(
+                                f"Transaction failed for user {user_id}, task {task_id}, attempt {attempt + 1}: {inner_e}"
+                            )
+
                             if attempt == max_retries - 1 and backup_row:
                                 try:
                                     self.logger.warning(f"Restoring backup for task {task_id} after final failure")
@@ -1520,29 +1795,31 @@ class SQLiteDataManager:
                                     conn.execute('DELETE FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
                                     backup_task = self._row_to_task_dict(backup_row)
                                     backup_row_tuple = self._task_dict_to_row(backup_task, user_id)
-                                    conn.execute('''
+                                    conn.execute(
+                                        '''
                                         INSERT INTO tasks (
                                             id, user_id, title, description, project, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                             scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
                                             daily_strikes, created_at, updated_at
                                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    ''', backup_row_tuple)
+                                        ''',
+                                        backup_row_tuple,
+                                    )
                                     conn.commit()
                                     self.logger.info(f"Backup restored for task {task_id}")
                                 except Exception as restore_e:
                                     conn.rollback()
                                     self.logger.error(f"Failed to restore backup for task {task_id}: {restore_e}")
-                            
-                            raise inner_e
-                            
-                except Exception as e:
-                    self.logger.error(f"Error updating task {task_id} for user {user_id}, attempt {attempt + 1}: {e}")
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
-                        continue
-                    else:
-                        return False
+
+                            raise
+
+            except Exception as e:
+                self.logger.error(f"Error updating task {task_id} for user {user_id}, attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (2 ** attempt))
+                    continue
+                return False
         
         return False
     
@@ -1552,70 +1829,71 @@ class SQLiteDataManager:
         retry_delay = 0.1
         
         for attempt in range(max_retries):
-            with self._lock:
-                try:
+            try:
+                with self._lock:
                     with self._get_connection() as conn:
-                        # Start transaction
                         conn.execute('BEGIN IMMEDIATE TRANSACTION')
-                        
+
+                        backup_row = None
                         try:
-                            # Create backup of task before deletion (failsafe)
                             backup_cursor = conn.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
                             backup_row = backup_cursor.fetchone()
-                            
+
                             if not backup_row:
                                 self.logger.error(f"Task {task_id} not found for user {user_id}")
                                 conn.rollback()
                                 return False
-                            
-                            # Delete task
-                            cursor = conn.execute('''
+
+                            conn.execute(
+                                '''
                                 DELETE FROM tasks WHERE id = ? AND user_id = ?
-                            ''', (task_id, user_id))
-                            
-                            # Verify deletion
+                                ''',
+                                (task_id, user_id),
+                            )
+
                             verify_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
                             if verify_cursor.fetchone()[0] != 0:
-                                raise Exception("Task deletion verification failed")
-                            
+                                raise Exception('Task deletion verification failed')
+
                             conn.commit()
                             self.logger.info(f"Successfully deleted task {task_id} for user {user_id}")
                             return True
-                            
+
                         except Exception as inner_e:
                             conn.rollback()
                             self.logger.error(f"Transaction failed for user {user_id}, task {task_id}, attempt {attempt + 1}: {inner_e}")
-                            
-                            # Restore backup if this is the last attempt
+
                             if attempt == max_retries - 1 and backup_row:
                                 try:
                                     self.logger.warning(f"Restoring backup for task {task_id} after final failure")
                                     conn.execute('BEGIN IMMEDIATE TRANSACTION')
                                     backup_task = self._row_to_task_dict(backup_row)
                                     backup_row_tuple = self._task_dict_to_row(backup_task, user_id)
-                                    conn.execute('''
+                                    conn.execute(
+                                        '''
                                         INSERT INTO tasks (
                                             id, user_id, title, description, project, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                             scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
                                             created_at, updated_at
                                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    ''', backup_row_tuple)
+                                        ''',
+                                        backup_row_tuple,
+                                    )
                                     conn.commit()
                                     self.logger.info(f"Backup restored for task {task_id}")
                                 except Exception as restore_e:
                                     conn.rollback()
                                     self.logger.error(f"Failed to restore backup for task {task_id}: {restore_e}")
-                            
-                            raise inner_e
-                            
-                except Exception as e:
-                    self.logger.error(f"Error deleting task {task_id} for user {user_id}, attempt {attempt + 1}: {e}")
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
-                        continue
-                    else:
-                        return False
+
+                            raise
+
+            except Exception as e:
+                self.logger.error(f"Error deleting task {task_id} for user {user_id}, attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (2 ** attempt))
+                    continue
+                return False
         
         return False
     
@@ -1626,20 +1904,20 @@ class SQLiteDataManager:
         retry_delay = 0.1
         
         for attempt in range(max_retries):
-            with self._lock:
-                try:
+            try:
+                with self._lock:
                     # Validate user_id
                     if not user_id or not isinstance(user_id, str) or len(user_id.strip()) == 0:
-                        self.logger.error(f"Invalid user_id provided: {user_id}")
-                        return self._get_default_settings()
-                    
+                        self.logger.error("Invalid user_id provided: %s", user_id)
+                        raise ValidationError(message="Invalid user_id")
+
                     # Ensure user exists
                     self._ensure_user_exists(user_id)
-                    
+
                     with self._get_connection() as conn:
-                        # Start read-only transaction
-                        conn.execute('BEGIN IMMEDIATE TRANSACTION')
-                        
+                        # Start read-only transaction (deferred)
+                        conn.execute('BEGIN')
+
                         try:
                             # Check if user preferences table exists (newer migration)
                             cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'")
@@ -1650,6 +1928,7 @@ class SQLiteDataManager:
                                 has_casual_column = 'casual_dates' in cols
                                 has_last_reset_column = 'last_daily_reset_at' in cols
                                 has_mini_analytics_column = 'mini_analytics_interval' in cols
+                                has_settings_layout = 'settings_layout' in cols
                                 has_streak_skip_weekends = 'streak_skip_weekends' in cols
                                 has_streak_count_new_tasks = 'streak_count_new_tasks' in cols
                                 has_streak_count_settings = 'streak_count_settings' in cols
@@ -1668,6 +1947,8 @@ class SQLiteDataManager:
                                 select_cols.extend(['timezone', 'language'])
                                 if has_mini_analytics_column:
                                     select_cols.append('mini_analytics_interval')
+                                if has_settings_layout:
+                                    select_cols.append('settings_layout')
                                 if has_qp_column:
                                     select_cols.append('quick_project_from_title')
                                 if has_casual_column:
@@ -1702,6 +1983,7 @@ class SQLiteDataManager:
                                         'timezone': raw.get('timezone') or 'UTC',
                                         'language': raw.get('language') or 'en',
                                         'mini_analytics_interval': raw.get('mini_analytics_interval') if raw.get('mini_analytics_interval') is not None else 5,
+                                        'settings_layout': raw.get('settings_layout') or 'scroll',
                                         'quick_project_from_title': bool(raw.get('quick_project_from_title')) if raw.get('quick_project_from_title') is not None else False,
                                         'casual_dates': bool(raw.get('casual_dates')) if raw.get('casual_dates') is not None else False,
                                         'streak_skip_weekends': bool(raw.get('streak_skip_weekends')) if raw.get('streak_skip_weekends') is not None else False,
@@ -1723,12 +2005,15 @@ class SQLiteDataManager:
                                 cols = [row[1] for row in col_cursor.fetchall()]
                                 has_last_reset_column = 'last_daily_reset_at' in cols
                                 has_mini_analytics_column = 'mini_analytics_interval' in cols
+                                has_settings_layout = 'settings_layout' in cols
 
                                 select_cols = ['theme', 'dpi_scale', 'autosave_interval', 'notifications', 'daily_reset_time']
                                 if has_last_reset_column:
                                     select_cols.append('last_daily_reset_at')
                                 if has_mini_analytics_column:
                                     select_cols.append('mini_analytics_interval')
+                                if has_settings_layout:
+                                    select_cols.append('settings_layout')
                                 cursor = conn.execute(
                                     f"SELECT {', '.join(select_cols)} FROM settings WHERE user_id = ?",
                                     (user_id,),
@@ -1745,6 +2030,7 @@ class SQLiteDataManager:
                                         'daily_reset_time': raw.get('daily_reset_time') or '06:00',
                                         'last_daily_reset_at': raw.get('last_daily_reset_at') if has_last_reset_column else None,
                                         'mini_analytics_interval': raw.get('mini_analytics_interval') if has_mini_analytics_column and raw.get('mini_analytics_interval') is not None else 5,
+                                        'settings_layout': raw.get('settings_layout') or 'scroll',
                                         'timezone': 'UTC',  # Default for old data
                                         'language': 'en'    # Default for old data
                                     }
@@ -1762,21 +2048,33 @@ class SQLiteDataManager:
                             return default_settings
                             
                         except Exception as inner_e:
-                            conn.rollback()
-                            self.logger.error(f"Transaction failed for user {user_id}, attempt {attempt + 1}: {inner_e}")
-                            raise inner_e
-                            
-                except Exception as e:
-                    self.logger.error(f"Error loading settings for user {user_id}, attempt {attempt + 1}: {e}")
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
-                        continue
-                    else:
-                        # Return default settings as failsafe
-                        self.logger.warning(f"Failed to load settings for user {user_id} after {max_retries} attempts, returning defaults")
-                        return self._get_default_settings()
-        
-        return self._get_default_settings()
+                            try:
+                                conn.rollback()
+                            except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                                self.logger.exception("Rollback failed for user %s", user_id)
+                            self.logger.exception(
+                                "Transaction failed for user %s, attempt %d",
+                                user_id,
+                                attempt + 1,
+                            )
+                            raise
+
+            except Exception as e:
+                self.logger.exception(
+                    "Error loading settings for user %s, attempt %d",
+                    user_id,
+                    attempt + 1,
+                )
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                    continue
+
+                raise DatabaseError(
+                    message=f"Error loading settings for user {user_id}",
+                    cause=e,
+                )
+
+        raise DatabaseError(message=f"Error loading settings for user {user_id}")
     
     def _get_default_settings(self) -> Dict[str, Any]:
         """Get default settings with validation"""
@@ -1790,6 +2088,7 @@ class SQLiteDataManager:
             'timezone': 'UTC',
             'language': 'en',
             'mini_analytics_interval': 5,
+            'settings_layout': 'scroll',
             # Feature flag: when true, first word before the first comma in a new task
             # title becomes the project name. Defaults to False for backwards compatibility.
             'quick_project_from_title': False,
@@ -1843,7 +2142,7 @@ class SQLiteDataManager:
             try:
                 datetime.fromisoformat(last_daily_reset_at.replace('Z', '+00:00'))
                 validated['last_daily_reset_at'] = last_daily_reset_at
-            except Exception:
+            except Exception:  # noqa: broad-except - Data layer defensive exception handling
                 validated['last_daily_reset_at'] = None
         else:
             validated['last_daily_reset_at'] = None
@@ -1864,11 +2163,16 @@ class SQLiteDataManager:
         mai = settings.get('mini_analytics_interval', 5)
         try:
             mai = int(mai)
-        except Exception:
+        except Exception:  # noqa: broad-except - Data layer defensive exception handling
             mai = 5
         if mai not in [0, 5, 10, 20, 30, 60]:
             mai = 5
         validated['mini_analytics_interval'] = mai
+
+        layout = settings.get('settings_layout', 'scroll')
+        if not isinstance(layout, str) or layout not in ['scroll', 'tabs']:
+            layout = 'scroll'
+        validated['settings_layout'] = layout
         
         # Quick project-from-title flag
         qp = settings.get('quick_project_from_title', False)
@@ -1989,6 +2293,8 @@ class SQLiteDataManager:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN last_daily_reset_at TEXT")
                                     if 'mini_analytics_interval' not in cols:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN mini_analytics_interval INTEGER DEFAULT 5")
+                                    if 'settings_layout' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN settings_layout TEXT DEFAULT 'scroll'")
                                     if 'streak_skip_weekends' not in cols:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN streak_skip_weekends INTEGER DEFAULT 0")
                                     if 'streak_count_new_tasks' not in cols:
@@ -2008,11 +2314,12 @@ class SQLiteDataManager:
                                     INSERT OR REPLACE INTO user_preferences (
                                         user_id, theme, dpi_scale, autosave_interval, notifications,
                                         daily_reset_time, last_daily_reset_at, timezone, language, mini_analytics_interval, 
+                                        settings_layout,
                                         quick_project_from_title, casual_dates, 
                                         streak_skip_weekends, streak_count_new_tasks, streak_count_settings,
                                         finish, intensity,
                                         updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ''', (
                                     user_id,
                                     validated_settings['theme'],
@@ -2024,6 +2331,7 @@ class SQLiteDataManager:
                                     validated_settings['timezone'],
                                     validated_settings['language'],
                                     validated_settings.get('mini_analytics_interval', 5),
+                                    validated_settings.get('settings_layout', 'scroll'),
                                     1 if validated_settings.get('quick_project_from_title', False) else 0,
                                     1 if validated_settings.get('casual_dates', False) else 0,
                                     1 if validated_settings.get('streak_skip_weekends', False) else 0,
@@ -2040,13 +2348,16 @@ class SQLiteDataManager:
                                     cols = [row[1] for row in col_cursor.fetchall()]
                                     if 'mini_analytics_interval' not in cols:
                                         conn.execute("ALTER TABLE settings ADD COLUMN mini_analytics_interval INTEGER DEFAULT 5")
-                                except Exception:
-                                    pass
+                                    if 'settings_layout' not in cols:
+                                        conn.execute("ALTER TABLE settings ADD COLUMN settings_layout TEXT DEFAULT 'scroll'")
+                                except Exception as schema_e:
+                                    self.logger.exception("Could not ensure settings columns on settings table")
+                                    raise schema_e
                                 conn.execute('''
                                     INSERT OR REPLACE INTO settings (
                                         user_id, theme, dpi_scale, autosave_interval, notifications, 
-                                        daily_reset_time, last_daily_reset_at, mini_analytics_interval, updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        daily_reset_time, last_daily_reset_at, mini_analytics_interval, settings_layout, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ''', (
                                     user_id,
                                     validated_settings['theme'],
@@ -2056,6 +2367,7 @@ class SQLiteDataManager:
                                     validated_settings['daily_reset_time'],
                                     validated_settings.get('last_daily_reset_at'),
                                     validated_settings.get('mini_analytics_interval', 5),
+                                    validated_settings.get('settings_layout', 'scroll'),
                                     datetime.now().isoformat()
                                 ))
                             
@@ -2093,32 +2405,28 @@ class SQLiteDataManager:
     # Notes Management Methods
     def load_notes_for_user(self, user_id: str) -> List[Dict[str, Any]]:
         """Load notes for a specific user from database"""
-        conn = None
         try:
             self._ensure_user_exists(user_id)
-            conn = self._get_pooled_connection()
-            cursor = conn.execute(
-                '''SELECT id, title, content, created_at, updated_at FROM notes
-                   WHERE user_id = ? ORDER BY updated_at DESC''',
-                (user_id,)
-            )
-            rows = cursor.fetchall()
-            notes = []
-            for row in rows:
-                notes.append({
-                    'id': row['id'],
-                    'title': row['title'],
-                    'content': row['content'] or '',
-                    'created_at': row['created_at'],
-                    'updated_at': row['updated_at'],
-                })
-            return notes
+            with self.pooled_connection() as conn:
+                cursor = conn.execute(
+                    '''SELECT id, title, content, created_at, updated_at FROM notes
+                       WHERE user_id = ? ORDER BY updated_at DESC''',
+                    (user_id,)
+                )
+                rows = cursor.fetchall()
+                notes = []
+                for row in rows:
+                    notes.append({
+                        'id': row['id'],
+                        'title': row['title'],
+                        'content': row['content'] or '',
+                        'created_at': row['created_at'],
+                        'updated_at': row['updated_at'],
+                    })
+                return notes
         except Exception as e:
-            self.logger.error("Error loading notes for user %s: %s", user_id, e)
-            return []
-        finally:
-            if conn:
-                self._return_connection(conn)
+            self.logger.exception("Error loading notes for user %s", user_id)
+            raise DatabaseError(message=f"Error loading notes for user {user_id}", cause=e)
 
     def create_note_for_user(self, user_id: str, note_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Create a single note for a user"""
@@ -2327,8 +2635,8 @@ class SQLiteDataManager:
                     return stats
                     
             except Exception as e:
-                self.logger.error(f"Error getting database stats: {e}")
-                return {}
+                self.logger.exception("Error getting database stats")
+                raise DatabaseError(message="Error getting database stats", details={'db_path': self.db_path}, cause=e)
     
     def vacuum_database(self) -> bool:
         """Optimize database by running VACUUM"""
@@ -2341,8 +2649,8 @@ class SQLiteDataManager:
                     return True
                     
             except Exception as e:
-                self.logger.error(f"Error vacuuming database: {e}")
-                return False
+                self.logger.exception("Error vacuuming database")
+                raise DatabaseError(message="Error vacuuming database", details={'db_path': self.db_path}, cause=e)
 
     def load_planner_v2_schedule(self, user_id: str) -> Dict[str, Any]:
         """Load scheduled tasks for Daily Planner v2"""
@@ -2361,8 +2669,8 @@ class SQLiteDataManager:
                     return {}
                     
         except Exception as e:
-            self.logger.error(f"Error loading planner v2 schedule: {e}")
-            return {}
+            self.logger.exception("Error loading planner v2 schedule for user %s", user_id)
+            raise DatabaseError(message="Error loading planner v2 schedule", details={'user_id': user_id}, cause=e)
 
     def save_planner_v2_schedule(self, user_id: str, scheduled_tasks: Dict[str, Any]) -> bool:
         """Save scheduled tasks for Daily Planner v2"""
@@ -2397,8 +2705,8 @@ class SQLiteDataManager:
                 return True
                 
         except Exception as e:
-            self.logger.error(f"Error saving planner v2 schedule: {e}")
-            return False
+            self.logger.exception("Error saving planner v2 schedule for user %s", user_id)
+            raise DatabaseError(message="Error saving planner v2 schedule", details={'user_id': user_id}, cause=e)
 
     def save_planner_history_snapshot(self, user_id: str, day: str, tasks: List[Dict[str, Any]]) -> bool:
         try:
@@ -2408,7 +2716,7 @@ class SQLiteDataManager:
             def to_int(value):
                 try:
                     return int(value) if value is not None else None
-                except Exception:
+                except Exception:  # noqa: broad-except - Data layer defensive exception handling
                     return None
 
             with self._get_connection() as conn:
@@ -2432,7 +2740,7 @@ class SQLiteDataManager:
                     strikes_for_day = 0
                     try:
                         strikes_for_day = int(daily_strikes.get(day, 0) or 0)
-                    except Exception:
+                    except Exception:  # noqa: broad-except - Data layer defensive exception handling
                         strikes_for_day = 0
 
                     completed = bool(t.get('completed', False))
@@ -2484,8 +2792,8 @@ class SQLiteDataManager:
                 conn.commit()
                 return True
         except Exception as e:
-            self.logger.error(f"Error saving planner history snapshot: {e}")
-            return False
+            self.logger.exception("Error saving planner history snapshot")
+            raise DatabaseError(message="Error saving planner history snapshot", details={'user_id': user_id, 'day': day}, cause=e)
 
     def load_planner_history_days(self, user_id: str, limit: int = 7) -> List[str]:
         try:
@@ -2504,8 +2812,8 @@ class SQLiteDataManager:
                 )
                 return [row['day'] for row in cursor.fetchall() if row and row['day']]
         except Exception as e:
-            self.logger.error(f"Error loading planner history days: {e}")
-            return []
+            self.logger.exception("Error loading planner history days")
+            raise DatabaseError(message="Error loading planner history days", details={'user_id': user_id, 'limit': limit}, cause=e)
 
     def load_planner_history_for_day(self, user_id: str, day: str) -> List[Dict[str, Any]]:
         try:
@@ -2539,8 +2847,8 @@ class SQLiteDataManager:
                     })
                 return items
         except Exception as e:
-            self.logger.error(f"Error loading planner history for day {day}: {e}")
-            return []
+            self.logger.exception("Error loading planner history for day %s", day)
+            raise DatabaseError(message="Error loading planner history for day", details={'user_id': user_id, 'day': day}, cause=e)
 
     def add_strike_today_report_event(self, user_id: str, task_id: str, day: str, strike_number: int, report: str) -> bool:
         try:
@@ -2601,8 +2909,8 @@ class SQLiteDataManager:
                     })
                 return items
         except Exception as e:
-            self.logger.error(f"Error loading strike report history for task {task_id}: {e}")
-            return []
+            self.logger.exception("Error loading strike report history for task %s", task_id)
+            raise DatabaseError(message="Error loading strike report history", details={'user_id': user_id, 'task_id': task_id}, cause=e)
 
     def add_strike_event(self, user_id: str, task_id: str, day: str, strike_type: str) -> bool:
         try:
@@ -2624,8 +2932,8 @@ class SQLiteDataManager:
                 conn.commit()
                 return True
         except Exception as e:
-            self.logger.error(f"Error adding strike event for task {task_id}: {e}")
-            return False
+            self.logger.exception("Error adding strike event for task %s", task_id)
+            raise DatabaseError(message="Error adding strike event", details={'user_id': user_id, 'task_id': task_id}, cause=e)
 
     def add_settings_change_event(self, user_id: str, setting_key: str = 'general', old_value: str = None, new_value: str = None) -> bool:
         """Record a settings change event for streak tracking."""
@@ -2633,6 +2941,19 @@ class SQLiteDataManager:
             self._ensure_user_exists(user_id)
             with self._get_connection() as conn:
                 conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                day = datetime.now().strftime('%Y-%m-%d')
+                created_at = datetime.now().isoformat()
+
+                # Used by daily recap/analytics counters
+                conn.execute(
+                    '''
+                    INSERT INTO settings_change_events (user_id, day, created_at)
+                    VALUES (?, ?, ?)
+                    ''',
+                    (user_id, day, created_at)
+                )
+
+                # Used by streak calculation when count_settings=True
                 conn.execute(
                     '''
                     INSERT INTO settings_events (user_id, setting_key, old_value, new_value, timestamp)
@@ -2643,14 +2964,14 @@ class SQLiteDataManager:
                 conn.commit()
                 return True
         except Exception as e:
-            self.logger.error(f"Error adding settings change event for user {user_id}: {e}")
-            return False
+            self.logger.exception("Error adding settings change event for user %s", user_id)
+            raise DatabaseError(message="Error adding settings change event", details={'user_id': user_id}, cause=e)
 
     def get_strike_contributions_for_month(self, user_id: str, month: str) -> Dict[str, Any]:
         try:
             self._ensure_user_exists(user_id)
             if not month or not isinstance(month, str) or len(month) != 7:
-                return {'month': month, 'days': {}, 'added': {}, 'max': 0}
+                raise ValidationError(message="Invalid month")
 
             with self._get_connection() as conn:
                 cursor = conn.execute(
@@ -2693,8 +3014,8 @@ class SQLiteDataManager:
 
                 return {'month': month, 'days': days, 'added': added, 'max': max_c}
         except Exception as e:
-            self.logger.error(f"Error loading strike contributions for month {month}: {e}")
-            return {'month': month, 'days': {}, 'added': {}, 'max': 0}
+            self.logger.exception("Error loading strike contributions for month %s", month)
+            raise DatabaseError(message="Error loading strike contributions", details={'user_id': user_id, 'month': month}, cause=e)
 
     def list_strike_contribution_months(self, user_id: str, limit: int = 24) -> List[str]:
         try:
@@ -2719,8 +3040,8 @@ class SQLiteDataManager:
                 rows = cursor.fetchall()
                 return [r['m'] for r in rows if r['m']]
         except Exception as e:
-            self.logger.error(f"Error listing strike contribution months: {e}")
-            return []
+            self.logger.exception("Error listing strike contribution months")
+            raise DatabaseError(message="Error listing strike contribution months", details={'user_id': user_id, 'limit': limit}, cause=e)
 
     def was_recap_seen(self, user_id: str, recap_day: str) -> bool:
         try:
@@ -2733,8 +3054,9 @@ class SQLiteDataManager:
                     (user_id, recap_day)
                 )
                 return cur.fetchone() is not None
-        except Exception:
-            return False
+        except Exception as e:
+            self.logger.exception("Error checking recap seen")
+            raise DatabaseError(message="Error checking recap seen", details={'user_id': user_id, 'recap_day': recap_day}, cause=e)
 
     def mark_recap_seen(self, user_id: str, recap_day: str) -> bool:
         try:
@@ -2753,14 +3075,14 @@ class SQLiteDataManager:
                 conn.commit()
                 return True
         except Exception as e:
-            self.logger.error(f"Error marking recap seen for {recap_day}: {e}")
-            return False
+            self.logger.exception("Error marking recap seen for %s", recap_day)
+            raise DatabaseError(message="Error marking recap seen", details={'user_id': user_id, 'recap_day': recap_day}, cause=e)
 
     def get_daily_recap(self, user_id: str, day: str) -> Dict[str, Any]:
         try:
             self._ensure_user_exists(user_id)
             if not day:
-                return {}
+                raise ValidationError(message="Invalid day")
 
             with self._get_connection() as conn:
                 # Optimized: Single query with subqueries instead of N+1 pattern
@@ -2811,39 +3133,36 @@ class SQLiteDataManager:
                     'tasks_retried': 0  # Will be populated when retry tracking is implemented
                 }
         except Exception as e:
-            self.logger.error(f"Error building daily recap for {day}: {e}")
-            return {}
+            self.logger.exception("Error building daily recap for %s", day)
+            raise DatabaseError(message="Error building daily recap", details={'user_id': user_id, 'day': day}, cause=e)
 
     def _calculate_streak_days_from_tasks(self, conn, user_id: str, up_to_day: str) -> int:
-        try:
-            cur = conn.execute(
-                '''
-                SELECT DISTINCT SUBSTR(completed_at, 1, 10) AS d
-                FROM tasks
-                WHERE user_id = ? AND completed = 1 AND completed_at IS NOT NULL
-                ORDER BY d DESC
-                ''',
-                (user_id,)
-            )
-            rows = cur.fetchall() or []
-            completion_days = [r['d'] for r in rows if r['d']]
-            if not completion_days:
-                return 0
-
-            try:
-                anchor = datetime.strptime(up_to_day, '%Y-%m-%d').date()
-            except Exception:
-                anchor = datetime.now().date()
-
-            days_set = set(completion_days)
-            streak = 0
-            while True:
-                d = anchor - timedelta(days=streak)
-                if d.isoformat() in days_set:
-                    streak += 1
-                    continue
-                break
-            return streak
-        except Exception:
+        cur = conn.execute(
+            '''
+            SELECT DISTINCT SUBSTR(completed_at, 1, 10) AS d
+            FROM tasks
+            WHERE user_id = ? AND completed = 1 AND completed_at IS NOT NULL
+            ORDER BY d DESC
+            ''',
+            (user_id,),
+        )
+        rows = cur.fetchall() or []
+        completion_days = [r['d'] for r in rows if r['d']]
+        if not completion_days:
             return 0
+
+        try:
+            anchor = datetime.strptime(up_to_day, '%Y-%m-%d').date()
+        except Exception:  # noqa: broad-except - Data layer defensive exception handling
+            anchor = datetime.now().date()
+
+        days_set = set(completion_days)
+        streak = 0
+        while True:
+            d = anchor - timedelta(days=streak)
+            if d.isoformat() in days_set:
+                streak += 1
+                continue
+            break
+        return streak
 

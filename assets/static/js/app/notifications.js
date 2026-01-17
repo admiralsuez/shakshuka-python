@@ -1,6 +1,7 @@
 function showNotification(message, type = 'info', options = {}) {
     const isPersistent = options && options.persistent === true;
     const onClick = options && typeof options.onClick === 'function' ? options.onClick : null;
+    const durationMs = (options && typeof options.durationMs === 'number' && isFinite(options.durationMs)) ? options.durationMs : 2000;
 
     const isAuthError = type === 'error' && (
         message.toLowerCase().includes('login') ||
@@ -98,7 +99,7 @@ function showNotification(message, type = 'info', options = {}) {
                     }
                 }, 300);
             }
-        }, 2000);
+        }, durationMs);
     }
 }
 

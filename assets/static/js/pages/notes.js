@@ -159,9 +159,23 @@
                     delete note.__saving;
                 }
             });
-            openNoteIds = Array.isArray(parsed.openNoteIds) && parsed.openNoteIds.length
+            
+            // Migration: if openNoteIds contains ALL notes, reset to just the active/first note
+            let rawOpenIds = Array.isArray(parsed.openNoteIds) && parsed.openNoteIds.length
                 ? parsed.openNoteIds.filter(id => notes.some(n => n.id === id))
-                : notes.map(n => n.id);
+                : [];
+            
+            // If no openNoteIds or if openNoteIds contains all notes (old behavior), reset to just first
+            if (!rawOpenIds.length || rawOpenIds.length === notes.length) {
+                const candidateActiveId = parsed.activeNoteId;
+                if (candidateActiveId && notes.some(n => n.id === candidateActiveId)) {
+                    openNoteIds = [candidateActiveId];
+                } else {
+                    openNoteIds = [notes[0].id];
+                }
+            } else {
+                openNoteIds = rawOpenIds;
+            }
             const candidateActiveId = parsed.activeNoteId;
             if (candidateActiveId && notes.some(n => n.id === candidateActiveId)) {
                 activeNoteId = candidateActiveId;
@@ -230,11 +244,16 @@
 
     async function loadNotes() {
         try {
-            const response = await fetch('/api/notes');
-            if (!response.ok) {
-                throw new Error('Failed to load notes');
+            let serverNotes = null;
+            if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+                serverNotes = await window.Utils.apiRequestJson('/api/notes', {}, { expectObject: false, retries: 1, retryDelayMs: 500 });
+            } else {
+                const response = await fetch('/api/notes', { credentials: 'include' });
+                if (!response.ok) {
+                    throw new Error('Failed to load notes');
+                }
+                serverNotes = await response.json();
             }
-            const serverNotes = await response.json();
             let cachedParsed = null;
             if (!Array.isArray(serverNotes) || !serverNotes.length) {
                 // If the server returns an empty list but the browser has a
@@ -307,7 +326,18 @@
             if (cachedParsed) {
                 desiredSplit = !!cachedParsed.splitViewEnabled;
                 if (Array.isArray(cachedParsed.openNoteIds) && cachedParsed.openNoteIds.length) {
-                    desiredOpenIds = cachedParsed.openNoteIds.filter(id => typeof id === 'string' && ids.includes(id));
+                    const rawOpenIds = cachedParsed.openNoteIds.filter(id => typeof id === 'string' && ids.includes(id));
+                    // Migration: if openNoteIds contains ALL notes (old behavior), reset to just active/first note
+                    if (rawOpenIds.length === notes.length) {
+                        const candidateActiveId = cachedParsed.activeNoteId;
+                        if (candidateActiveId && ids.includes(candidateActiveId)) {
+                            desiredOpenIds = [candidateActiveId];
+                        } else {
+                            desiredOpenIds = [ids[0]];
+                        }
+                    } else {
+                        desiredOpenIds = rawOpenIds;
+                    }
                 }
                 if (cachedParsed.activeNoteId && ids.includes(cachedParsed.activeNoteId)) {
                     desiredActiveId = cachedParsed.activeNoteId;
@@ -315,7 +345,7 @@
             }
 
             if (!desiredOpenIds.length && ids.length) {
-                desiredOpenIds = ids.slice();
+                desiredOpenIds = [ids[0]];
             }
             if (desiredActiveId && !desiredOpenIds.includes(desiredActiveId)) {
                 desiredOpenIds.unshift(desiredActiveId);
@@ -379,7 +409,7 @@
 
             // If this is a local-only scratch ID (note-...), go straight to a
             // POST create instead of first attempting PUT (which 404s).
-            let response;
+            let response = null;
             if (typeof oldId === 'string' && oldId.startsWith('note-')) {
                 const created = await createNoteOnServer(note.title, getEncodedNoteContent(note));
                 if (created && created.id) {
@@ -411,11 +441,20 @@
                 saveAllNotesToLocalStorage();
                 return;
             } else {
-                response = await fetch(`/api/notes/${encodeURIComponent(oldId)}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                if (window.Utils && typeof window.Utils.apiCall === 'function') {
+                    response = await window.Utils.apiCall(`/api/notes/${encodeURIComponent(oldId)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                } else {
+                    response = await fetch(`/api/notes/${encodeURIComponent(oldId)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                        credentials: 'include'
+                    });
+                }
             }
 
             if (response && response.status === 404) {
@@ -469,17 +508,35 @@
 
     async function createNoteOnServer(title, content) {
         try {
-            const response = await fetch('/api/notes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, content })
-            });
-            if (!response.ok) {
-                throw new Error('Failed to create note');
+            let note = null;
+            if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+                note = await window.Utils.apiRequestJson(
+                    '/api/notes',
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ title, content })
+                    },
+                    { expectObject: true, retries: 0 }
+                );
+            } else {
+                const response = await fetch('/api/notes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, content }),
+                    credentials: 'include'
+                });
+                if (!response.ok) {
+                    throw new Error('Failed to create note');
+                }
+                note = await response.json();
             }
-            return await response.json();
+            return note;
         } catch (err) {
             console.error('Failed to create note on server', err);
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                window.Utils.safeShowNotification('Failed to create note on server', 'error');
+            }
             return null;
         }
     }
@@ -1305,6 +1362,121 @@
         tabContextNoteId = null;
     }
 
+    // Temporarily store a deleted note so Undo can restore it
+    let pendingDeletedNote = null;
+    let pendingDeletedOpenIndex = -1;
+    let pendingDeletedWasActive = false;
+    let pendingDeletedWasSecondary = false;
+
+    function deleteNoteWithUndo(noteId) {
+        if (!noteId) return;
+        const idx = notes.findIndex(n => n.id === noteId);
+        if (idx === -1) return;
+
+        // Store note data for undo
+        pendingDeletedNote = JSON.parse(JSON.stringify(notes[idx]));
+        pendingDeletedOpenIndex = Array.isArray(openNoteIds) ? openNoteIds.indexOf(noteId) : -1;
+        pendingDeletedWasActive = activeNoteId === noteId;
+        pendingDeletedWasSecondary = secondaryNoteId === noteId;
+
+        // Remove from notes array
+        notes.splice(idx, 1);
+
+        // Delete on server (fire and forget)
+        try {
+            fetch(`/api/notes/${encodeURIComponent(noteId)}`, { method: 'DELETE' });
+        } catch (e) {
+            console.error('Failed to delete note on server', e);
+        }
+
+        // Update local cache
+        saveAllNotesToLocalStorage();
+
+        // Remove from open tabs
+        if (Array.isArray(openNoteIds)) {
+            const openIdx = openNoteIds.indexOf(noteId);
+            if (openIdx !== -1) openNoteIds.splice(openIdx, 1);
+        }
+
+        // Handle edge case: all notes deleted
+        if (!notes.length) {
+            const welcomeNote = createNoteObject('Welcome');
+            notes.push(welcomeNote);
+            openNoteIds = [welcomeNote.id];
+            activeNoteId = welcomeNote.id;
+            secondaryNoteId = null;
+        } else {
+            if (activeNoteId === noteId) {
+                activeNoteId = (openNoteIds && openNoteIds[0]) || (notes[0] && notes[0].id) || null;
+            }
+            if (secondaryNoteId === noteId) {
+                secondaryNoteId = null;
+            }
+        }
+
+        render();
+        renderNotesList();
+        saveNotes();
+
+        // Show undo notification
+        const deletedTitle = pendingDeletedNote.title || 'Untitled';
+        if (window.showNotification) {
+            window.showNotification(`Note "${deletedTitle}" deleted. Click to undo.`, 'info', {
+                durationMs: 5000,
+                onClick: undoDeleteNote
+            });
+        }
+    }
+
+    function undoDeleteNote() {
+        if (!pendingDeletedNote) return;
+
+        // Re-add the note
+        notes.push(pendingDeletedNote);
+
+        // Restore to open tabs at original position if possible
+        if (pendingDeletedOpenIndex !== -1 && Array.isArray(openNoteIds)) {
+            openNoteIds.splice(pendingDeletedOpenIndex, 0, pendingDeletedNote.id);
+        } else if (Array.isArray(openNoteIds) && !openNoteIds.includes(pendingDeletedNote.id)) {
+            openNoteIds.push(pendingDeletedNote.id);
+        }
+
+        // Restore active/secondary state
+        if (pendingDeletedWasActive) {
+            activeNoteId = pendingDeletedNote.id;
+        }
+        if (pendingDeletedWasSecondary) {
+            secondaryNoteId = pendingDeletedNote.id;
+        }
+
+        // Sync to server (recreate the note)
+        try {
+            fetch('/api/notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(pendingDeletedNote)
+            });
+        } catch (e) {
+            console.error('Failed to restore note on server', e);
+        }
+
+        const restoredTitle = pendingDeletedNote.title || 'Untitled';
+        pendingDeletedNote = null;
+        pendingDeletedOpenIndex = -1;
+        pendingDeletedWasActive = false;
+        pendingDeletedWasSecondary = false;
+
+        // Update local cache and re-render
+        saveAllNotesToLocalStorage();
+        render();
+        renderNotesList();
+        saveNotes();
+
+        if (window.showNotification) {
+            window.showNotification(`Note "${restoredTitle}" restored.`, 'success');
+        }
+    }
+
     function openTabContextMenu(noteId, clientX, clientY) {
         tabContextNoteId = noteId;
         const menu = ensureTabContextMenu();
@@ -1314,12 +1486,13 @@
             { label: 'Open in split view', action: 'split' },
             { label: 'Rename note',        action: 'rename' },
             { label: 'Close note',         action: 'close' },
+            { label: 'Delete note',        action: 'delete', className: 'notes-tab-context-item--danger' },
         ];
 
         items.forEach(item => {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'notes-tab-context-item';
+            btn.className = 'notes-tab-context-item' + (item.className ? ' ' + item.className : '');
             btn.textContent = item.label;
             btn.dataset.action = item.action;
 
@@ -1335,6 +1508,8 @@
                     renameActiveNote(id);
                 } else if (item.action === 'close') {
                     closeNote(id);
+                } else if (item.action === 'delete') {
+                    deleteNoteWithUndo(id);
                 }
                 closeTabContextMenu();
             });

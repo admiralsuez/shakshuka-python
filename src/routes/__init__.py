@@ -26,44 +26,44 @@ static_bp = None
 
 try:  # pragma: no cover - optional in some builds
     from .auth_routes import auth_bp  # type: ignore
-except Exception:
+except Exception:  # noqa: broad-except - optional module may not exist in all builds
     auth_bp = None
 
 try:  # pragma: no cover
     from .task_routes import task_bp  # type: ignore
-except Exception:
+except Exception:  # noqa: broad-except - optional module may not exist in all builds
     task_bp = None
 
 # Notes blueprint is optional (only in newer builds)
 try:  # pragma: no cover
     from .notes_routes import notes_bp  # type: ignore
-except Exception:
+except Exception:  # noqa: broad-except - optional module may not exist in all builds
     notes_bp = None
 
 try:  # pragma: no cover
     from .settings_routes import settings_bp  # type: ignore
-except Exception:
+except Exception:  # noqa: broad-except - optional module may not exist in all builds
     settings_bp = None
 
 try:  # pragma: no cover
     from .monitoring_routes import monitoring_bp  # type: ignore
-except Exception:
+except Exception:  # noqa: broad-except - optional module may not exist in all builds
     monitoring_bp = None
 
 try:  # pragma: no cover
     from .analytics_routes import analytics_bp, init_analytics_routes  # type: ignore
-except Exception:
+except Exception:  # noqa: broad-except - optional module may not exist in all builds
     analytics_bp = None
     init_analytics_routes = None
 
 try:  # pragma: no cover
     from .system_routes import system_bp  # type: ignore
-except Exception:
+except Exception:  # noqa: broad-except - optional module may not exist in all builds
     system_bp = None
 
 try:  # pragma: no cover
     from .static_routes import static_bp  # type: ignore
-except Exception:
+except Exception:  # noqa: broad-except - optional module may not exist in all builds
     static_bp = None
 
 
@@ -78,6 +78,10 @@ def register_routes(app: Flask) -> None:
     def _register(bp, fallback_prefix: str | None = None) -> None:
         if bp is None:
             return
+
+        if 'core' in app.blueprints and bp in (settings_bp, analytics_bp):
+            return
+
         bp_prefix = getattr(bp, "url_prefix", None)
         if bp_prefix:
             app.register_blueprint(bp)

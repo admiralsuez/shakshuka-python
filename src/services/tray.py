@@ -5,15 +5,33 @@ import os
 import subprocess
 import sys
 import threading
+import time
+import urllib.request
+import urllib.error
 from typing import Any, Optional, Callable
 
 logger = logging.getLogger(__name__)
 
+_tray_lock = threading.RLock()
 _system_tray_icon: Optional[Any] = None
+_system_tray_thread: Optional[threading.Thread] = None
+_last_tray_error: Optional[str] = None
 
 
 def get_system_tray_icon() -> Optional[Any]:
-    return _system_tray_icon
+    with _tray_lock:
+        return _system_tray_icon
+
+
+def get_last_tray_error() -> Optional[str]:
+    with _tray_lock:
+        return _last_tray_error
+
+
+def _set_last_tray_error(message: Optional[str]) -> None:
+    global _last_tray_error
+    with _tray_lock:
+        _last_tray_error = message
 
 
 def create_icon_image() -> Any:
@@ -47,12 +65,14 @@ def create_icon_image() -> Any:
         return image
 
     except Exception as e:
-        logger.error(f"Failed to create icon image: {e}")
+        logger.exception("Failed to create icon image")
+        _set_last_tray_error(f"Failed to create tray icon image: {e}")
         try:
             from PIL import Image as _Image
 
             return _Image.new('RGBA', (64, 64), color='#FF8C42')
-        except Exception:
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to create fallback tray icon image")
             return None
 
 
@@ -73,8 +93,11 @@ def create_system_tray_icon(
 
         def open_dashboard():
             import webbrowser
-
-            webbrowser.open(dashboard_url)
+            try:
+                webbrowser.open(dashboard_url)
+            except Exception as e:
+                logger.exception("Failed to open dashboard")
+                _set_last_tray_error(f"Failed to open dashboard: {e}")
 
         def open_logs_folder():
             folder = os.path.join(user_data_dir, 'logs')
@@ -86,7 +109,8 @@ def create_system_tray_icon(
                 else:
                     subprocess.Popen(['xdg-open', folder])
             except Exception as e:
-                logger.error(f"Failed to open logs folder: {e}")
+                logger.exception("Failed to open logs folder")
+                _set_last_tray_error(f"Failed to open logs folder: {e}")
 
         def open_data_folder():
             folder = os.path.join(user_data_dir, 'data')
@@ -98,16 +122,23 @@ def create_system_tray_icon(
                 else:
                     subprocess.Popen(['xdg-open', folder])
             except Exception as e:
-                logger.error(f"Failed to open data folder: {e}")
+                logger.exception("Failed to open data folder")
+                _set_last_tray_error(f"Failed to open data folder: {e}")
 
         def quit_app():
             logger.info("Quitting application from system tray")
-            try:
-                import requests
-
-                requests.post(shutdown_url, timeout=1)
-            except Exception:
-                os._exit(0)
+            last_error: Optional[Exception] = None
+            for attempt in range(3):
+                try:
+                    req = urllib.request.Request(shutdown_url, data=b'', method='POST')
+                    with urllib.request.urlopen(req, timeout=1):
+                        return
+                except Exception as e:
+                    last_error = e
+                    time.sleep(0.3)
+            logger.error("Shutdown request failed after 3 attempts: %s", last_error)
+            _set_last_tray_error(f"Shutdown request failed: {last_error}")
+            os._exit(0)
 
         menu = pystray.Menu(
             pystray.MenuItem("Open Dashboard", lambda: open_dashboard()),
@@ -125,7 +156,8 @@ def create_system_tray_icon(
         elif 'AyatanaAppIndicator3' in error_msg or 'AppIndicator3' in error_msg:
             logger.warning(f"System tray not available (AppIndicator not available): {e}")
         else:
-            logger.warning(f"System tray not available: {e}")
+            logger.exception("System tray not available")
+            _set_last_tray_error(f"System tray error: {e}")
         return None
 
 
@@ -135,22 +167,33 @@ def start_system_tray(
     shutdown_url: str,
     check_available_func: Callable[[], bool],
 ) -> None:
-    global _system_tray_icon
+    global _system_tray_icon, _system_tray_thread
 
     if not check_available_func():
         logger.warning("System tray not available")
         return
 
     try:
-        _system_tray_icon = create_system_tray_icon(
+        with _tray_lock:
+            if _system_tray_thread and _system_tray_thread.is_alive():
+                logger.info("System tray already running")
+                return
+            _set_last_tray_error(None)
+
+        icon = create_system_tray_icon(
             user_data_dir=user_data_dir,
             dashboard_url=dashboard_url,
             shutdown_url=shutdown_url,
             check_available_func=check_available_func,
         )
 
+        with _tray_lock:
+            _system_tray_icon = icon
+
         if _system_tray_icon:
             tray_thread = threading.Thread(target=_system_tray_icon.run, daemon=True)
+            with _tray_lock:
+                _system_tray_thread = tray_thread
             tray_thread.start()
             logger.info("System tray icon started successfully")
         else:
@@ -163,17 +206,24 @@ def start_system_tray(
         elif 'g-io-error' in error_msg.lower() or 'Could not connect' in error_msg or 'D-Bus' in error_msg or 'dbus' in error_msg.lower():
             logger.warning(f"System tray not available (D-Bus connection error): {e}")
         else:
-            logger.warning(f"Error starting system tray: {e}")
+            logger.exception("Error starting system tray")
+            _set_last_tray_error(f"Error starting tray: {e}")
 
 
 def stop_system_tray() -> None:
-    global _system_tray_icon
+    global _system_tray_icon, _system_tray_thread
 
-    if _system_tray_icon:
+    with _tray_lock:
+        icon = _system_tray_icon
+
+    if icon:
         try:
-            _system_tray_icon.stop()
+            icon.stop()
             logger.info("System tray icon stopped")
         except Exception as e:
-            logger.error(f"Error stopping system tray: {e}")
+            logger.exception("Error stopping system tray")
+            _set_last_tray_error(f"Error stopping tray: {e}")
         finally:
-            _system_tray_icon = None
+            with _tray_lock:
+                _system_tray_icon = None
+                _system_tray_thread = None

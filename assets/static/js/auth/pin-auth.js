@@ -13,6 +13,25 @@ class PINAuth {
         // Initialize on load
         this.init();
     }
+
+    _hasApiHelpers() {
+        return !!(window.Utils && typeof window.Utils.apiRequestJson === 'function' && typeof window.Utils.apiCall === 'function');
+    }
+
+    async _apiJson(url, options = {}, config = {}) {
+        if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+            return await window.Utils.apiRequestJson(url, options, config);
+        }
+        const resp = await fetch(url, { credentials: 'include', ...options });
+        const data = await resp.json().catch(() => null);
+        if (!resp.ok) {
+            const err = new Error((data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${resp.status}`);
+            err.status = resp.status;
+            err.data = data;
+            throw err;
+        }
+        return data;
+    }
     
     async init() {
         try {
@@ -66,13 +85,9 @@ class PINAuth {
     }
     
     async checkPINStatus() {
-        const response = await fetch('/api/pin/status');
-        if (!response.ok) {
-            throw new Error('Failed to check PIN status');
-        }
-        const status = await response.json();
-        this.setupComplete = status.setup_complete;
-        return status;
+        const status = await this._apiJson('/api/pin/status', {}, { expectObject: true, retries: 1, retryDelayMs: 500 });
+        this.setupComplete = !!(status && status.setup_complete);
+        return status || {};
     }
     
     showPINSetup() {
@@ -337,20 +352,20 @@ class PINAuth {
         }
         
         try {
-            const response = await fetch('/api/pin/setup', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
+            const data = await this._apiJson(
+                '/api/pin/setup',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pin: pin,
+                        confirm_pin: confirmPin
+                    })
                 },
-                body: JSON.stringify({
-                    pin: pin,
-                    confirm_pin: confirmPin
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (response.ok) {
+                { expectObject: true, retries: 0 }
+            );
+
+            if (data && typeof data.session_token === 'string') {
                 this.isAuthenticated = true;
                 this.sessionToken = data.session_token;
                 // Mark session so init() can skip re-auth briefly
@@ -366,11 +381,12 @@ class PINAuth {
                     }
                 }, 300);
             } else {
-                errorDiv.textContent = data.error || 'Failed to setup PIN';
+                errorDiv.textContent = (data && (data.error || data.message)) ? (data.error || data.message) : 'Failed to setup PIN';
             }
         } catch (error) {
             console.error('Setup PIN error:', error);
-            errorDiv.textContent = 'Failed to setup PIN. Please try again.';
+            const msg = (error && error.data && (error.data.error || error.data.message)) ? (error.data.error || error.data.message) : (error.message || 'Failed to setup PIN. Please try again.');
+            errorDiv.textContent = msg;
         }
     }
     
@@ -387,20 +403,20 @@ class PINAuth {
         }
         
         try {
-            const response = await fetch('/api/pin/verify', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
+            const data = await this._apiJson(
+                '/api/pin/verify',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pin: pin,
+                        remember: remember
+                    })
                 },
-                body: JSON.stringify({ 
-                    pin: pin,
-                    remember: remember
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (response.ok && data.success) {
+                { expectObject: true, retries: 0 }
+            );
+
+            if (data && data.success === true && typeof data.session_token === 'string') {
                 this.isAuthenticated = true;
                 this.sessionToken = data.session_token;
                 
@@ -440,7 +456,18 @@ class PINAuth {
             }
         } catch (error) {
             console.error('Verify PIN error:', error);
-            errorDiv.textContent = 'Failed to verify PIN. Please try again.';
+            const data = error && error.data ? error.data : null;
+            const msg = (data && (data.error || data.message)) ? (data.error || data.message) : (error.message || 'Failed to verify PIN. Please try again.');
+            errorDiv.textContent = msg;
+
+            // If server returned attempts remaining, show it.
+            if (data && data.attempts_remaining !== undefined) {
+                const attemptsDiv = document.querySelector('.pin-attempts');
+                if (attemptsDiv) {
+                    attemptsDiv.textContent = `${data.attempts_remaining} attempts remaining`;
+                    attemptsDiv.style.color = data.attempts_remaining <= 3 ? '#f44336' : '#ff9800';
+                }
+            }
         }
     }
     
@@ -473,20 +500,20 @@ class PINAuth {
         }
         
         try {
-            const response = await fetch('/api/pin/reset', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
+            const data = await this._apiJson(
+                '/api/pin/reset',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        new_pin: newPin,
+                        confirm_pin: confirmPin
+                    })
                 },
-                body: JSON.stringify({
-                    new_pin: newPin,
-                    confirm_pin: confirmPin
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (response.ok && data.success) {
+                { expectObject: true, retries: 0 }
+            );
+
+            if (data && data.success === true && typeof data.session_token === 'string') {
                 this.isAuthenticated = true;
                 this.sessionToken = data.session_token;
                 this.hideAllAuthScreens();
@@ -503,13 +530,18 @@ class PINAuth {
             }
         } catch (error) {
             console.error('Reset PIN error:', error);
-            errorDiv.textContent = 'Failed to reset PIN. Please try again.';
+            const msg = (error && error.data && (error.data.error || error.data.message)) ? (error.data.error || error.data.message) : (error.message || 'Failed to reset PIN. Please try again.');
+            errorDiv.textContent = msg;
         }
     }
     
     async logout() {
         try {
-            await fetch('/api/pin/logout', { method: 'POST' });
+            if (window.Utils && typeof window.Utils.apiCall === 'function') {
+                await window.Utils.apiCall('/api/pin/logout', { method: 'POST' });
+            } else {
+                await fetch('/api/pin/logout', { method: 'POST', credentials: 'include' });
+            }
             this.isAuthenticated = false;
             this.sessionToken = null;
             window.location.reload();

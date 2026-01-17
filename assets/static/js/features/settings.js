@@ -21,6 +21,48 @@ window.incrementSettingsChangeCount = function incrementSettingsChangeCount() {
 
 const Settings = {
     _initializing: true,
+
+    _getCurrentSettings() {
+        try {
+            if (typeof AppState !== 'undefined' && AppState && typeof AppState.get === 'function') {
+                return AppState.get('currentSettings') || {};
+            }
+        } catch (e) { /* no-op */ }
+        return {};
+    },
+
+    _setCurrentSettings(settings) {
+        try {
+            if (typeof AppState !== 'undefined' && AppState && typeof AppState.set === 'function') {
+                AppState.set('currentSettings', settings);
+            }
+        } catch (e) { /* no-op */ }
+    },
+
+    async _putSettings(patch) {
+        if (!window.Utils || typeof window.Utils.apiRequestJson !== 'function') {
+            const response = await apiCall('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(patch || {})
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error || 'Failed to update settings');
+            }
+            return await response.json();
+        }
+
+        return await window.Utils.apiRequestJson(
+            '/api/settings',
+            {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(patch || {})
+            },
+            { expectObject: true, retries: 0 }
+        );
+    },
     /**
      * Load settings from server and apply them
      */
@@ -28,9 +70,23 @@ const Settings = {
         // Guard to prevent change handlers from saving defaults during init
         this._initializing = true;
         try {
-            const response = await apiCall('/api/settings');
-            const settings = await response.json();
-            AppState.set('currentSettings', settings);
+            try {
+                if (window.Utils && typeof window.Utils.waitForHealthy === 'function') {
+                    await window.Utils.waitForHealthy({ timeoutMs: 12000, intervalMs: 250 });
+                }
+            } catch (e) {}
+
+            let settings = null;
+            if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+                settings = await window.Utils.apiRequestJson('/api/settings', {}, { expectObject: true, retries: 3, retryDelayMs: 750 });
+            } else {
+                const response = await apiCall('/api/settings');
+                if (!response.ok) {
+                    throw new Error('Failed to load settings');
+                }
+                settings = await response.json();
+            }
+            this._setCurrentSettings(settings);
             
             // Update UI elements
             const autostartToggle = document.getElementById('autostart-toggle');
@@ -40,6 +96,7 @@ const Settings = {
             const finishSelector = document.getElementById('finish-selector');
             const intensitySelector = document.getElementById('intensity-selector');
             const dpiSelector = document.getElementById('dpi-selector');
+            const settingsLayout = document.getElementById('settings-layout');
             const quickProjectToggle = document.getElementById('quick-project-from-title');
             const casualDatesToggle = document.getElementById('casual-dates-toggle');
             const hourSelect = document.getElementById('reset-hour-select');
@@ -61,6 +118,7 @@ const Settings = {
             if (finishSelector) finishSelector.value = settings.finish || 'glossy';
             if (intensitySelector) intensitySelector.value = settings.intensity || '5';
             if (dpiSelector) dpiSelector.value = settings.dpi_scale || 100;
+            if (settingsLayout) settingsLayout.value = settings.settings_layout || 'scroll';
             if (quickProjectToggle) quickProjectToggle.checked = !!settings.quick_project_from_title;
             if (casualDatesToggle) casualDatesToggle.checked = !!settings.casual_dates;
             if (streakSkipWeekends) streakSkipWeekends.checked = !!settings.streak_skip_weekends;
@@ -85,6 +143,7 @@ const Settings = {
             }
             
             this.applyThemeAndDPI();
+            this.applySettingsLayout();
             
             // Ensure daily reset timer uses latest settings
             if (typeof window.setupDailyReset === 'function') {
@@ -122,6 +181,86 @@ const Settings = {
         }
     },
 
+    async updateSettingsLayout() {
+        const el = document.getElementById('settings-layout');
+        const layout = el ? el.value : 'scroll';
+
+        const prev = (this._getCurrentSettings().settings_layout || 'scroll');
+
+        try {
+            const updated = await this._putSettings({ settings_layout: layout });
+            this._setCurrentSettings(updated);
+            window.incrementSettingsChangeCount?.();
+            this.applySettingsLayout();
+        } catch (error) {
+            Utils.Logger.error('Error updating settings layout:', error);
+            if (el) el.value = prev;
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating settings layout', 'error');
+            }
+        }
+    },
+
+    applySettingsLayout() {
+        const settings = this._getCurrentSettings();
+        const layout = (settings.settings_layout === 'tabs') ? 'tabs' : 'scroll';
+
+        const settingsPage = document.getElementById('settings-page');
+        const container = settingsPage ? settingsPage.querySelector('.settings-container') : null;
+        if (!container) return;
+
+        const sections = Array.from(container.querySelectorAll('.settings-section'));
+        if (!sections.length) return;
+
+        const existingTabs = container.querySelector('.settings-tabs');
+        if (layout !== 'tabs') {
+            if (existingTabs) existingTabs.remove();
+            sections.forEach((s) => s.classList.remove('settings-section-hidden'));
+            return;
+        }
+
+        const tabs = existingTabs || document.createElement('div');
+        tabs.className = 'settings-tabs';
+        tabs.innerHTML = '';
+
+        const activeAttr = container.getAttribute('data-settings-active-tab');
+        let activeIndex = 0;
+        try {
+            activeIndex = activeAttr ? parseInt(activeAttr, 10) : 0;
+        } catch (e) {
+            activeIndex = 0;
+        }
+        if (!Number.isFinite(activeIndex) || activeIndex < 0 || activeIndex >= sections.length) {
+            activeIndex = 0;
+        }
+
+        const setActive = (idx) => {
+            container.setAttribute('data-settings-active-tab', String(idx));
+            sections.forEach((s, i) => {
+                s.classList.toggle('settings-section-hidden', i !== idx);
+            });
+            Array.from(tabs.querySelectorAll('.settings-tab-btn')).forEach((b, i) => {
+                b.classList.toggle('active', i === idx);
+            });
+        };
+
+        sections.forEach((section, idx) => {
+            const h = section.querySelector('h3');
+            const title = h ? (h.textContent || '').trim() : `Section ${idx + 1}`;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'settings-tab-btn';
+            btn.textContent = title || `Section ${idx + 1}`;
+            btn.addEventListener('click', () => setActive(idx));
+            tabs.appendChild(btn);
+        });
+
+        if (!existingTabs) {
+            container.insertBefore(tabs, container.firstChild);
+        }
+        setActive(activeIndex);
+    },
+
     async updateMiniAnalyticsInterval() {
         const el = document.getElementById('mini-analytics-interval');
         const valRaw = el ? el.value : '5';
@@ -132,30 +271,20 @@ const Settings = {
             interval = 5;
         }
 
-        try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ mini_analytics_interval: interval })
-            });
+        const prev = (this._getCurrentSettings().mini_analytics_interval ?? 5);
 
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.mini_analytics_interval = interval;
-                AppState.set('currentSettings', settings);
-                window.incrementSettingsChangeCount?.();
-                try {
-                    if (window.MiniAnalyticsTicker && typeof window.MiniAnalyticsTicker.applyIntervalFromSettings === 'function') {
-                        window.MiniAnalyticsTicker.applyIntervalFromSettings();
-                    }
-                } catch (e) { /* no-op */ }
-            } else {
-                throw new Error('Failed to update mini analytics interval');
-            }
+        try {
+            const updated = await this._putSettings({ mini_analytics_interval: interval });
+            this._setCurrentSettings(updated);
+            window.incrementSettingsChangeCount?.();
+            try {
+                if (window.MiniAnalyticsTicker && typeof window.MiniAnalyticsTicker.applyIntervalFromSettings === 'function') {
+                    window.MiniAnalyticsTicker.applyIntervalFromSettings();
+                }
+            } catch (e) { /* no-op */ }
         } catch (error) {
             Utils.Logger.error('Error updating mini analytics interval:', error);
+            if (el) el.value = String(prev);
             if (typeof showNotification === 'function') {
                 showNotification('Error updating mini analytics interval', 'error');
             }
@@ -166,30 +295,23 @@ const Settings = {
      * Update autostart setting
      */
     async updateAutostart() {
-        const enabled = document.getElementById('autostart-toggle').checked;
+        const toggle = document.getElementById('autostart-toggle');
+        const enabled = !!toggle?.checked;
+        const prev = !!(this._getCurrentSettings().autostart_enabled ?? this._getCurrentSettings().autostart);
         
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ autostart: enabled })
-            });
-
-            if (response.ok) {
-                if (typeof showNotification === 'function') {
-                    showNotification(
-                        enabled ? 'Autostart enabled' : 'Autostart disabled', 
-                        'success'
-                    );
-                }
-                window.incrementSettingsChangeCount?.();
-            } else {
-                throw new Error('Failed to update autostart setting');
+            const updated = await this._putSettings({ autostart: enabled });
+            this._setCurrentSettings(updated);
+            if (typeof showNotification === 'function') {
+                showNotification(
+                    enabled ? 'Autostart enabled' : 'Autostart disabled',
+                    'success'
+                );
             }
+            window.incrementSettingsChangeCount?.();
         } catch (error) {
             Utils.Logger.error('Error updating autostart:', error);
+            if (toggle) toggle.checked = prev;
             if (typeof showNotification === 'function') {
                 showNotification('Error updating autostart setting', 'error');
             }
@@ -200,35 +322,25 @@ const Settings = {
      * Update quick project-from-title toggle
      */
     async updateQuickProjectFromTitle() {
-        const enabled = !!document.getElementById('quick-project-from-title')?.checked;
+        const toggle = document.getElementById('quick-project-from-title');
+        const enabled = !!toggle?.checked;
+        const prev = !!this._getCurrentSettings().quick_project_from_title;
         
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ quick_project_from_title: enabled })
-            });
-
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.quick_project_from_title = enabled;
-                AppState.set('currentSettings', settings);
-                if (typeof showNotification === 'function') {
-                    showNotification(
-                        enabled
-                            ? 'Quick project from title enabled (first word before comma)'
-                            : 'Quick project from title disabled',
-                        'success'
-                    );
-                }
-                window.incrementSettingsChangeCount?.();
-            } else {
-                throw new Error('Failed to update quick project setting');
+            const updated = await this._putSettings({ quick_project_from_title: enabled });
+            this._setCurrentSettings(updated);
+            if (typeof showNotification === 'function') {
+                showNotification(
+                    enabled
+                        ? 'Quick project from title enabled (first word before comma)'
+                        : 'Quick project from title disabled',
+                    'success'
+                );
             }
+            window.incrementSettingsChangeCount?.();
         } catch (error) {
             Utils.Logger.error('Error updating quick project-from-title setting:', error);
+            if (toggle) toggle.checked = prev;
             if (typeof showNotification === 'function') {
                 showNotification('Error updating quick project setting', 'error');
             }
@@ -239,35 +351,25 @@ const Settings = {
      * Update casual dates toggle
      */
     async updateCasualDates() {
-        const enabled = !!document.getElementById('casual-dates-toggle')?.checked;
+        const toggle = document.getElementById('casual-dates-toggle');
+        const enabled = !!toggle?.checked;
+        const prev = !!this._getCurrentSettings().casual_dates;
 
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ casual_dates: enabled })
-            });
-
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.casual_dates = enabled;
-                AppState.set('currentSettings', settings);
-                if (typeof showNotification === 'function') {
-                    showNotification(
-                        enabled
-                            ? 'Casual dates enabled (today, in 2 days, this weekend)'
-                            : 'Casual dates disabled',
-                        'success'
-                    );
-                }
-                window.incrementSettingsChangeCount?.();
-            } else {
-                throw new Error('Failed to update casual date setting');
+            const updated = await this._putSettings({ casual_dates: enabled });
+            this._setCurrentSettings(updated);
+            if (typeof showNotification === 'function') {
+                showNotification(
+                    enabled
+                        ? 'Casual dates enabled (today, in 2 days, this weekend)'
+                        : 'Casual dates disabled',
+                    'success'
+                );
             }
+            window.incrementSettingsChangeCount?.();
         } catch (error) {
             Utils.Logger.error('Error updating casual dates setting:', error);
+            if (toggle) toggle.checked = prev;
             if (typeof showNotification === 'function') {
                 showNotification('Error updating casual date setting', 'error');
             }
@@ -278,29 +380,21 @@ const Settings = {
      * Update streak skip weekends setting
      */
     async updateStreakSkipWeekends() {
-        const enabled = !!document.getElementById('streak-skip-weekends')?.checked;
+        const toggle = document.getElementById('streak-skip-weekends');
+        const enabled = !!toggle?.checked;
+        const prev = !!this._getCurrentSettings().streak_skip_weekends;
 
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ streak_skip_weekends: enabled })
-            });
-
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.streak_skip_weekends = enabled;
-                AppState.set('currentSettings', settings);
-                if (typeof showNotification === 'function') {
-                    showNotification(enabled ? 'Weekends will be skipped in streak' : 'Weekends count in streak', 'success');
-                }
-                window.incrementSettingsChangeCount?.();
-                if (typeof updateDashboardStats === 'function') updateDashboardStats();
-            } else {
-                throw new Error('Failed to update streak setting');
+            const updated = await this._putSettings({ streak_skip_weekends: enabled });
+            this._setCurrentSettings(updated);
+            if (typeof showNotification === 'function') {
+                showNotification(enabled ? 'Weekends will be skipped in streak' : 'Weekends count in streak', 'success');
             }
+            window.incrementSettingsChangeCount?.();
+            if (typeof updateDashboardStats === 'function') updateDashboardStats();
         } catch (error) {
             Utils.Logger.error('Error updating streak skip weekends:', error);
+            if (toggle) toggle.checked = prev;
             if (typeof showNotification === 'function') {
                 showNotification('Error updating streak setting', 'error');
             }
@@ -311,29 +405,21 @@ const Settings = {
      * Update streak count new tasks setting
      */
     async updateStreakCountNewTasks() {
-        const enabled = !!document.getElementById('streak-count-new-tasks')?.checked;
+        const toggle = document.getElementById('streak-count-new-tasks');
+        const enabled = !!toggle?.checked;
+        const prev = !!this._getCurrentSettings().streak_count_new_tasks;
 
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ streak_count_new_tasks: enabled })
-            });
-
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.streak_count_new_tasks = enabled;
-                AppState.set('currentSettings', settings);
-                if (typeof showNotification === 'function') {
-                    showNotification(enabled ? 'Adding tasks counts as streak activity' : 'Adding tasks won\'t count as streak activity', 'success');
-                }
-                window.incrementSettingsChangeCount?.();
-                if (typeof updateDashboardStats === 'function') updateDashboardStats();
-            } else {
-                throw new Error('Failed to update streak setting');
+            const updated = await this._putSettings({ streak_count_new_tasks: enabled });
+            this._setCurrentSettings(updated);
+            if (typeof showNotification === 'function') {
+                showNotification(enabled ? 'Adding tasks counts as streak activity' : 'Adding tasks won\'t count as streak activity', 'success');
             }
+            window.incrementSettingsChangeCount?.();
+            if (typeof updateDashboardStats === 'function') updateDashboardStats();
         } catch (error) {
             Utils.Logger.error('Error updating streak count new tasks:', error);
+            if (toggle) toggle.checked = prev;
             if (typeof showNotification === 'function') {
                 showNotification('Error updating streak setting', 'error');
             }
@@ -344,29 +430,21 @@ const Settings = {
      * Update streak count settings changes setting
      */
     async updateStreakCountSettings() {
-        const enabled = !!document.getElementById('streak-count-settings')?.checked;
+        const toggle = document.getElementById('streak-count-settings');
+        const enabled = !!toggle?.checked;
+        const prev = !!this._getCurrentSettings().streak_count_settings;
 
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ streak_count_settings: enabled })
-            });
-
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.streak_count_settings = enabled;
-                AppState.set('currentSettings', settings);
-                if (typeof showNotification === 'function') {
-                    showNotification(enabled ? 'Settings changes count as streak activity' : 'Settings changes won\'t count as streak activity', 'success');
-                }
-                window.incrementSettingsChangeCount?.();
-                if (typeof updateDashboardStats === 'function') updateDashboardStats();
-            } else {
-                throw new Error('Failed to update streak setting');
+            const updated = await this._putSettings({ streak_count_settings: enabled });
+            this._setCurrentSettings(updated);
+            if (typeof showNotification === 'function') {
+                showNotification(enabled ? 'Settings changes count as streak activity' : 'Settings changes won\'t count as streak activity', 'success');
             }
+            window.incrementSettingsChangeCount?.();
+            if (typeof updateDashboardStats === 'function') updateDashboardStats();
         } catch (error) {
             Utils.Logger.error('Error updating streak count settings:', error);
+            if (toggle) toggle.checked = prev;
             if (typeof showNotification === 'function') {
                 showNotification('Error updating streak setting', 'error');
             }
@@ -377,27 +455,20 @@ const Settings = {
      * Update autosave interval setting
      */
     async updateAutosaveInterval() {
-        const interval = parseInt(document.getElementById('autosave-interval').value);
+        const el = document.getElementById('autosave-interval');
+        const interval = parseInt(el?.value);
+        const prev = (this._getCurrentSettings().autosave_interval || 30);
         
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ autosave_interval: interval })
-            });
-
-            if (response.ok) {
-                if (typeof showNotification === 'function') {
-                    showNotification('Auto-save interval updated', 'success');
-                }
-                window.incrementSettingsChangeCount?.();
-            } else {
-                throw new Error('Failed to update autosave interval');
+            const updated = await this._putSettings({ autosave_interval: interval });
+            this._setCurrentSettings(updated);
+            if (typeof showNotification === 'function') {
+                showNotification('Auto-save interval updated', 'success');
             }
+            window.incrementSettingsChangeCount?.();
         } catch (error) {
             Utils.Logger.error('Error updating autosave interval:', error);
+            if (el) el.value = String(prev);
             if (typeof showNotification === 'function') {
                 showNotification('Error updating auto-save interval', 'error');
             }
@@ -408,7 +479,7 @@ const Settings = {
      * Apply theme and DPI settings to the page
      */
     applyThemeAndDPI() {
-        const settings = AppState.get('currentSettings') || {};
+        const settings = this._getCurrentSettings();
         const theme = settings.theme || 'light';
         const finish = settings.finish || 'glossy';
         const intensity = settings.intensity || '5';
@@ -575,7 +646,7 @@ const Settings = {
         });
         
         // Apply additional CSS custom properties
-        const settings = AppState.get('currentSettings') || {};
+        const settings = this._getCurrentSettings();
         const dpiScale = settings.dpi_scale || 100;
         const additionalProperties = {
             'surface-finish-gradient': colors['secondary-gradient'],
@@ -598,31 +669,21 @@ const Settings = {
      * Update theme setting
      */
     async updateTheme() {
-        const theme = document.getElementById('theme-selector').value;
+        const el = document.getElementById('theme-selector');
+        const theme = el ? el.value : 'light';
+        const prev = (this._getCurrentSettings().theme || 'light');
         
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ theme: theme })
-            });
-
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.theme = theme;
-                AppState.set('currentSettings', settings);
-                this.applyThemeAndDPI();
-                if (typeof showNotification === 'function') {
-                    showNotification('Theme updated', 'success');
-                }
-                window.incrementSettingsChangeCount?.();
-            } else {
-                throw new Error('Failed to update theme');
+            const updated = await this._putSettings({ theme: theme });
+            this._setCurrentSettings(updated);
+            this.applyThemeAndDPI();
+            if (typeof showNotification === 'function') {
+                showNotification('Theme updated', 'success');
             }
+            window.incrementSettingsChangeCount?.();
         } catch (error) {
             Utils.Logger.error('Error updating theme:', error);
+            if (el) el.value = prev;
             if (typeof showNotification === 'function') {
                 showNotification('Error updating theme', 'error');
             }
@@ -633,31 +694,21 @@ const Settings = {
      * Update finish setting
      */
     async updateFinish() {
-        const finish = document.getElementById('finish-selector').value;
+        const el = document.getElementById('finish-selector');
+        const finish = el ? el.value : 'glossy';
+        const prev = (this._getCurrentSettings().finish || 'glossy');
         
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ finish: finish })
-            });
-
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.finish = finish;
-                AppState.set('currentSettings', settings);
-                this.applyThemeAndDPI();
-                if (typeof showNotification === 'function') {
-                    showNotification('Finish updated', 'success');
-                }
-                window.incrementSettingsChangeCount?.();
-            } else {
-                throw new Error('Failed to update finish');
+            const updated = await this._putSettings({ finish: finish });
+            this._setCurrentSettings(updated);
+            this.applyThemeAndDPI();
+            if (typeof showNotification === 'function') {
+                showNotification('Finish updated', 'success');
             }
+            window.incrementSettingsChangeCount?.();
         } catch (error) {
             Utils.Logger.error('Error updating finish:', error);
+            if (el) el.value = prev;
             if (typeof showNotification === 'function') {
                 showNotification('Error updating finish', 'error');
             }
@@ -668,31 +719,21 @@ const Settings = {
      * Update intensity setting
      */
     async updateIntensity() {
-        const intensity = document.getElementById('intensity-selector').value;
+        const el = document.getElementById('intensity-selector');
+        const intensity = el ? el.value : '5';
+        const prev = (this._getCurrentSettings().intensity || '5');
         
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ intensity: intensity })
-            });
-
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.intensity = intensity;
-                AppState.set('currentSettings', settings);
-                this.applyThemeAndDPI();
-                if (typeof showNotification === 'function') {
-                    showNotification('Intensity updated', 'success');
-                }
-                window.incrementSettingsChangeCount?.();
-            } else {
-                throw new Error('Failed to update intensity');
+            const updated = await this._putSettings({ intensity: intensity });
+            this._setCurrentSettings(updated);
+            this.applyThemeAndDPI();
+            if (typeof showNotification === 'function') {
+                showNotification('Intensity updated', 'success');
             }
+            window.incrementSettingsChangeCount?.();
         } catch (error) {
             Utils.Logger.error('Error updating intensity:', error);
+            if (el) el.value = prev;
             if (typeof showNotification === 'function') {
                 showNotification('Error updating intensity', 'error');
             }
@@ -703,31 +744,21 @@ const Settings = {
      * Update DPI scale setting
      */
     async updateDPI() {
-        const dpiScale = parseInt(document.getElementById('dpi-selector').value);
+        const el = document.getElementById('dpi-selector');
+        const dpiScale = parseInt(el?.value);
+        const prev = (this._getCurrentSettings().dpi_scale || 100);
         
         try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ dpi_scale: dpiScale })
-            });
-
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.dpi_scale = dpiScale;
-                AppState.set('currentSettings', settings);
-                this.applyThemeAndDPI();
-                if (typeof showNotification === 'function') {
-                    showNotification('DPI scale updated', 'success');
-                }
-                window.incrementSettingsChangeCount?.();
-            } else {
-                throw new Error('Failed to update DPI scale');
+            const updated = await this._putSettings({ dpi_scale: dpiScale });
+            this._setCurrentSettings(updated);
+            this.applyThemeAndDPI();
+            if (typeof showNotification === 'function') {
+                showNotification('DPI scale updated', 'success');
             }
+            window.incrementSettingsChangeCount?.();
         } catch (error) {
             Utils.Logger.error('Error updating DPI scale:', error);
+            if (el) el.value = String(prev);
             if (typeof showNotification === 'function') {
                 showNotification('Error updating DPI scale', 'error');
             }
@@ -791,36 +822,39 @@ const Settings = {
         const hour24 = this.convert12to24(hour12, period);
         const resetTime = `${String(hour24).padStart(2, '0')}:${minuteSelect.value}`;
         console.log('[DEBUG] Computed resetTime:', resetTime, { hour12, period, hour24, minute: minuteSelect.value });
+
+        const prevTimeStr = (this._getCurrentSettings().daily_reset_time || '06:00');
+        let prevHourVal = hourSelect.value;
+        let prevMinuteVal = minuteSelect.value;
+        let prevPeriodVal = periodSelect.value;
+        try {
+            const [h24Prev, mPrev] = String(prevTimeStr).split(':').map(Number);
+            const converted = Settings.convert24to12(h24Prev);
+            prevHourVal = String(converted.hour12).padStart(2, '0');
+            prevMinuteVal = String(mPrev).padStart(2, '0');
+            prevPeriodVal = converted.period;
+        } catch (e) { /* no-op */ }
         
         try {
-            console.log('[DEBUG] About to call apiCall with:', { daily_reset_time: resetTime });
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ daily_reset_time: resetTime })
-            });
-            console.log('[DEBUG] apiCall response:', { ok: response.ok, status: response.status });
-
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.daily_reset_time = resetTime;
-                AppState.set('currentSettings', settings);
-                console.log('[DEBUG] Settings updated in AppState');
-                if (typeof showNotification === 'function') {
-                    showNotification(`Daily reset time updated to ${resetTime}`, 'success');
-                }
-                window.incrementSettingsChangeCount?.();
-                if (typeof window.setupDailyReset === 'function') {
-                    window.setupDailyReset();
-                }
-            } else {
-                throw new Error('Failed to update reset time');
+            console.log('[DEBUG] About to update daily_reset_time:', { daily_reset_time: resetTime });
+            const updated = await this._putSettings({ daily_reset_time: resetTime });
+            this._setCurrentSettings(updated);
+            console.log('[DEBUG] Settings updated in AppState');
+            if (typeof showNotification === 'function') {
+                showNotification(`Daily reset time updated to ${resetTime}`, 'success');
+            }
+            window.incrementSettingsChangeCount?.();
+            if (typeof window.setupDailyReset === 'function') {
+                window.setupDailyReset();
             }
         } catch (error) {
             console.error('[DEBUG] Error in updateResetTimeFromSelects:', error);
             Utils.Logger.error('Error updating reset time:', error);
+            try {
+                hourSelect.value = prevHourVal;
+                minuteSelect.value = prevMinuteVal;
+                periodSelect.value = prevPeriodVal;
+            } catch (e) { /* no-op */ }
             if (typeof showNotification === 'function') {
                 showNotification('Error updating reset time', 'error');
             }
@@ -865,38 +899,28 @@ const Settings = {
         // Convert to 24-hour format for storage
         const hour24 = this.convert12to24(hour12, period);
         const resetTime = `${hour24.toString().padStart(2, '0')}:${minute}`;
-        
-        try {
-            const response = await apiCall('/api/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ daily_reset_time: resetTime })
-            });
 
-            if (response.ok) {
-                const settings = AppState.get('currentSettings') || {};
-                settings.daily_reset_time = resetTime;
-                AppState.set('currentSettings', settings);
-                if (hiddenInput) hiddenInput.value = resetTime;
-                
-                // Show friendly 12-hour format in notification
-                const displayTime = `${hour12.toString().padStart(2, '0')}:${minute} ${period.toUpperCase()}`;
-                if (typeof showNotification === 'function') {
-                    showNotification(`Daily reset time updated to ${displayTime}`, 'success');
-                }
-                window.incrementSettingsChangeCount?.();
-                
-                // Re-setup daily reset timer
-                if (typeof window.setupDailyReset === 'function') {
-                    window.setupDailyReset();
-                }
-            } else {
-                throw new Error('Failed to update reset time');
+        const prevTimeStr = (this._getCurrentSettings().daily_reset_time || (hiddenInput ? hiddenInput.value : '06:00') || '06:00');
+
+        try {
+            const updated = await this._putSettings({ daily_reset_time: resetTime });
+            this._setCurrentSettings(updated);
+            if (hiddenInput) hiddenInput.value = resetTime;
+            
+            // Show friendly 12-hour format in notification
+            const displayTime = `${hour12.toString().padStart(2, '0')}:${minute} ${period.toUpperCase()}`;
+            if (typeof showNotification === 'function') {
+                showNotification(`Daily reset time updated to ${displayTime}`, 'success');
+            }
+            window.incrementSettingsChangeCount?.();
+            
+            // Re-setup daily reset timer
+            if (typeof window.setupDailyReset === 'function') {
+                window.setupDailyReset();
             }
         } catch (error) {
             Utils.Logger.error('Error updating reset time:', error);
+            if (hiddenInput) hiddenInput.value = prevTimeStr;
             if (typeof showNotification === 'function') {
                 showNotification('Error updating reset time', 'error');
             }
@@ -996,6 +1020,7 @@ window.updateStreakCountNewTasks = () => Settings.updateStreakCountNewTasks();
 window.updateStreakCountSettings = () => Settings.updateStreakCountSettings();
 window.updateAutosaveInterval = () => Settings.updateAutosaveInterval();
 window.updateMiniAnalyticsInterval = () => Settings.updateMiniAnalyticsInterval();
+window.updateSettingsLayout = () => Settings.updateSettingsLayout();
 window.applyThemeAndDPI = () => Settings.applyThemeAndDPI();
 window.updateTheme = () => Settings.updateTheme();
 window.updateFinish = () => Settings.updateFinish();
@@ -1162,28 +1187,33 @@ window.saveResetTimeNow = async function() {
         var resetTime = (String(h24).padStart(2, '0')) + ':' + minuteSelect.value;
         console.log('[DEBUG] Computed resetTime in fallback:', resetTime);
 
-        // Prefer global apiCall if available; otherwise, fallback to fetch
-        var caller = (typeof window.apiCall === 'function')
-            ? window.apiCall
-            : function(url, options) { return fetch(url, Object.assign({ credentials: 'include' }, options)); };
-        console.log('[DEBUG] Using caller:', typeof window.apiCall === 'function' ? 'apiCall' : 'fetch');
+        try {
+            if (window.Settings && typeof window.Settings._putSettings === 'function') {
+                const updated = await window.Settings._putSettings({ daily_reset_time: resetTime });
+                try { if (window.Settings._setCurrentSettings) window.Settings._setCurrentSettings(updated); } catch (e) {}
+                console.log('[DEBUG] Fallback _putSettings succeeded');
+            } else {
+                // Prefer global apiCall if available; otherwise, fallback to fetch
+                var caller = (typeof window.apiCall === 'function')
+                    ? window.apiCall
+                    : function(url, options) { return fetch(url, Object.assign({ credentials: 'include' }, options)); };
+                console.log('[DEBUG] Using caller:', typeof window.apiCall === 'function' ? 'apiCall' : 'fetch');
 
-        const resp = await caller('/api/settings', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ daily_reset_time: resetTime })
-        });
-        console.log('[DEBUG] Fallback response:', { ok: resp && resp.ok, status: resp && resp.status });
+                const resp = await caller('/api/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ daily_reset_time: resetTime })
+                });
+                console.log('[DEBUG] Fallback response:', { ok: resp && resp.ok, status: resp && resp.status });
 
-        if (resp && resp.ok) {
-            try {
-                var settings = AppState.get ? (AppState.get('currentSettings') || {}) : {};
-                settings.daily_reset_time = resetTime;
-                if (AppState.set) AppState.set('currentSettings', settings);
-            } catch (e) {}
+                if (!(resp && resp.ok)) {
+                    throw new Error('Failed to save reset time');
+                }
+            }
+
             try { Utils.safeShowNotification('Daily reset time updated to ' + resetTime, 'success'); } catch(_) {}
             try { if (typeof window.setupDailyReset === 'function') window.setupDailyReset(); } catch(_) {}
-        } else {
+        } catch (e) {
             try { Utils.safeShowNotification('Failed to save reset time', 'error'); } catch(_) {}
         }
     } catch (e) {

@@ -8,7 +8,7 @@ This module handles:
 - Daily strike resets
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 import logging
 import uuid
 from datetime import datetime
@@ -18,11 +18,15 @@ import re
 # Import app context and utilities (will be injected)
 from src.constants import DEFAULT_USER_ID
 from src.services.importer import parse_csv_tasks, parse_txt_tasks
+from src.exceptions import DatabaseError
+from src.routes.api_utils import register_api_error_handlers
 
 logger = logging.getLogger(__name__)
 
 # Blueprint definition
 task_bp = Blueprint('tasks', __name__, url_prefix='/api/tasks')
+
+register_api_error_handlers(task_bp)
 
 # These will be injected at runtime
 _app_context = None
@@ -56,7 +60,15 @@ def _get_user_id():
 
 def _get_data_manager():
     """Get data manager instance"""
-    return _app_context.data_manager if _app_context else None
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        return None
+    ctx = _app_context
+    if ctx is None:
+        try:
+            ctx = current_app.extensions.get('app_context')
+        except Exception:  # noqa: broad-except
+            ctx = None
+    return ctx.data_manager if ctx else None
 
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -95,16 +107,16 @@ def _parse_schedule_payload(payload: Dict) -> Tuple[bool, Dict, str]:
         try:
             hour = int(parts[0])
             minute = int(parts[1])
-        except Exception:
+        except Exception:  # noqa: broad-except
             return False, {}, "Hour must be an integer hour or 'HH:MM'"
     else:
         try:
             hour = int(hour_input)
-        except Exception:
+        except Exception:  # noqa: broad-except
             return False, {}, "Hour must be an integer"
         try:
             minute = int(minute_input)
-        except Exception:
+        except Exception:  # noqa: broad-except
             return False, {}, "Minute must be an integer"
 
     if hour < 0 or hour > 23:
@@ -115,7 +127,7 @@ def _parse_schedule_payload(payload: Dict) -> Tuple[bool, Dict, str]:
     # Duration
     try:
         duration = int(duration_input)
-    except Exception:
+    except Exception:  # noqa: broad-except
         return False, {}, "Duration must be an integer"
     if duration < 5 or duration > 480:
         return False, {}, "Duration must be between 5 and 480 minutes"
@@ -147,18 +159,21 @@ def get_tasks():
         # Ensure data manager is initialized
         if _ensure_data_manager_func and not _ensure_data_manager_func():
             logger.error("Data manager not initialized")
-            return jsonify([])
+            return jsonify({'error': 'Data manager not initialized'}), 503
         
         data_manager = _get_data_manager()
         if not data_manager:
-            return jsonify([])
+            return jsonify({'error': 'Data manager not available'}), 503
         
         tasks = data_manager.load_tasks(user_id)
         logger.info(f"Loaded {len(tasks)} tasks for user {user_id}")
         return jsonify(tasks)
-    except Exception as e:
-        logger.error(f"Error loading tasks for user {user_id}: {e}")
-        return jsonify([])
+    except DatabaseError:
+        logger.exception("Database error loading tasks for user %s", user_id)
+        return jsonify({'error': 'Database error loading tasks'}), 503
+    except Exception:  # noqa: broad-except
+        logger.exception("Error loading tasks for user %s", user_id)
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @task_bp.route('/import', methods=['POST'])
@@ -195,7 +210,11 @@ def import_tasks():
         if not data_manager:
             return jsonify({'error': 'Data manager not available'}), 500
         
-        existing_tasks = data_manager.load_tasks(user_id)
+        try:
+            existing_tasks = data_manager.load_tasks(user_id)
+        except DatabaseError:
+            logger.exception("Database error loading existing tasks for import (user %s)", user_id)
+            return jsonify({'error': 'Database error loading tasks'}), 503
         
         # Add imported tasks
         for task in imported_tasks:
@@ -218,8 +237,9 @@ def import_tasks():
         else:
             return jsonify({'error': 'Failed to save imported tasks'}), 500
             
-    except Exception as e:
-        return jsonify({'error': f'Import failed: {str(e)}'}), 500
+    except Exception:  # noqa: broad-except
+        logger.exception("Import failed")
+        return jsonify({'error': 'Import failed'}), 500
 
 
 @task_bp.route('', methods=['POST'])
@@ -261,8 +281,8 @@ def create_task():
             logger.error(f"Failed to create task for user {user_id}")
             return jsonify({'error': 'Failed to create task'}), 500
             
-    except Exception as e:
-        logger.error(f"Unexpected error in create_task for user {user_id}: {e}")
+    except Exception:  # noqa: broad-except
+        logger.exception("Unexpected error in create_task for user %s", user_id)
         return jsonify({'error': 'Internal server error'}), 500
 
 
@@ -303,8 +323,8 @@ def update_task(task_id):
             try:
                 from src.analytics_manager import increment_analytics_counter
                 increment_analytics_counter('tasks_edited')
-            except Exception:
-                pass
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to increment analytics counter (tasks_edited)")
             # Return updated task directly from database
             updated_task = data_manager.get_task_by_id(user_id, task_id)
             if updated_task:
@@ -317,8 +337,8 @@ def update_task(task_id):
             logger.error(f"Failed to update task {task_id} for user {user_id}")
             return jsonify({'error': 'Failed to update task'}), 500
     
-    except Exception as e:
-        logger.error(f"Unexpected error in update_task for user {user_id}, task {task_id}: {e}")
+    except Exception:  # noqa: broad-except
+        logger.exception("Unexpected error in update_task for user %s, task %s", user_id, task_id)
         return jsonify({'error': 'Internal server error'}), 500
 
 
@@ -345,6 +365,13 @@ def delete_task(task_id):
             logger.warning(f"Task {task_id} not found for user {user_id}")
             return jsonify({'error': 'Task not found'}), 404
 
+        delete_source = request.headers.get('X-Delete-Source', '')
+        if str(delete_source).lower() == 'tasklist':
+            try:
+                data_manager.save_deleted_task_snapshot(user_id, task_to_delete)
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to snapshot deleted task (tasklist source)")
+
         # Delete task using data manager
         success = data_manager.delete_task_for_user(user_id, task_id)
         
@@ -352,17 +379,44 @@ def delete_task(task_id):
             # Track deletion in analytics
             try:
                 from src.analytics_manager import increment_analytics_counter
-                increment_analytics_counter('tasks_deleted')
-            except Exception:
-                pass
+                if str(delete_source).lower() == 'tasklist':
+                    increment_analytics_counter('tasks_deleted')
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to increment analytics counter (tasks_deleted)")
             logger.info(f"Successfully deleted task {task_id} for user {user_id}")
             return jsonify(task_to_delete)
         else:
             logger.error(f"Failed to delete task {task_id} for user {user_id}")
             return jsonify({'error': 'Failed to delete task'}), 500
             
-    except Exception as e:
-        logger.error(f"Unexpected error in delete_task for user {user_id}, task {task_id}: {e}")
+    except Exception:  # noqa: broad-except
+        logger.exception("Unexpected error in delete_task for user %s, task %s", user_id, task_id)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@task_bp.route('/<task_id>/undo-delete', methods=['POST'])
+def undo_delete_task(task_id):
+    user_id = _get_user_id()
+    data_manager = _get_data_manager()
+    if not data_manager:
+        return jsonify({'error': 'Data manager not available'}), 500
+
+    try:
+        restored = data_manager.restore_deleted_task_snapshot(user_id, task_id)
+        if not restored:
+            return jsonify({'error': 'Nothing to restore'}), 404
+
+        try:
+            from src.analytics_manager import decrement_analytics_counter
+            delete_source = request.headers.get('X-Delete-Source', '')
+            if str(delete_source).lower() == 'tasklist':
+                decrement_analytics_counter('tasks_deleted', 1)
+        except Exception:  # noqa: broad-except - API route error handler must catch all exceptions
+            logger.exception("Failed to decrement analytics counter (tasks_deleted)")
+
+        return jsonify(restored), 200
+    except Exception:  # noqa: broad-except
+        logger.exception("Unexpected error in undo_delete_task for user %s, task %s", user_id, task_id)
         return jsonify({'error': 'Internal server error'}), 500
 
 
@@ -377,11 +431,11 @@ def get_strike_today_report_history(task_id):
     offset_raw = request.args.get('offset', '0')
     try:
         limit = int(limit_raw)
-    except Exception:
+    except (TypeError, ValueError):
         limit = 200
     try:
         offset = int(offset_raw)
-    except Exception:
+    except (TypeError, ValueError):
         offset = 0
 
     if limit <= 0:
@@ -394,8 +448,11 @@ def get_strike_today_report_history(task_id):
     try:
         items = data_manager.load_strike_today_report_history(user_id, task_id, limit=limit, offset=offset)
         return jsonify({'success': True, 'task_id': task_id, 'items': items})
+    except DatabaseError:
+        logger.exception("Database error loading strike report history for task %s", task_id)
+        return jsonify({'success': False, 'error': 'Database error loading strike report history'}), 503
     except Exception as e:
-        logger.error(f"Error loading strike report history for task {task_id}: {e}")
+        logger.exception("Error loading strike report history for task %s", task_id)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -407,7 +464,11 @@ def complete_task(task_id):
     if not data_manager:
         return jsonify({'error': 'Data manager not available'}), 500
     
-    tasks = data_manager.load_tasks_for_user(user_id)
+    try:
+        tasks = data_manager.load_tasks_for_user(user_id)
+    except DatabaseError:
+        logger.exception("Database error loading tasks for complete_task (user %s)", user_id)
+        return jsonify({'error': 'Database error loading tasks'}), 503
     
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
@@ -452,7 +513,11 @@ def strike_task(task_id):
     if not data_manager:
         return jsonify({'error': 'Data manager not available'}), 500
     
-    tasks = data_manager.load_tasks_for_user(user_id)
+    try:
+        tasks = data_manager.load_tasks_for_user(user_id)
+    except DatabaseError:
+        logger.exception("Database error loading tasks for strike_task (user %s)", user_id)
+        return jsonify({'error': 'Database error loading tasks'}), 503
     today = datetime.now().strftime('%Y-%m-%d')
     
     for i, task in enumerate(tasks):
@@ -482,8 +547,8 @@ def strike_task(task_id):
                         strike_number=strike_number,
                         report=report,
                     )
-                except Exception:
-                    pass
+                except Exception:  # noqa: broad-except
+                    logger.exception("Failed to add strike_today report event")
             elif strike_type == 'forever':
                 tasks[i]['completed'] = True
                 tasks[i]['completed_at'] = datetime.now().isoformat()
@@ -502,8 +567,8 @@ def strike_task(task_id):
                     day=today,
                     strike_type=strike_type,
                 )
-            except Exception:
-                pass
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to add strike event")
             
             if data_manager.save_tasks_for_user(user_id, tasks):
                 # Increment analytics counters (decoupled from daily reset)
@@ -511,9 +576,9 @@ def strike_task(task_id):
                     from src.analytics_manager import increment_strike_counter
 
                     increment_strike_counter()
-                except Exception:
+                except Exception:  # noqa: broad-except
                     # Non-fatal; analytics are best-effort
-                    pass
+                    logger.exception("Failed to increment strike counter")
                 return jsonify(tasks[i])
             else:
                 return jsonify({'error': 'Failed to save tasks'}), 500
@@ -528,8 +593,12 @@ def undo_strike(task_id):
     data_manager = _get_data_manager()
     if not data_manager:
         return jsonify({'error': 'Data manager not available'}), 500
-    
-    tasks = data_manager.load_tasks_for_user(user_id)
+
+    try:
+        tasks = data_manager.load_tasks_for_user(user_id)
+    except DatabaseError:
+        logger.exception("Database error loading tasks for undo_strike (user %s)", user_id)
+        return jsonify({'error': 'Database error loading tasks'}), 503
     today = datetime.now().strftime('%Y-%m-%d')
     
     for i, task in enumerate(tasks):
@@ -584,8 +653,12 @@ def unschedule_task(task_id):
         data_manager = _get_data_manager()
         if not data_manager:
             return jsonify({'error': 'Data manager not available'}), 500
-        
-        tasks = data_manager.load_tasks(user_id)
+
+        try:
+            tasks = data_manager.load_tasks(user_id)
+        except DatabaseError:
+            logger.exception("Database error loading tasks for unschedule_task (user %s)", user_id)
+            return jsonify({'error': 'Database error loading tasks'}), 503
         
         for i, task in enumerate(tasks):
             if task['id'] == task_id:
@@ -601,8 +674,8 @@ def unschedule_task(task_id):
                     return jsonify({'error': 'Failed to save tasks'}), 500
         
         return jsonify({'error': 'Task not found'}), 404
-    except Exception as e:
-        logger.error(f"Error unscheduling task {task_id} for user {user_id}: {e}")
+    except Exception:  # noqa: broad-except
+        logger.exception("Error unscheduling task %s for user %s", task_id, user_id)
         return jsonify({'error': 'Internal server error'}), 500
 
 
@@ -626,8 +699,12 @@ def schedule_task(task_id):
     data_manager = _get_data_manager()
     if not data_manager:
         return jsonify({'error': 'Data manager not available'}), 500
-    
-    tasks = data_manager.load_tasks(user_id)
+
+    try:
+        tasks = data_manager.load_tasks(user_id)
+    except DatabaseError:
+        logger.exception("Database error loading tasks for schedule_task (user %s)", user_id)
+        return jsonify({'error': 'Database error loading tasks'}), 503
     
     # Check for conflicts with existing scheduled tasks
     start_minutes = hour * 60 + minute
@@ -662,6 +739,7 @@ def schedule_task(task_id):
     
     for i, task in enumerate(tasks):
         if task['id'] == task_id:
+            was_unscheduled = not task.get('scheduled_date')
             tasks[i]['scheduled_hour'] = hour
             tasks[i]['scheduled_minute'] = minute
             tasks[i]['scheduled_date'] = date
@@ -670,6 +748,12 @@ def schedule_task(task_id):
             logger.info(f"Task {task_id} scheduled: hour={hour}, minute={minute}, date={date}, duration={duration}")
             
             if data_manager.save_tasks_for_user(user_id, tasks):
+                if was_unscheduled:
+                    try:
+                        from src.analytics_manager import increment_analytics_counter
+                        increment_analytics_counter('tasks_planned')
+                    except Exception:  # noqa: broad-except
+                        logger.exception("Failed to increment analytics counter (tasks_planned)")
                 return jsonify(tasks[i])
             else:
                 return jsonify({'error': 'Failed to save tasks'}), 500
@@ -684,8 +768,12 @@ def reset_daily_strikes():
     data_manager = _get_data_manager()
     if not data_manager:
         return jsonify({'error': 'Data manager not available'}), 500
-    
-    tasks = data_manager.load_tasks(user_id)
+
+    try:
+        tasks = data_manager.load_tasks(user_id)
+    except DatabaseError:
+        logger.exception("Database error loading tasks for reset_daily_strikes (user %s)", user_id)
+        return jsonify({'error': 'Database error loading tasks'}), 503
     now = datetime.now()
     today_local = now.strftime('%Y-%m-%d')
     
@@ -704,8 +792,8 @@ def reset_daily_strikes():
                     days_diff = (today_datetime - strike_datetime).days
                     if days_diff <= 7:
                         cleaned_strikes[strike_date] = daily_strikes[strike_date]
-                except ValueError:
-                    pass
+                except ValueError as e:
+                    logger.debug("Invalid date format in daily_strikes dict: %s", e)
             tasks[i]['daily_strikes'] = cleaned_strikes
         
         # Clear today's strike flags unconditionally for new day

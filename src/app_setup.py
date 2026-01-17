@@ -9,6 +9,8 @@ from typing import Optional
 
 from flask import Flask
 
+from src.exceptions import ConfigurationException
+
 
 def resolve_root_dir() -> str:
     if getattr(sys, 'frozen', False):
@@ -26,8 +28,10 @@ def resolve_root_dir() -> str:
                 if os.path.exists(share_dir):
                     return share_dir
             return root_dir
-    except Exception:
-        pass
+    except ImportError:
+        logging.getLogger(__name__).debug('pkg_resources not available; using fallback root resolution')
+    except Exception:  # noqa: broad-except
+        logging.getLogger(__name__).exception('Failed to resolve root directory via pkg_resources')
 
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -35,6 +39,10 @@ def resolve_root_dir() -> str:
 def configure_assets(app: Flask, root_dir: str) -> None:
     static_dir = os.path.join(root_dir, 'assets', 'static')
     template_dir = os.path.join(root_dir, 'assets', 'templates')
+    if not os.path.isdir(static_dir):
+        raise ConfigurationException(f"Static assets directory missing: {static_dir}")
+    if not os.path.isdir(template_dir):
+        raise ConfigurationException(f"Templates directory missing: {template_dir}")
     app.static_folder = static_dir
     app.template_folder = template_dir
 
@@ -42,11 +50,19 @@ def configure_assets(app: Flask, root_dir: str) -> None:
 def configure_working_dir(root_dir: str) -> None:
     try:
         os.chdir(root_dir)
-    except Exception:
-        pass
+    except Exception:  # noqa: broad-except
+        logging.getLogger(__name__).exception('Failed to set working directory')
+        raise ConfigurationException(f"Failed to set working directory: {root_dir}")
 
 
 def configure_logging(user_data_dir: str) -> Optional[str]:
+    try:
+        from src.core.correlation import init_logging_context
+
+        init_logging_context()
+    except Exception:  # noqa: broad-except
+        logging.getLogger(__name__).exception('Failed to initialize logging correlation context')
+
     try:
         logs_dir = os.path.join(user_data_dir, 'logs')
         os.makedirs(logs_dir, exist_ok=True)
@@ -75,7 +91,7 @@ def configure_logging(user_data_dir: str) -> Optional[str]:
 
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            format='%(asctime)s - %(correlation_id)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.FileHandler(log_file, encoding='utf-8'),
                 logging.StreamHandler(),
@@ -93,17 +109,18 @@ def configure_logging(user_data_dir: str) -> Optional[str]:
                 for old_path in log_paths[7:]:
                     try:
                         os.remove(old_path)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception:  # noqa: broad-except
+                        logging.getLogger(__name__).exception('Failed to delete old log file: %s', old_path)
+        except Exception:  # noqa: broad-except
+            logging.getLogger(__name__).exception('Failed while pruning old log files')
 
         return log_file
 
-    except Exception:
+    except Exception:  # noqa: broad-except
+        logging.getLogger(__name__).exception('Failed to configure file logging; falling back to console logging')
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            format='%(asctime)s - %(correlation_id)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[logging.StreamHandler()],
         )
         return None

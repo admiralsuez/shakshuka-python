@@ -365,6 +365,12 @@
 
     async function pollInboxOnce() {
         if (pollingInFlight) return;
+        
+        // Skip polling if page is hidden/minimized to prevent freezing in background
+        if (document.hidden) {
+            return;
+        }
+        
         pollingInFlight = true;
 
         try {
@@ -507,7 +513,8 @@
 
     function startPolling() {
         if (pollingTimer) return;
-        pollingTimer = window.setInterval(pollInboxOnce, 2500);
+        // Poll every 10 seconds instead of 2.5 to reduce load and prevent freezing
+        pollingTimer = window.setInterval(pollInboxOnce, 10000);
         pollInboxOnce();
     }
 

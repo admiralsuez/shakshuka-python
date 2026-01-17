@@ -109,14 +109,16 @@ class UserManager:
         if BCRYPT_AVAILABLE:
             try:
                 return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-            except Exception:
+            except Exception:  # noqa: broad-except
+                self.logger.exception("bcrypt password verification failed")
                 return False
         else:
             try:
                 salt, stored_key = hashed.split(':')
                 key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
                 return key.hex() == stored_key
-            except Exception:
+            except Exception:  # noqa: broad-except
+                self.logger.exception("Fallback password verification failed")
                 return False
     
     def _cleanup_expired_sessions(self):
@@ -156,7 +158,7 @@ class UserManager:
                     }
                 }
         except Exception as e:
-            self.logger.error(f"Error creating user: {e}")
+            self.logger.exception("Error creating user")
             return {'success': False, 'message': f'Error creating user: {str(e)}'}
     
     def authenticate_user(self, username: str, password: str) -> Dict[str, any]:
@@ -185,7 +187,7 @@ class UserManager:
                     }
                 }
         except Exception as e:
-            self.logger.error(f"Error authenticating user: {e}")
+            self.logger.exception("Error authenticating user")
             return {'success': False, 'message': f'Authentication error: {str(e)}'}
     
     def create_session(self, user_id: str) -> str:
@@ -231,8 +233,8 @@ class UserManager:
                     'id': result['id'],
                     'username': result['username']
                 }
-        except Exception as e:
-            self.logger.error(f"Error validating session: {e}")
+        except Exception:  # noqa: broad-except
+            self.logger.exception("Error validating session")
             return None
     
     def logout_user(self, session_id: str) -> bool:
@@ -243,8 +245,8 @@ class UserManager:
                 cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
                 conn.commit()
                 return True
-        except Exception as e:
-            self.logger.error(f"Error logging out user: {e}")
+        except Exception:  # noqa: broad-except
+            self.logger.exception("Error logging out user")
             return False
     
     def update_password(self, user_id: str, new_password: str) -> bool:
@@ -260,8 +262,8 @@ class UserManager:
                 """, (password_hash, datetime.now().isoformat(), user_id))
                 conn.commit()
                 return True
-        except Exception as e:
-            self.logger.error(f"Error updating password: {e}")
+        except Exception:  # noqa: broad-except
+            self.logger.exception("Error updating password")
             return False
     
     def verify_password(self, password: str, user_id: str) -> bool:
@@ -274,8 +276,8 @@ class UserManager:
                 if not user:
                     return False
                 return self._verify_password(password, user['password_hash'])
-        except Exception as e:
-            self.logger.error(f"Error verifying password: {e}")
+        except Exception:  # noqa: broad-except
+            self.logger.exception("Error verifying password")
             return False
 
 # Create global instance

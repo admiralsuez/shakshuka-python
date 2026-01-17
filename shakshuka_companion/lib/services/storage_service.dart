@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
@@ -77,7 +78,9 @@ class StorageService {
     try {
       final list = jsonDecode(historyJson) as List;
       return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    } catch (_) {
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Failed to parse sent tasks history: $e');
       return [];
     }
   }
@@ -127,4 +130,116 @@ class StorageService {
   }
 
   bool get isPaired => _deviceBox.isNotEmpty;
+
+  // Current tasks caching for offline viewing
+  Future<void> cacheCurrentTasks(List<dynamic> tasks) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('cached_current_tasks', jsonEncode(tasks));
+      await prefs.setString('cached_tasks_timestamp', DateTime.now().toIso8601String());
+      debugPrint('Cached ${tasks.length} current tasks');
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Failed to cache current tasks: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getCachedCurrentTasks() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedJson = prefs.getString('cached_current_tasks');
+      if (cachedJson == null || cachedJson.isEmpty) return [];
+      
+      final list = jsonDecode(cachedJson) as List;
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Failed to load cached tasks: $e');
+      return [];
+    }
+  }
+
+  Future<String?> getCachedTasksTimestamp() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('cached_tasks_timestamp');
+  }
+
+  // Notes caching for offline viewing
+  Future<void> cacheNotes(List<dynamic> notes) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('cached_notes', jsonEncode(notes));
+      await prefs.setString('cached_notes_timestamp', DateTime.now().toIso8601String());
+      debugPrint('Cached ${notes.length} notes');
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Failed to cache notes: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getCachedNotes() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedJson = prefs.getString('cached_notes');
+      if (cachedJson == null || cachedJson.isEmpty) return [];
+      
+      final list = jsonDecode(cachedJson) as List;
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Failed to load cached notes: $e');
+      return [];
+    }
+  }
+
+  // Offline notes queue
+  Future<void> queueOfflineNote(String title, String content) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final queue = await getOfflineNotesQueue();
+      
+      final note = {
+        'id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'title': title,
+        'content': content,
+        'created_at': DateTime.now().toIso8601String(),
+      };
+      
+      queue.add(note);
+      await prefs.setString('offline_notes_queue', jsonEncode(queue));
+      debugPrint('Queued offline note: $title');
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Failed to queue offline note: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getOfflineNotesQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final queueJson = prefs.getString('offline_notes_queue');
+      if (queueJson == null || queueJson.isEmpty) return [];
+      
+      final list = jsonDecode(queueJson) as List;
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Failed to load offline notes queue: $e');
+      return [];
+    }
+  }
+
+  Future<void> removeOfflineNotes(List<String> ids) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final queue = await getOfflineNotesQueue();
+      
+      final updated = queue.where((note) => !ids.contains(note['id'])).toList();
+      await prefs.setString('offline_notes_queue', jsonEncode(updated));
+      debugPrint('Removed ${ids.length} synced notes from queue');
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Failed to remove synced notes: $e');
+    }
+  }
 }

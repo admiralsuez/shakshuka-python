@@ -4,6 +4,9 @@ import os
 import json
 from datetime import datetime
 
+from src.exceptions import ValidationError
+from src.update_manager import UpdateIOError, UpdateIntegrityError
+
 logger = logging.getLogger(__name__)
 
 backups_bp = Blueprint("backups", __name__, url_prefix="/api/backups")
@@ -34,7 +37,7 @@ def _ensure_update_manager():
         _app_context.update_manager = _update_manager_cls(app_dir=app_root, data_dir=data_dir)
         return True
     except Exception as e:
-        logger.error(f"Failed to initialize update manager: {e}")
+        logger.exception("Failed to initialize update manager")
         return False
 
 
@@ -81,6 +84,14 @@ def validate_backup_integrity(backup_path):
         return False, f"Backup validation error: {e}"
 
 
+def _validate_backup_name(backup_name: str) -> str:
+    if not backup_name or not isinstance(backup_name, str):
+        raise ValidationError(message='backup_name is required')
+    if os.path.basename(backup_name) != backup_name:
+        raise ValidationError(message='Invalid backup_name')
+    return backup_name
+
+
 def create_backup_with_validation():
     """Create backup with integrity validation"""
     try:
@@ -97,29 +108,21 @@ def create_backup_with_validation():
         if not isinstance(backup_type, str) or backup_type.strip() == "":
             return jsonify({'error': 'type must be a non-empty string'}), 400
 
-        success = _app_context.update_manager.create_backup(backup_type)
-        if not success:
-            return jsonify({'error': 'Failed to create backup'}), 500
+        backup_name = _app_context.update_manager.create_backup(backup_type)
+        logger.info("Backup created successfully: %s", backup_name)
+        return jsonify({'success': True, 'message': 'Backup created successfully', 'backup_name': backup_name}), 201
 
-        backup_dir = os.path.join(os.getcwd(), "backups")
-        if os.path.exists(backup_dir):
-            backup_files = [f for f in os.listdir(backup_dir) if f.endswith(('.json', '.zip', '.tar.gz'))]
-            if backup_files:
-                latest_backup = max(backup_files, key=lambda f: os.path.getmtime(os.path.join(backup_dir, f)))
-                backup_path = os.path.join(backup_dir, latest_backup)
-
-                is_valid, message = validate_backup_integrity(backup_path)
-                if not is_valid:
-                    logger.error(f"Backup validation failed: {message}")
-                    return jsonify({'error': f'Backup created but validation failed: {message}'}), 500
-
-                logger.info(f"Backup created and validated successfully: {latest_backup}")
-                return jsonify({'success': True, 'message': 'Backup created and validated successfully', 'backup_file': latest_backup})
-
-        return jsonify({'success': True, 'message': 'Backup created successfully'})
-
-    except Exception as e:
-        logger.error(f"Error creating backup: {e}")
+    except ValidationError as e:
+        logger.exception("Validation error creating backup")
+        return jsonify({'error': str(e)}), 400
+    except UpdateIOError as e:
+        logger.exception("IO error creating backup")
+        return jsonify({'error': str(e)}), 500
+    except UpdateIntegrityError as e:
+        logger.exception("Integrity error creating backup")
+        return jsonify({'error': str(e)}), 500
+    except Exception:  # noqa: broad-except
+        logger.exception("Error creating backup")
         return jsonify({'error': 'Failed to create backup'}), 500
 
 
@@ -133,36 +136,32 @@ def restore_backup_with_validation():
         if backup_data is None or not isinstance(backup_data, dict):
             return jsonify({'error': 'Request must contain JSON object'}), 400
 
-        backup_name = backup_data.get('backup_name')
-        if not backup_name:
-            return jsonify({'error': 'Backup name is required'}), 400
-
-        backup_dir = os.path.join(os.getcwd(), "backups")
-        backup_path = os.path.join(backup_dir, backup_name)
-
-        is_valid, message = validate_backup_integrity(backup_path)
-        if not is_valid:
-            logger.error(f"Backup validation failed before restore: {message}")
-            return jsonify({'error': f'Backup validation failed: {message}'}), 400
+        backup_name = _validate_backup_name(backup_data.get('backup_name'))
 
         try:
             safety_backup_name = f"safety_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            safety_success = _app_context.update_manager.create_backup(safety_backup_name)
-            if not safety_success:
-                logger.warning("Failed to create safety backup before restore")
-        except Exception as e:
-            logger.warning(f"Failed to create safety backup: {e}")
+            _app_context.update_manager.create_backup(safety_backup_name)
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to create safety backup")
 
         success = _app_context.update_manager.restore_backup(backup_name)
         if success:
-            logger.info(f"Backup restored successfully: {backup_name}")
-            return jsonify({'success': True, 'message': 'Backup restored successfully'})
+            logger.info("Backup restored successfully: %s", backup_name)
+            return jsonify({'success': True, 'message': 'Backup restored successfully'}), 200
 
-        logger.error(f"Failed to restore backup: {backup_name}")
         return jsonify({'error': 'Failed to restore backup'}), 500
 
-    except Exception as e:
-        logger.error(f"Error restoring backup: {e}")
+    except ValidationError as e:
+        logger.exception("Validation error restoring backup")
+        return jsonify({'error': str(e)}), 400
+    except UpdateIntegrityError as e:
+        logger.exception("Integrity error restoring backup")
+        return jsonify({'error': str(e)}), 409
+    except UpdateIOError as e:
+        logger.exception("IO error restoring backup")
+        return jsonify({'error': str(e)}), 500
+    except Exception:  # noqa: broad-except
+        logger.exception("Error restoring backup")
         return jsonify({'error': 'Failed to restore backup'}), 500
 
 
@@ -174,10 +173,16 @@ def get_backups():
             return jsonify({'error': 'Update manager not initialized'}), 500
 
         backups = _app_context.update_manager.get_backup_list()
-        return jsonify({'backups': backups})
+        return jsonify({'backups': backups}), 200
 
-    except Exception as e:
-        logger.error(f"Error getting backups: {e}")
+    except UpdateIOError as e:
+        logger.exception("IO error getting backups")
+        return jsonify({'error': str(e)}), 500
+    except UpdateIntegrityError as e:
+        logger.exception("Integrity error getting backups")
+        return jsonify({'error': str(e)}), 500
+    except Exception:  # noqa: broad-except - API route error handler must catch all exceptions
+        logger.exception("Error getting backups")
         return jsonify({'error': 'Failed to get backups'}), 500
 
 
