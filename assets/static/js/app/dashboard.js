@@ -77,6 +77,7 @@ async function updateDashboardStats() {
             setText('tasks-with-dates', summary.tasks_with_dates || 0);
             setText('tasks-with-time', summary.tasks_with_time || 0);
             setText('tasks-planned', summary.tasks_planned || 0);
+            setText('daily-reset-count', summary.daily_reset_count || 0);
             
             // Calculate productivity
             const productivity = summary.tasks.total > 0 

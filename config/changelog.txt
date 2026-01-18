@@ -1,3 +1,53 @@
+## Version 19.7 - Major Mobile & Analytics Update
+Release Date: 2026-01-18
+
+Highlights
+
+- **Unified Mobile Inbox**: Send both tasks and notes from Android to desktop for approval in a single flow with selection dialog.
+- **Selection Dialog**: Choose which tasks and notes to send with checkboxes, showing previews of each item.
+- **Local Notes Storage**: Notes are now saved locally on Android first, then sent to PC for approval (like tasks).
+- **Notes Screen Redesign**: Shows both local notes (pending send) and PC notes (synced) with clear visual distinction.
+- **Desktop Inbox for Notes**: Desktop mobile inbox now displays incoming notes alongside tasks with separate sections and icons.
+- **PIN Auth Fix**: Disabled browser password autocomplete in PIN fields to prevent auto-filling when clicking "Remember Me".
+- **Daily Reset Counter**: New analytics widget tracks total number of daily resets performed - see your consistency!
+
+Technical Notes
+
+Mobile Inbox System:
+- Android: Created LocalNote Hive model (typeId: 1) with client_note_id for tracking
+- Android: Updated StorageService with note CRUD methods (getAllNotes, addNote, deleteNote, etc.)
+- Android: Modified home_screen.dart send button to show dynamic count (tasks/notes/items)
+- Android: Added _showSendSelectionDialog() with checkboxes for tasks and notes selection
+- Android: Updated notes_screen.dart to save locally first, display local vs PC notes with badges
+- Desktop: Updated mobile-inbox.js to render tasks and notes in separate sections with icons
+- Desktop: Modified approval logic to process both selected_task_ids and selected_note_ids
+- Backend: Mobile inbox endpoint already supported notes array from Part 1/2
+- Backend: Approval endpoint creates notes via dm.create_note_for_user() and returns separate counts
+
+PIN Authentication:
+- Added autocomplete="off" to login PIN field
+- Added autocomplete="new-password" to setup and reset PIN fields
+- Prevents Chrome/Edge from auto-filling passwords when interacting with Remember Me checkbox
+
+Daily Reset Analytics:
+- Added daily_reset_count column to settings table (migration 17)
+- Counter increments automatically during daily reset execution
+- New stats widget in analytics dashboard with sync icon
+- Counter exposed via /api/analytics/summary endpoint
+- Shows total number of times daily reset has been performed
+
+Database:
+- Schema version bumped to 17
+- Migration 17 adds daily_reset_count INTEGER DEFAULT 0 to settings table
+- Index idx_notes_user_id added for notes table query performance
+
+---
+## Version 19.6 - Release
+Release Date: 2026-01-19T01:53:30.605061
+
+Highlights
+
+---
 ## Version 19.5 - Release
 Release Date: 2026-01-17T16:44:22.654784
 

@@ -454,6 +454,28 @@ class SQLiteDataManager:
             self.logger.error(f"Migration 016 failed: {e}")
             raise
     
+    def _migration_017_daily_reset_count(self, conn) -> List[Dict[str, Any]]:
+        """Migration 17: Add daily_reset_count to settings table for analytics."""
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            # Check if column already exists
+            cursor = conn.execute("PRAGMA table_info(settings)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'daily_reset_count' not in columns:
+                conn.execute('ALTER TABLE settings ADD COLUMN daily_reset_count INTEGER DEFAULT 0')
+                self.logger.info("Added daily_reset_count column to settings table")
+            
+            migrations_applied.append({
+                'version': 17,
+                'description': 'Added daily_reset_count to settings for analytics',
+                'sql': 'ALTER TABLE settings ADD COLUMN daily_reset_count INTEGER DEFAULT 0'
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 017 failed: {e}")
+            raise
+    
     def _run_migrations(self):
         """Run database migrations with comprehensive error handling and rollback"""
         migration_version = None
@@ -539,6 +561,9 @@ class SQLiteDataManager:
 
                     if migration_version < 16:
                         migrations_applied.extend(self._migration_016_deleted_tasks(conn))
+                    
+                    if migration_version < 17:
+                        migrations_applied.extend(self._migration_017_daily_reset_count(conn))
                     
                     # Update migration version
                     if migrations_applied:

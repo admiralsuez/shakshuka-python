@@ -8,7 +8,7 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 17
 
 # Table creation SQL statements
 TABLES = {
@@ -72,6 +72,7 @@ TABLES = {
             autosave_interval INTEGER DEFAULT 30,
             notifications BOOLEAN DEFAULT 1,
             last_daily_reset_at TEXT,
+            daily_reset_count INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
