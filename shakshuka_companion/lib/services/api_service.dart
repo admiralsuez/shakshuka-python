@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/task.dart';
+import '../models/note.dart';
 import '../models/paired_device.dart';
 import 'storage_service.dart';
 
@@ -70,14 +71,18 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> uploadTasks(List<LocalTask> tasks, {int retries = 1}) async {
+  Future<Map<String, dynamic>> uploadTasksAndNotes(
+    List<LocalTask> tasks,
+    List<LocalNote> notes, {
+    int retries = 1,
+  }) async {
     final device = _storage.getPairedDevice();
     if (device == null) {
       return {'success': false, 'message': 'Not paired with any PC'};
     }
 
-    if (tasks.isEmpty) {
-      return {'success': false, 'message': 'No tasks to upload'};
+    if (tasks.isEmpty && notes.isEmpty) {
+      return {'success': false, 'message': 'Nothing to upload'};
     }
 
     for (int attempt = 0; attempt <= retries; attempt++) {
@@ -92,6 +97,7 @@ class ApiService {
               },
               body: jsonEncode({
                 'tasks': tasks.map((t) => t.toJson()).toList(),
+                'notes': notes.map((n) => n.toJson()).toList(),
               }),
             )
             .timeout(const Duration(seconds: 15));
@@ -99,10 +105,22 @@ class ApiService {
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           if (data['success'] == true) {
+            final tasksCount = data['tasks_count'] ?? tasks.length;
+            final notesCount = data['notes_count'] ?? notes.length;
+            String message = '';
+            if (tasksCount > 0 && notesCount > 0) {
+              message = 'Uploaded $tasksCount task(s) and $notesCount note(s) to PC inbox!';
+            } else if (tasksCount > 0) {
+              message = 'Uploaded $tasksCount task(s) to PC inbox!';
+            } else {
+              message = 'Uploaded $notesCount note(s) to PC inbox!';
+            }
             return {
               'success': true,
-              'message': 'Uploaded ${tasks.length} task(s) to PC inbox!',
+              'message': message,
               'submission_id': data['submission_id'],
+              'tasks_count': tasksCount,
+              'notes_count': notesCount,
             };
           }
           return {
@@ -112,9 +130,9 @@ class ApiService {
         } else if (response.statusCode == 401) {
           // Device was unpaired from desktop - clear local pairing
           await _storage.clearPairing();
-          return {
+        return {
             'success': false,
-            'message': 'Device was unpaired from PC. Please pair again before sending tasks.',
+            'message': 'Device was unpaired from PC. Please pair again.',
             'unpaired': true,
           };
         } else {
@@ -149,7 +167,7 @@ class ApiService {
         return {'success': false, 'message': 'Connection timeout. Try again.'};
       }
       catch (e) { // noqa: broad-catch
-        debugPrint('Upload tasks error: $e');
+        debugPrint('Upload error: $e');
         if (attempt < retries) {
           await Future.delayed(Duration(seconds: 2 + attempt));
           continue;

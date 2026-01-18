@@ -291,6 +291,12 @@
         return Array.isArray(tasks) ? tasks : [];
     }
 
+    function getNotesFromPayload(payload) {
+        if (!payload || typeof payload !== 'object') return [];
+        const notes = payload.notes;
+        return Array.isArray(notes) ? notes : [];
+    }
+
     function renderInboxList(submission) {
         const listEl = getEl('mobile-inbox-list');
         const subtitleEl = getEl('mobile-inbox-subtitle');
@@ -299,44 +305,84 @@
 
         const payload = submission.payload || null;
         const tasks = getTasksFromPayload(payload);
+        const notes = getNotesFromPayload(payload);
         const deviceName = submission.device_name || (payload && payload.device_name) || 'Phone';
 
         if (subtitleEl) {
-            subtitleEl.textContent = `${deviceName} wants to add ${tasks.length} task(s). Select what to import.`;
+            const items = [];
+            if (tasks.length > 0) items.push(`${tasks.length} task${tasks.length > 1 ? 's' : ''}`);
+            if (notes.length > 0) items.push(`${notes.length} note${notes.length > 1 ? 's' : ''}`);
+            const itemsText = items.join(' and ');
+            subtitleEl.textContent = `${deviceName} wants to add ${itemsText}. Select what to import.`;
         }
 
         const html = [];
         html.push('<div style="display:flex; flex-direction:column; gap:10px;">');
 
-        tasks.forEach((t) => {
-            if (!t || typeof t !== 'object') return;
-            const id = String(t.client_task_id || t.id || '').trim();
-            const title = String(t.title || t.name || '').trim();
-            const project = String(t.project || '').trim();
-            const due = String(t.due_date || t.date || '').trim();
-            const dur = (t.estimated_duration != null ? t.estimated_duration : t.duration);
+        // Render tasks section
+        if (tasks.length > 0) {
+            html.push('<div style="font-weight:600; color:var(--text-color,#333); margin-bottom:8px; font-size:14px;"><i class="fas fa-tasks" style="margin-right:8px;"></i>Tasks</div>');
+            tasks.forEach((t) => {
+                if (!t || typeof t !== 'object') return;
+                const id = String(t.client_task_id || t.id || '').trim();
+                const title = String(t.title || t.name || '').trim();
+                const project = String(t.project || '').trim();
+                const due = String(t.due_date || t.date || '').trim();
+                const dur = (t.estimated_duration != null ? t.estimated_duration : t.duration);
 
-            if (!id) return;
+                if (!id) return;
 
-            const metaParts = [];
-            if (project) metaParts.push(project);
-            if (due) metaParts.push(due);
-            if (dur != null && dur !== '') metaParts.push(`${dur}m`);
-            const meta = metaParts.length ? metaParts.join(' • ') : '';
+                const metaParts = [];
+                if (project) metaParts.push(project);
+                if (due) metaParts.push(due);
+                if (dur != null && dur !== '') metaParts.push(`${dur}m`);
+                const meta = metaParts.length ? metaParts.join(' • ') : '';
 
-            html.push(`
-                <label class="mobile-inbox-task-item" style="display:flex; gap:12px; align-items:center; padding:12px; border:1px solid var(--border-color,rgba(0,0,0,0.1)); border-radius:10px; cursor:pointer; background:var(--surface-color,#fff);">
-                    <span class="custom-checkbox">
-                        <input type="checkbox" class="mobile-inbox-task" data-task-id="${id}" checked />
-                        <span class="checkmark"></span>
-                    </span>
-                    <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
-                        <div style="font-weight:600; color:var(--text-color,#333);">${escapeHtml(title || 'Untitled')}</div>
-                        ${meta ? `<div style="opacity:0.7; font-size:12px; color:var(--text-secondary,#666);">${escapeHtml(meta)}</div>` : ''}
-                    </div>
-                </label>
-            `);
-        });
+                html.push(`
+                    <label class="mobile-inbox-task-item" style="display:flex; gap:12px; align-items:center; padding:12px; border:1px solid var(--border-color,rgba(0,0,0,0.1)); border-radius:10px; cursor:pointer; background:var(--surface-color,#fff);">
+                        <span class="custom-checkbox">
+                            <input type="checkbox" class="mobile-inbox-task" data-task-id="${id}" checked />
+                            <span class="checkmark"></span>
+                        </span>
+                        <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
+                            <div style="font-weight:600; color:var(--text-color,#333);">${escapeHtml(title || 'Untitled')}</div>
+                            ${meta ? `<div style="opacity:0.7; font-size:12px; color:var(--text-secondary,#666);">${escapeHtml(meta)}</div>` : ''}
+                        </div>
+                    </label>
+                `);
+            });
+        }
+
+        // Render notes section
+        if (notes.length > 0) {
+            if (tasks.length > 0) {
+                html.push('<div style="height:16px;"></div>');
+            }
+            html.push('<div style="font-weight:600; color:var(--text-color,#333); margin-bottom:8px; font-size:14px;"><i class="fas fa-sticky-note" style="margin-right:8px;"></i>Notes</div>');
+            notes.forEach((n) => {
+                if (!n || typeof n !== 'object') return;
+                const id = String(n.client_note_id || n.id || '').trim();
+                const title = String(n.title || '').trim();
+                const content = String(n.content || '').trim();
+
+                if (!id) return;
+
+                const preview = content.length > 50 ? content.substring(0, 50) + '...' : content;
+
+                html.push(`
+                    <label class="mobile-inbox-task-item" style="display:flex; gap:12px; align-items:center; padding:12px; border:1px solid var(--border-color,rgba(0,0,0,0.1)); border-radius:10px; cursor:pointer; background:var(--surface-color,#fff);">
+                        <span class="custom-checkbox">
+                            <input type="checkbox" class="mobile-inbox-note" data-note-id="${id}" checked />
+                            <span class="checkmark"></span>
+                        </span>
+                        <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
+                            <div style="font-weight:600; color:var(--text-color,#333);">${escapeHtml(title || 'Untitled Note')}</div>
+                            ${preview ? `<div style="opacity:0.7; font-size:12px; color:var(--text-secondary,#666);">${escapeHtml(preview)}</div>` : ''}
+                        </div>
+                    </label>
+                `);
+            });
+        }
 
         html.push('</div>');
         listEl.innerHTML = html.join('');
@@ -387,10 +433,11 @@
                 return;
             }
 
-            // Update indicator with task count
+            // Update indicator with task and note count
             const payload = pending.payload || {};
             const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
-            updateInboxIndicator(tasks.length);
+            const notes = Array.isArray(payload.notes) ? payload.notes : [];
+            updateInboxIndicator(tasks.length + notes.length);
 
             if (currentPendingSubmissionId === pending.id) {
                 return;
@@ -416,17 +463,26 @@
         
         operationInProgress = true;
 
-        const checkboxes = Array.from(document.querySelectorAll('.mobile-inbox-task'));
-        const selected = checkboxes
+        const taskCheckboxes = Array.from(document.querySelectorAll('.mobile-inbox-task'));
+        const selectedTasks = taskCheckboxes
             .filter(cb => cb && cb.checked)
             .map(cb => cb.getAttribute('data-task-id'))
+            .filter(Boolean);
+
+        const noteCheckboxes = Array.from(document.querySelectorAll('.mobile-inbox-note'));
+        const selectedNotes = noteCheckboxes
+            .filter(cb => cb && cb.checked)
+            .map(cb => cb.getAttribute('data-note-id'))
             .filter(Boolean);
 
         try {
             const data = await fetchJson(`/api/mobile/inbox/${encodeURIComponent(submissionId)}/approve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ selected_task_ids: selected })
+                body: JSON.stringify({ 
+                    selected_task_ids: selectedTasks,
+                    selected_note_ids: selectedNotes
+                })
             });
 
             if (!data || !data.success) {
@@ -436,8 +492,13 @@
             close('mobile-inbox-modal');
             currentPendingSubmissionId = null;
 
-            const created = data.created != null ? data.created : 0;
-            safeNotify(`Imported ${created} task(s)`, 'success');
+            const tasksCreated = data.tasks_created != null ? data.tasks_created : 0;
+            const notesCreated = data.notes_created != null ? data.notes_created : 0;
+            const items = [];
+            if (tasksCreated > 0) items.push(`${tasksCreated} task${tasksCreated > 1 ? 's' : ''}`);
+            if (notesCreated > 0) items.push(`${notesCreated} note${notesCreated > 1 ? 's' : ''}`);
+            const message = items.length > 0 ? `Imported ${items.join(' and ')}` : 'Nothing imported';
+            safeNotify(message, 'success');
 
             try {
                 if (typeof loadTasks === 'function') {
@@ -465,11 +526,13 @@
     }
 
     function toggleSelectAll() {
-        const checkboxes = Array.from(document.querySelectorAll('.mobile-inbox-task'));
-        const allChecked = checkboxes.every(cb => cb.checked);
+        const taskCheckboxes = Array.from(document.querySelectorAll('.mobile-inbox-task'));
+        const noteCheckboxes = Array.from(document.querySelectorAll('.mobile-inbox-note'));
+        const allCheckboxes = [...taskCheckboxes, ...noteCheckboxes];
+        const allChecked = allCheckboxes.every(cb => cb.checked);
         const btn = getEl('mobile-inbox-select-all-btn');
         
-        checkboxes.forEach(cb => {
+        allCheckboxes.forEach(cb => {
             cb.checked = !allChecked;
         });
         

@@ -274,6 +274,7 @@ class SQLiteDataManager:
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks (user_id)')
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status)')
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks (completed)')
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes (user_id, updated_at DESC)')
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id)')
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at)')
                 

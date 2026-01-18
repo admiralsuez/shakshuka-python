@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/task.dart';
+import '../models/note.dart';
 import '../services/storage_service.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
@@ -159,9 +160,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _uploadTasks() async {
-    if (_tasks.isEmpty) {
+    final notes = _storage.getAllNotes();
+    
+    if (_tasks.isEmpty && notes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No tasks to upload')),
+        const SnackBar(content: Text('No tasks or notes to upload')),
       );
       return;
     }
@@ -173,27 +176,55 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    // Show selection dialog
+    final selection = await _showSendSelectionDialog(_tasks, notes);
+    if (selection == null || (selection['tasks'].isEmpty && selection['notes'].isEmpty)) {
+      return;
+    }
+
     setState(() => _isUploading = true);
 
-    final taskCount = _tasks.length;
-    final result = await _api.uploadTasks(_tasks);
+    final selectedTasks = selection['tasks'] as List<LocalTask>;
+    final selectedNotes = selection['notes'] as List<LocalNote>;
+    final result = await _api.uploadTasksAndNotes(selectedTasks, selectedNotes);
 
     setState(() => _isUploading = false);
 
     if (result['success'] == true) {
-      await _storage.incrementTasksSent(taskCount);
+      final tasksCount = result['tasks_count'] ?? selectedTasks.length;
+      final notesCount = result['notes_count'] ?? selectedNotes.length;
+      
+      await _storage.incrementTasksSent(tasksCount);
+      
       // Save history with submission_id for status tracking
-      final taskData = _tasks.map((t) => {'title': t.title, 'duration': t.duration}).toList();
+      final taskData = selectedTasks.map((t) => {'title': t.title, 'duration': t.duration}).toList();
       final submissionId = result['submission_id'] as String?;
       await _storage.addSentTasksHistory(taskData, submissionId);
-      await _storage.clearAllTasks();
+      
+      // Remove sent items
+      for (final task in selectedTasks) {
+        await _storage.deleteTask(task.id);
+      }
+      for (final note in selectedNotes) {
+        await _storage.deleteNote(note.id);
+      }
+      
       _loadTasks();
       _loadStats();
       
       // Show notification for successful upload
+      String notifBody = '';
+      if (tasksCount > 0 && notesCount > 0) {
+        notifBody = '$tasksCount task(s) and $notesCount note(s) sent to PC inbox';
+      } else if (tasksCount > 0) {
+        notifBody = '$tasksCount task(s) sent to PC inbox';
+      } else {
+        notifBody = '$notesCount note(s) sent to PC inbox';
+      }
+      
       await _notifications.showTaskNotification(
-        title: 'Tasks Uploaded!',
-        body: 'Your ${taskCount} task(s) have been sent to PC inbox',
+        title: 'Upload Successful!',
+        body: notifBody,
         submissionId: submissionId,
       );
       
@@ -223,6 +254,143 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     }
+  }
+
+  Future<Map<String, List>?> _showSendSelectionDialog(
+    List<LocalTask> tasks,
+    List<LocalNote> notes,
+  ) async {
+    final selectedTasks = List<LocalTask>.from(tasks);
+    final selectedNotes = List<LocalNote>.from(notes);
+
+    return showDialog<Map<String, List>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: const Color(0xFF16213E),
+          title: const Text('Send to PC'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (tasks.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: selectedTasks.length == tasks.length,
+                        tristate: selectedTasks.isNotEmpty && selectedTasks.length < tasks.length,
+                        onChanged: (val) {
+                          setState(() {
+                            if (val == true) {
+                              selectedTasks.clear();
+                              selectedTasks.addAll(tasks);
+                            } else {
+                              selectedTasks.clear();
+                            }
+                          });
+                        },
+                      ),
+                      Text(
+                        'Tasks (${selectedTasks.length}/${tasks.length})',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  ...tasks.map((task) => CheckboxListTile(
+                        dense: true,
+                        title: Text(
+                          task.title,
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                        value: selectedTasks.contains(task),
+                        onChanged: (val) {
+                          setState(() {
+                            if (val == true) {
+                              selectedTasks.add(task);
+                            } else {
+                              selectedTasks.remove(task);
+                            }
+                          });
+                        },
+                      )),
+                  const SizedBox(height: 8),
+                ],
+                if (notes.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: selectedNotes.length == notes.length,
+                        tristate: selectedNotes.isNotEmpty && selectedNotes.length < notes.length,
+                        onChanged: (val) {
+                          setState(() {
+                            if (val == true) {
+                              selectedNotes.clear();
+                              selectedNotes.addAll(notes);
+                            } else {
+                              selectedNotes.clear();
+                            }
+                          });
+                        },
+                      ),
+                      Text(
+                        'Notes (${selectedNotes.length}/${notes.length})',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  ...notes.map((note) => CheckboxListTile(
+                        dense: true,
+                        title: Text(
+                          note.title,
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          note.content.length > 50
+                              ? '${note.content.substring(0, 50)}...'
+                              : note.content,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                        ),
+                        value: selectedNotes.contains(note),
+                        onChanged: (val) {
+                          setState(() {
+                            if (val == true) {
+                              selectedNotes.add(note);
+                            } else {
+                              selectedNotes.remove(note);
+                            }
+                          });
+                        },
+                      )),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: selectedTasks.isEmpty && selectedNotes.isEmpty
+                  ? null
+                  : () {
+                      Navigator.pop(context, {
+                        'tasks': selectedTasks,
+                        'notes': selectedNotes,
+                      });
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE85D04),
+              ),
+              child: const Text('Send'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showUnpairedDialog() {
@@ -998,36 +1166,54 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   // Send button
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _tasks.isEmpty || _isUploading
-                          ? null
-                          : _uploadTasks,
-                      icon: _isUploading
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child:
-                                  CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.cloud_upload, size: 20),
-                      label: Text(
-                        _isUploading
-                            ? 'Sending...'
-                            : _tasks.isEmpty
-                                ? 'No tasks'
-                                : 'Send ${_tasks.length}',
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _tasks.isEmpty
-                            ? Colors.grey[700]
-                            : const Color(0xFFE85D04),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
+                    child: FutureBuilder<int>(
+                      future: storage.noteCount,
+                      builder: (context, snapshot) {
+                        final noteCount = snapshot.data ?? 0;
+                        final totalCount = _tasks.length + noteCount;
+                        final isEmpty = _tasks.isEmpty && noteCount == 0;
+                        
+                        String buttonText;
+                        if (_isUploading) {
+                          buttonText = 'Sending...';
+                        } else if (isEmpty) {
+                          buttonText = 'No items';
+                        } else if (_tasks.isEmpty) {
+                          buttonText = 'Send $noteCount note${noteCount > 1 ? 's' : ''}';
+                        } else if (noteCount == 0) {
+                          buttonText = 'Send ${_tasks.length} task${_tasks.length > 1 ? 's' : ''}';
+                        } else {
+                          buttonText = 'Send $totalCount items';
+                        }
+                        
+                        return ElevatedButton.icon(
+                          onPressed: isEmpty || _isUploading
+                              ? null
+                              : _uploadTasks,
+                          icon: _isUploading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.cloud_upload, size: 20),
+                          label: Text(
+                            buttonText,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isEmpty
+                                ? Colors.grey[700]
+                                : const Color(0xFFE85D04),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(width: 12),

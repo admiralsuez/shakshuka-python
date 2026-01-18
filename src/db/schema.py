@@ -143,6 +143,7 @@ INDEXES = [
     'CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks (completed)',
     'CREATE INDEX IF NOT EXISTS idx_tasks_user_scheduled ON tasks (user_id, scheduled_date)',
+    'CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes (user_id, updated_at DESC)',
     'CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id)',
     'CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at)',
     'CREATE INDEX IF NOT EXISTS idx_mobile_devices_user_token ON mobile_devices (user_id, token_hash)',
