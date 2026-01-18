@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
+import '../models/note.dart';
 
 class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
@@ -12,10 +14,12 @@ class NotesScreen extends StatefulWidget {
 class _NotesScreenState extends State<NotesScreen> {
   final ApiService _api = ApiService();
   final StorageService _storage = StorageService();
-  List<dynamic> _notes = [];
+  List<dynamic> _pcNotes = [];  // Notes from PC
+  List<LocalNote> _localNotes = [];  // Notes stored locally waiting to be sent
   bool _isLoading = true;
   bool _isOffline = false;
   String? _errorMessage;
+  final Uuid _uuid = const Uuid();
 
   @override
   void initState() {
@@ -29,29 +33,32 @@ class _NotesScreenState extends State<NotesScreen> {
       _errorMessage = null;
     });
 
-    if (!_storage.isPaired) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Not paired with PC. Please pair first.';
-      });
-      return;
-    }
+    // Load local notes
+    _localNotes = await _storage.getAllNotes();
 
-    final result = await _api.fetchNotes();
+    // If paired, also load PC notes
+    if (_storage.isPaired) {
+      final result = await _api.fetchNotes();
 
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-        if (result['success'] == true) {
-          _notes = List.from(result['notes'] ?? []);
-          _isOffline = result['offline'] == true;
-          _errorMessage = null;
-        } else {
-          _errorMessage = result['message'] ?? 'Failed to load notes';
-          if (result['unpaired'] == true) {
-            _errorMessage = 'Session expired. Please pair again.';
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          if (result['success'] == true) {
+            _pcNotes = List.from(result['notes'] ?? []);
+            _isOffline = result['offline'] == true;
+            _errorMessage = null;
+          } else {
+            _errorMessage = result['message'] ?? 'Failed to load PC notes';
+            if (result['unpaired'] == true) {
+              _errorMessage = 'Session expired. Please pair again.';
+            }
           }
-        }
+        });
+      }
+    } else {
+      setState(() {
+        _isLoading = false;
+        _pcNotes = [];
       });
     }
   }
@@ -63,36 +70,24 @@ class _NotesScreenState extends State<NotesScreen> {
     );
 
     if (result != null && mounted) {
-      setState(() => _isLoading = true);
-
-      final apiResult = await _api.createNote(
-        result['title'] ?? 'Untitled',
-        result['content'] ?? '',
+      // Save note locally instead of creating directly on PC
+      final note = LocalNote(
+        id: _uuid.v4(),
+        title: result['title'] ?? 'Untitled',
+        content: result['content'] ?? '',
+        createdAt: DateTime.now(),
       );
 
+      await _storage.addNote(note);
+
       if (mounted) {
-        if (apiResult['success'] == true) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                apiResult['offline'] == true
-                    ? 'Note saved for sync when online'
-                    : 'Note created successfully',
-              ),
-              backgroundColor:
-                  apiResult['offline'] == true ? Colors.orange : Colors.green,
-            ),
-          );
-          await _loadNotes();
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(apiResult['message'] ?? 'Failed to create note'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          setState(() => _isLoading = false);
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Note saved locally. Use "Send to PC" to send it.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        await _loadNotes();
       }
     }
   }
@@ -102,6 +97,30 @@ class _NotesScreenState extends State<NotesScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => _NoteDetailScreen(note: note),
+      ),
+    );
+  }
+
+  void _viewLocalNote(LocalNote note) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _LocalNoteDetailScreen(
+          note: note,
+          onDelete: () async {
+            await _storage.deleteNote(note.id);
+            if (mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Note deleted'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+              await _loadNotes();
+            }
+          },
+        ),
       ),
     );
   }
@@ -130,7 +149,25 @@ class _NotesScreenState extends State<NotesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notes'),
+        title: Row(
+          children: [
+            const Text('Notes'),
+            if (_localNotes.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE85D04),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${_localNotes.length} local',
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ),
+            ],
+          ],
+        ),
         actions: [
           if (_isOffline)
             const Padding(
@@ -201,7 +238,7 @@ class _NotesScreenState extends State<NotesScreen> {
       );
     }
 
-    if (_notes.isEmpty) {
+    if (_localNotes.isEmpty && _pcNotes.isEmpty) {
       return RefreshIndicator(
         onRefresh: _loadNotes,
         color: const Color(0xFFE85D04),
@@ -247,77 +284,150 @@ class _NotesScreenState extends State<NotesScreen> {
       color: const Color(0xFFE85D04),
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: _notes.length,
+        itemCount: _localNotes.length + _pcNotes.length,
         itemBuilder: (context, index) {
-          final note = Map<String, dynamic>.from(_notes[index]);
-          final title = note['title'] ?? 'Untitled';
-          final content = note['content'] ?? '';
-          final updatedAt = note['updated_at']?.toString();
+          // Show local notes first, then PC notes
+          final isLocal = index < _localNotes.length;
+          
+          if (isLocal) {
+            final note = _localNotes[index];
+            final preview = note.content.length > 100
+                ? '${note.content.substring(0, 100)}...'
+                : note.content;
 
-          // Get preview of content (first ~100 chars)
-          final preview = content.length > 100
-              ? '${content.substring(0, 100)}...'
-              : content;
-
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            color: const Color(0xFF16213E),
-            child: InkWell(
-              onTap: () => _viewNote(note),
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.note,
-                          size: 18,
-                          color: Color(0xFFE85D04),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              color: const Color(0xFF16213E),
+              child: InkWell(
+                onTap: () => _viewLocalNote(note),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.phone_android,
+                            size: 18,
+                            color: Color(0xFFE85D04),
                           ),
-                        ),
-                        if (updatedAt != null)
-                          Text(
-                            _formatDate(updatedAt),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[500],
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              note.title,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                      ],
-                    ),
-                    if (preview.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        preview,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[400],
-                          height: 1.4,
-                        ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE85D04),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              'LOCAL',
+                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
                       ),
+                      if (preview.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          preview,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[400],
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-          );
+            );
+          } else {
+            final pcIndex = index - _localNotes.length;
+            final note = Map<String, dynamic>.from(_pcNotes[pcIndex]);
+            final title = note['title'] ?? 'Untitled';
+            final content = note['content'] ?? '';
+            final updatedAt = note['updated_at']?.toString();
+
+            final preview = content.length > 100
+                ? '${content.substring(0, 100)}...'
+                : content;
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              color: const Color(0xFF16213E),
+              child: InkWell(
+                onTap: () => _viewNote(note),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.computer,
+                            size: 18,
+                            color: Color(0xFFE85D04),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (updatedAt != null)
+                            Text(
+                              _formatDate(updatedAt),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                        ],
+                      ),
+                      if (preview.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          preview,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[400],
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
         },
       ),
     );
@@ -408,6 +518,119 @@ class _CreateNoteDialogState extends State<_CreateNoteDialog> {
           child: const Text('Create'),
         ),
       ],
+    );
+  }
+}
+
+class _LocalNoteDetailScreen extends StatelessWidget {
+  final LocalNote note;
+  final VoidCallback onDelete;
+
+  const _LocalNoteDetailScreen({required this.note, required this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    final formattedDate =
+        '${note.createdAt.day}/${note.createdAt.month}/${note.createdAt.year} ${note.createdAt.hour}:${note.createdAt.minute.toString().padLeft(2, '0')}';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          note.title,
+          style: const TextStyle(fontSize: 18),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete, color: Colors.red),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  backgroundColor: const Color(0xFF16213E),
+                  title: const Text('Delete Note'),
+                  content: const Text(
+                    'Are you sure you want to delete this local note?',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        onDelete();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                      ),
+                      child: const Text('Delete'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE85D04),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'LOCAL NOTE - NOT YET SENT TO PC',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.access_time,
+                    size: 14,
+                    color: Colors.grey[500],
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Created: $formattedDate',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[500],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF16213E),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: SelectableText(
+                note.content.isEmpty ? 'No content' : note.content,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: note.content.isEmpty ? Colors.grey[500] : Colors.white,
+                  height: 1.6,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
