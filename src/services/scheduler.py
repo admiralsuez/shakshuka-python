@@ -385,16 +385,20 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
                 # Persist last-run markers.
                 _write_last_run('daily_reset', datetime.now())
 
-                # Persist last_daily_reset_at so missed reset detection is reliable even when
-                # the user changes daily_reset_time later.
+                # Persist last_daily_reset_at and increment daily_reset_count so missed reset
+                # detection is reliable even when the user changes daily_reset_time later.
                 try:
                     latest_settings = data_manager.load_settings(user_id) or {}
                     latest_settings['last_daily_reset_at'] = datetime.now().isoformat()
+                    # Increment daily reset counter for analytics
+                    current_count = latest_settings.get('daily_reset_count', 0)
+                    latest_settings['daily_reset_count'] = current_count + 1
                     data_manager.save_settings(user_id, latest_settings)
+                    logger.info(f"Daily reset count incremented to {current_count + 1}")
                 except DatabaseError:
-                    logger.exception("Failed to persist last_daily_reset_at")
+                    logger.exception("Failed to persist last_daily_reset_at and reset count")
                 except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
-                    logger.exception("Failed to persist last_daily_reset_at")
+                    logger.exception("Failed to persist last_daily_reset_at and reset count")
             else:
                 logger.error("Failed to save tasks after daily reset")
         else:

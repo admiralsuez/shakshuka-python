@@ -487,6 +487,8 @@ def get_analytics_summary():
         tasks_with_time_live = len([t for t in tasks if t.get('estimated_duration') or t.get('duration')])
         tasks_planned_all_time = analytics.get('tasks_planned', 0)
 
+        daily_reset_count = user_settings.get('daily_reset_count', 0)
+        
         return jsonify(
             {
                 'success': True,
@@ -504,6 +506,7 @@ def get_analytics_summary():
                 'tasks_with_dates': tasks_with_dates_live,
                 'tasks_with_time': tasks_with_time_live,
                 'tasks_planned': tasks_planned_all_time,
+                'daily_reset_count': daily_reset_count,
             }
         )
 
