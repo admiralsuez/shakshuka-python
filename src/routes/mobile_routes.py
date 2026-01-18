@@ -312,9 +312,16 @@ def submit_inbox():
     if data is None or not isinstance(data, dict):
         return jsonify({"success": False, "error": "Request must contain JSON object"}), 400
 
-    tasks = data.get("tasks")
+    tasks = data.get("tasks", [])
+    notes = data.get("notes", [])
+    
     if not isinstance(tasks, list):
         return jsonify({"success": False, "error": "tasks must be a list"}), 400
+    if not isinstance(notes, list):
+        return jsonify({"success": False, "error": "notes must be a list"}), 400
+    
+    if not tasks and not notes:
+        return jsonify({"success": False, "error": "Must include tasks or notes"}), 400
 
     submission_id = str(data.get("submission_id") or "").strip() or str(uuid.uuid4())
 
@@ -322,6 +329,7 @@ def submit_inbox():
         "device_id": device.get("device_id"),
         "device_name": device.get("device_name"),
         "tasks": tasks,
+        "notes": notes,
     }
 
     dm = _get_data_manager()
@@ -343,7 +351,14 @@ def submit_inbox():
         logger.exception("Failed to save inbox submission")
         return jsonify({"success": False, "error": "Failed to save submission"}), 500
 
-    return jsonify({"success": True, "submission_id": submission_id, "received": len(tasks)})
+    total_items = len(tasks) + len(notes)
+    return jsonify({
+        "success": True, 
+        "submission_id": submission_id, 
+        "received": total_items,
+        "tasks_count": len(tasks),
+        "notes_count": len(notes),
+    })
 
 
 @mobile_bp.route("/inbox/pending", methods=["GET"])
@@ -451,9 +466,13 @@ def approve_inbox(submission_id: str):
     if data is None or not isinstance(data, dict):
         return jsonify({"success": False, "error": "Request must contain JSON object"}), 400
 
-    selected_ids = data.get("selected_task_ids")
-    if not isinstance(selected_ids, list):
+    selected_task_ids = data.get("selected_task_ids", [])
+    selected_note_ids = data.get("selected_note_ids", [])
+    
+    if not isinstance(selected_task_ids, list):
         return jsonify({"success": False, "error": "selected_task_ids must be a list"}), 400
+    if not isinstance(selected_note_ids, list):
+        return jsonify({"success": False, "error": "selected_note_ids must be a list"}), 400
 
     user_id = _get_user_id()
 
@@ -469,14 +488,20 @@ def approve_inbox(submission_id: str):
 
             payload = json.loads(row[0]) if row[0] else {}
             tasks = payload.get("tasks") if isinstance(payload, dict) else None
+            notes = payload.get("notes") if isinstance(payload, dict) else None
             if not isinstance(tasks, list):
                 tasks = []
+            if not isinstance(notes, list):
+                notes = []
 
         created_tasks = []
-        created_count = 0
+        created_notes = []
+        created_tasks_count = 0
+        created_notes_count = 0
         skipped = []
 
-        selected_set = set(str(x) for x in selected_ids)
+        selected_task_set = set(str(x) for x in selected_task_ids)
+        selected_note_set = set(str(x) for x in selected_note_ids)
 
         for t in tasks:
             if not isinstance(t, dict):
@@ -485,7 +510,7 @@ def approve_inbox(submission_id: str):
             if not client_task_id:
                 skipped.append({"client_task_id": client_task_id, "error": "Missing client_task_id"})
                 continue
-            if client_task_id not in selected_set:
+            if client_task_id not in selected_task_set:
                 continue
 
             ok_map, task_payload, msg = _map_mobile_task_to_task_payload(t)
@@ -496,12 +521,37 @@ def approve_inbox(submission_id: str):
             created = dm.create_task_for_user(user_id, task_payload)
             if created:
                 created_tasks.append(created)
-                created_count += 1
+                created_tasks_count += 1
             else:
                 skipped.append({"client_task_id": client_task_id, "error": "Create failed"})
+        
+        # Process notes
+        for n in notes:
+            if not isinstance(n, dict):
+                continue
+            client_note_id = str(n.get("client_note_id") or n.get("id") or "").strip()
+            if not client_note_id:
+                skipped.append({"client_note_id": client_note_id, "error": "Missing client_note_id"})
+                continue
+            if client_note_id not in selected_note_set:
+                continue
+            
+            title = (n.get("title") or "").strip() or "Untitled"
+            content = n.get("content", "")
+            
+            created_note = dm.create_note_for_user(user_id, {"title": title, "content": content})
+            if created_note:
+                created_notes.append(created_note)
+                created_notes_count += 1
+            else:
+                skipped.append({"client_note_id": client_note_id, "error": "Create failed"})
 
         now = datetime.now().isoformat()
-        result_json = json.dumps({"created": created_count, "skipped": skipped})
+        result_json = json.dumps({
+            "created_tasks": created_tasks_count,
+            "created_notes": created_notes_count,
+            "skipped": skipped
+        })
 
         with dm._get_connection() as conn:  # pylint: disable=protected-access
             conn.execute(
@@ -510,7 +560,14 @@ def approve_inbox(submission_id: str):
             )
             conn.commit()
 
-        return jsonify({"success": True, "created": created_count, "tasks": created_tasks, "skipped": skipped})
+        return jsonify({
+            "success": True,
+            "created_tasks": created_tasks_count,
+            "created_notes": created_notes_count,
+            "tasks": created_tasks,
+            "notes": created_notes,
+            "skipped": skipped
+        })
 
     except Exception:  # noqa: broad-except
         logger.exception("Failed to approve inbox submission %s", submission_id)

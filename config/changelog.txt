@@ -1,3 +1,9 @@
+## Version 19.5 - Release
+Release Date: 2026-01-17T16:44:22.654784
+
+Highlights
+
+---
 ## Version 19.4 - Release
 Release Date: 2026-01-17T01:53:17.530645
 
