@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
+import '../models/note.dart';
 import '../models/paired_device.dart';
 
 class StorageService {
@@ -11,6 +12,7 @@ class StorageService {
   StorageService._internal();
 
   Box<LocalTask> get _taskBox => Hive.box<LocalTask>('tasks');
+  Box<LocalNote> get _noteBox => Hive.box<LocalNote>('notes');
   Box<PairedDevice> get _deviceBox => Hive.box<PairedDevice>('paired_device');
 
   // Stats tracking
@@ -108,6 +110,30 @@ class StorageService {
   }
 
   int get taskCount => _taskBox.length;
+
+  // Local Notes (to be sent to PC)
+  List<LocalNote> getAllNotes() {
+    return _noteBox.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  Future<void> addNote(LocalNote note) async {
+    await _noteBox.put(note.id, note);
+  }
+
+  Future<void> deleteNote(String id) async {
+    await _noteBox.delete(id);
+  }
+
+  Future<void> updateNote(LocalNote note) async {
+    await _noteBox.put(note.id, note);
+  }
+
+  Future<void> clearAllNotes() async {
+    await _noteBox.clear();
+  }
+
+  int get noteCount => _noteBox.length;
 
   // Paired Device
   PairedDevice? getPairedDevice() {
