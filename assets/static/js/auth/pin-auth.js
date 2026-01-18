@@ -108,7 +108,8 @@ class PINAuth {
                         <div class="pin-input-container">
                             <input type="password" id="setup-pin" maxlength="4" 
                                    class="pin-input" placeholder="••••" 
-                                   inputmode="numeric" pattern="[0-9]*">
+                                   inputmode="numeric" pattern="[0-9]*"
+                                   autocomplete="new-password">
                             <button type="button" class="pin-toggle" onclick="PINAuthInstance.togglePINVisibility('setup-pin')">
                                 <i class="fas fa-eye"></i>
                             </button>
@@ -121,7 +122,8 @@ class PINAuth {
                         <div class="pin-input-container">
                             <input type="password" id="confirm-pin" maxlength="4" 
                                    class="pin-input" placeholder="••••"
-                                   inputmode="numeric" pattern="[0-9]*">
+                                   inputmode="numeric" pattern="[0-9]*"
+                                   autocomplete="new-password">
                             <button type="button" class="pin-toggle" onclick="PINAuthInstance.togglePINVisibility('confirm-pin')">
                                 <i class="fas fa-eye"></i>
                             </button>
@@ -194,6 +196,7 @@ class PINAuth {
                             <input type="password" id="login-pin" maxlength="4" 
                                    class="pin-input pin-input-large" placeholder="••••"
                                    inputmode="numeric" pattern="[0-9]*"
+                                   autocomplete="off"
                                    ${inCooldown ? 'disabled' : ''}>
                             <button type="button" class="pin-toggle" onclick="PINAuthInstance.togglePINVisibility('login-pin')"
                                     ${inCooldown ? 'disabled' : ''}>
@@ -258,7 +261,8 @@ class PINAuth {
                         <div class="pin-input-container">
                             <input type="password" id="reset-new-pin" maxlength="4" 
                                    class="pin-input" placeholder="••••"
-                                   inputmode="numeric" pattern="[0-9]*">
+                                   inputmode="numeric" pattern="[0-9]*"
+                                   autocomplete="new-password">
                             <button type="button" class="pin-toggle" onclick="PINAuthInstance.togglePINVisibility('reset-new-pin')">
                                 <i class="fas fa-eye"></i>
                             </button>
@@ -270,7 +274,8 @@ class PINAuth {
                         <div class="pin-input-container">
                             <input type="password" id="reset-confirm-pin" maxlength="4" 
                                    class="pin-input" placeholder="••••"
-                                   inputmode="numeric" pattern="[0-9]*">
+                                   inputmode="numeric" pattern="[0-9]*"
+                                   autocomplete="new-password">
                             <button type="button" class="pin-toggle" onclick="PINAuthInstance.togglePINVisibility('reset-confirm-pin')">
                                 <i class="fas fa-eye"></i>
                             </button>
