@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:workmanager/workmanager.dart';
 import 'models/task.dart';
+import 'models/note.dart';
 import 'models/paired_device.dart';
 import 'services/notification_service.dart';
 import 'screens/home_screen.dart';
@@ -25,9 +26,11 @@ void main() async {
   
   await Hive.initFlutter();
   Hive.registerAdapter(LocalTaskAdapter());
+  Hive.registerAdapter(LocalNoteAdapter());
   Hive.registerAdapter(PairedDeviceAdapter());
   
   await Hive.openBox<LocalTask>('tasks');
+  await Hive.openBox<LocalNote>('notes');
   await Hive.openBox<PairedDevice>('paired_device');
   
   // Initialize notifications
