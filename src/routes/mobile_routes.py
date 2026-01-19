@@ -223,6 +223,26 @@ def pair_device():
                 "INSERT OR REPLACE INTO mobile_devices (user_id, device_id, device_name, token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM mobile_devices WHERE user_id = ? AND device_id = ?), ?), ?)",
                 (user_id, device_id, device_name, token_hash, user_id, device_id, now, now),
             )
+
+            # Enforce a maximum of 4 paired devices per user by deleting the oldest.
+            try:
+                cur = conn.execute(
+                    "SELECT device_id FROM mobile_devices WHERE user_id = ? ORDER BY created_at ASC",
+                    (user_id,),
+                )
+                rows = cur.fetchall() or []
+                if len(rows) > 4:
+                    # Delete all but the 4 most-recently created devices
+                    to_delete = [r[0] for r in rows[:-4] if r and r[0]]
+                    if to_delete:
+                        conn.executemany(
+                            "DELETE FROM mobile_devices WHERE user_id = ? AND device_id = ?",
+                            [(user_id, d) for d in to_delete],
+                        )
+            except Exception:  # noqa: broad-except
+                # Best-effort cleanup; do not fail pairing if pruning fails.
+                logger.exception("Failed to prune excess mobile devices for user %s", user_id)
+
             conn.commit()
     except Exception:  # noqa: broad-except
         logger.exception("Failed to save paired device")
