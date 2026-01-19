@@ -1173,7 +1173,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   // Send button
                   Expanded(
                     child: FutureBuilder<int>(
-                      future: _storage.noteCount,
+                      future: Future.value(_storage.noteCount),
                       builder: (context, snapshot) {
                         final noteCount = snapshot.data ?? 0;
                         final totalCount = _tasks.length + noteCount;
