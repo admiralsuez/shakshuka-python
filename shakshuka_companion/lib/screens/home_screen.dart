@@ -178,14 +178,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Show selection dialog
     final selection = await _showSendSelectionDialog(_tasks, notes);
-    if (selection == null || (selection['tasks'].isEmpty && selection['notes'].isEmpty)) {
+    if (selection == null) {
+      return;
+    }
+
+    final selectedTaskListDyn = (selection['tasks'] as List?) ?? const [];
+    final selectedNoteListDyn = (selection['notes'] as List?) ?? const [];
+    if (selectedTaskListDyn.isEmpty && selectedNoteListDyn.isEmpty) {
       return;
     }
 
     setState(() => _isUploading = true);
 
-    final selectedTasks = selection['tasks'] as List<LocalTask>;
-    final selectedNotes = selection['notes'] as List<LocalNote>;
+    final selectedTasks = List<LocalTask>.from(selectedTaskListDyn);
+    final selectedNotes = List<LocalNote>.from(selectedNoteListDyn);
     final result = await _api.uploadTasksAndNotes(selectedTasks, selectedNotes);
 
     setState(() => _isUploading = false);
@@ -1167,7 +1173,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   // Send button
                   Expanded(
                     child: FutureBuilder<int>(
-                      future: storage.noteCount,
+                      future: _storage.noteCount,
                       builder: (context, snapshot) {
                         final noteCount = snapshot.data ?? 0;
                         final totalCount = _tasks.length + noteCount;
