@@ -146,6 +146,19 @@ body[data-theme="focus"] {
     --accent-color: #00B894;
 }
 
+/* Yellow Theme */
+body[data-theme="yellow"] {
+    --primary-gradient: linear-gradient(135deg, #FFE066, #FFC107);
+    --secondary-gradient: linear-gradient(135deg, #FFFDE7 0%, #FFF3CD 100%);
+    --background-color: #FFFDE7;
+    --surface-color: rgba(255, 255, 255, 0.98);
+    --text-color: #5C4A00;
+    --text-secondary: #8D6E63;
+    --border-color: rgba(255, 193, 7, 0.4);
+    --shadow-color: rgba(255, 193, 7, 0.15);
+    --accent-color: #FFC107;
+}
+
 /* Finish Variables - Glossy (Default) */
 [data-finish="glossy"] {
     --finish-overlay: linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 50%, rgba(0,0,0,0.1) 100%);

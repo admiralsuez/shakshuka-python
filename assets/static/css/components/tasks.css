@@ -215,7 +215,7 @@
 }
 
 .task-item {
-    background: var(--surface-color);
+    background: var(--surface-finish-gradient);
     border-radius: calc(12px * var(--dpi-scale, 1));
     padding: calc(12px * var(--dpi-scale, 1)) calc(16px * var(--dpi-scale, 1));
     margin-bottom: calc(10px * var(--dpi-scale, 1));
@@ -364,7 +364,7 @@
     left: 0;
     right: 0;
     height: calc(120px * var(--dpi-scale));
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 240, 220, 0.8) 100%);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
     z-index: 1;
 }
 

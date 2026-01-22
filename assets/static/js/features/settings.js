@@ -33,10 +33,30 @@ const Settings = {
 
     _setCurrentSettings(settings) {
         try {
-            if (typeof AppState !== 'undefined' && AppState && typeof AppState.set === 'function') {
-                AppState.set('currentSettings', settings);
+            if (typeof AppState !== 'undefined' && AppState) {
+                // Use synchronous setter when available to avoid race conditions
+                if (typeof AppState.setSync === 'function') {
+                    AppState.setSync('currentSettings', settings);
+                } else if (typeof AppState.set === 'function') {
+                    // Fall back to async setter
+                    AppState.set('currentSettings', settings);
+                }
             }
         } catch (e) { /* no-op */ }
+    },
+
+    /**
+     * Merge server-returned settings with existing settings and the local patch.
+     * This makes Perf Max work even if the backend ignores/does not echo perf flags.
+     */
+    _mergeSettings(serverSettings, patch) {
+        // Use Settings._getCurrentSettings directly to avoid relying on `this` binding
+        const current    = (typeof Settings !== 'undefined' && Settings && typeof Settings._getCurrentSettings === 'function')
+            ? Settings._getCurrentSettings() || {}
+            : {};
+        const fromServer = serverSettings || {};
+        const fromPatch  = patch || {};
+        return Object.assign({}, current, fromServer, fromPatch);
     },
 
     async _putSettings(patch) {
@@ -105,6 +125,10 @@ const Settings = {
             const streakSkipWeekends = document.getElementById('streak-skip-weekends');
             const streakCountNewTasks = document.getElementById('streak-count-new-tasks');
             const streakCountSettings = document.getElementById('streak-count-settings');
+            const perfDisableBlur = document.getElementById('perf-disable-blur');
+            const perfDisableShadows = document.getElementById('perf-disable-shadows');
+            const perfDisableAnimations = document.getElementById('perf-disable-animations');
+            const perfDisableGlow = document.getElementById('perf-disable-glow');
             
             // Backend returns autostart_enabled; keep legacy "autostart" fallback just in case
             if (autostartToggle) {
@@ -124,7 +148,14 @@ const Settings = {
             if (streakSkipWeekends) streakSkipWeekends.checked = !!settings.streak_skip_weekends;
             if (streakCountNewTasks) streakCountNewTasks.checked = !!settings.streak_count_new_tasks;
             if (streakCountSettings) streakCountSettings.checked = !!settings.streak_count_settings;
+            if (perfDisableBlur) perfDisableBlur.checked = !!settings.perf_disable_blur;
+            if (perfDisableShadows) perfDisableShadows.checked = !!settings.perf_disable_shadows;
+            if (perfDisableAnimations) perfDisableAnimations.checked = !!settings.perf_disable_animations;
+            if (perfDisableGlow) perfDisableGlow.checked = !!settings.perf_disable_glow;
 
+            // Sync Perf Max button label with current state
+            try { this.updatePerfMaxButtonLabel(); } catch (e) { /* no-op */ }
+ 
             // Build selects (once)
             this.ensureTimeSelectOptions();
             
@@ -564,6 +595,17 @@ const Settings = {
                 'border-color': 'rgba(116, 185, 255, 0.3)',
                 'shadow-color': 'rgba(116, 185, 255, 0.1)',
                 'accent-color': '#74B9FF'
+            },
+            'yellow': {
+                'primary-gradient': 'linear-gradient(135deg, #FFE066, #FFC107)',
+                'secondary-gradient': 'linear-gradient(135deg, #FFFDE7 0%, #FFF3CD 100%)',
+                'background-color': '#FFFDE7',
+                'surface-color': 'rgba(255, 255, 255, 0.95)',
+                'text-color': '#5C4A00',
+                'text-secondary': '#8D6E63',
+                'border-color': 'rgba(255, 193, 7, 0.3)',
+                'shadow-color': 'rgba(255, 193, 7, 0.1)',
+                'accent-color': '#FFC107'
             }
         };
         
@@ -639,6 +681,24 @@ const Settings = {
             }
         }
         
+        // Apply intensity variations for yellow theme
+        if (theme === 'yellow' && intensity !== '5') {
+            const intensityMap = {
+                '1': 'linear-gradient(135deg, #FFF3CD, #FFE082)',
+                '2': 'linear-gradient(135deg, #FFECB3, #FFD54F)',
+                '3': 'linear-gradient(135deg, #FFE082, #FFC107)',
+                '4': 'linear-gradient(135deg, #FFD54F, #FFB300)',
+                '6': 'linear-gradient(135deg, #FFC107, #FFB300)',
+                '7': 'linear-gradient(135deg, #FFB300, #FFA000)',
+                '8': 'linear-gradient(135deg, #FFA000, #FF8F00)',
+                '9': 'linear-gradient(135deg, #FF8F00, #FF6F00)',
+                '10': 'linear-gradient(135deg, #FF6F00, #E65100)'
+            };
+            if (intensityMap[intensity]) {
+                themeColors.yellow['primary-gradient'] = intensityMap[intensity];
+            }
+        }
+        
         // Apply the theme colors to CSS custom properties
         const colors = themeColors[theme] || themeColors['light'];
         Object.entries(colors).forEach(([property, value]) => {
@@ -648,11 +708,33 @@ const Settings = {
         // Apply additional CSS custom properties
         const settings = this._getCurrentSettings();
         const dpiScale = settings.dpi_scale || 100;
+        const perfDisableBlur = !!settings.perf_disable_blur;
+        const perfDisableShadows = !!settings.perf_disable_shadows;
+        const perfDisableAnimations = !!settings.perf_disable_animations;
+        const perfDisableGlow = !!settings.perf_disable_glow;
+
+        // If shadows are disabled, neutralize shadow color
+        if (perfDisableShadows) {
+            colors['shadow-color'] = 'rgba(0, 0, 0, 0)';
+        }
+
+        // If glow is disabled, flatten glossy overlay; otherwise restore CSS-defined default
+        if (perfDisableGlow) {
+            root.style.setProperty('--glossy-overlay', 'transparent');
+            body.style.setProperty('--glossy-overlay', 'transparent');
+        } else {
+            // Remove inline override so base theme/finish CSS can re-apply the correct overlay
+            root.style.removeProperty('--glossy-overlay');
+            body.style.removeProperty('--glossy-overlay');
+        }
+
         const additionalProperties = {
             'surface-finish-gradient': colors['secondary-gradient'],
-            'box-shadow-primary': `0 ${4 * (dpiScale / 100)}px ${12 * (dpiScale / 100)}px ${colors['shadow-color']}`,
+            'box-shadow-primary': perfDisableShadows
+                ? 'none'
+                : `0 ${4 * (dpiScale / 100)}px ${12 * (dpiScale / 100)}px ${colors['shadow-color']}`,
             'border-finish': `1px solid ${colors['border-color']}`,
-            'backdrop-filter': 'blur(10px)',
+            'backdrop-filter': perfDisableBlur ? 'none' : 'blur(10px)',
             'text-primary': colors['text-color'],
             'text-secondary': colors['text-secondary'],
             'accent-gradient': colors['primary-gradient']
@@ -663,6 +745,28 @@ const Settings = {
             root.style.setProperty(`--${property}`, value);
             body.style.setProperty(`--${property}`, value);
         });
+
+        // Body attributes used by CSS to hard-disable animations and effects
+        if (perfDisableBlur) {
+            body.setAttribute('data-perf-blur', 'off');
+        } else {
+            body.removeAttribute('data-perf-blur');
+        }
+        if (perfDisableShadows) {
+            body.setAttribute('data-perf-shadow', 'off');
+        } else {
+            body.removeAttribute('data-perf-shadow');
+        }
+        if (perfDisableAnimations) {
+            body.setAttribute('data-perf-anim', 'off');
+        } else {
+            body.removeAttribute('data-perf-anim');
+        }
+        if (perfDisableGlow) {
+            body.setAttribute('data-perf-glow', 'off');
+        } else {
+            body.removeAttribute('data-perf-glow');
+        }
     },
 
     /**
@@ -761,6 +865,192 @@ const Settings = {
             if (el) el.value = String(prev);
             if (typeof showNotification === 'function') {
                 showNotification('Error updating DPI scale', 'error');
+            }
+        }
+    },
+
+    /**
+     * Update Perf Max button label based on current perf flags.
+     * When all perf_disable_* flags are enabled, show "Restore animations"; otherwise "Apply max".
+     */
+    updatePerfMaxButtonLabel() {
+        try {
+            const btn = document.getElementById('perf-max-button');
+            if (!btn) return;
+            const settings = this._getCurrentSettings() || {};
+            const allOn = !!settings.perf_disable_blur &&
+                          !!settings.perf_disable_shadows &&
+                          !!settings.perf_disable_animations &&
+                          !!settings.perf_disable_glow;
+            btn.textContent = allOn ? 'Restore animations' : 'Apply max';
+        } catch (e) { /* no-op */ }
+    },
+ 
+    /**
+     * One-click Perf Max preset (Chrome / low FPS)
+     *
+     * Behaves as a toggle:
+     * - If ALL perf_disable_* flags are currently enabled, clicking will
+     *   restore animations/effects to their defaults (set all to false).
+     * - Otherwise, clicking will enable Perf Max (set all to true).
+     */
+    async applyPerfMaxPreset() {
+        try {
+            const current = this._getCurrentSettings() || {};
+            const allOn = !!current.perf_disable_blur &&
+                          !!current.perf_disable_shadows &&
+                          !!current.perf_disable_animations &&
+                          !!current.perf_disable_glow;
+
+            // Decide whether we are enabling Perf Max or restoring defaults
+            let patch;
+            let message;
+            if (allOn) {
+                // Restore animations / visual effects to default
+                patch = {
+                    perf_disable_blur:       false,
+                    perf_disable_shadows:    false,
+                    perf_disable_animations: false,
+                    perf_disable_glow:       false,
+                };
+                message = 'Animations and visual effects restored to default';
+            } else {
+                // Enable Perf Max
+                patch = {
+                    perf_disable_blur:       true,
+                    perf_disable_shadows:    true,
+                    perf_disable_animations: true,
+                    perf_disable_glow:       true,
+                };
+                message = 'Perf Max enabled (blurs, glows, and animations reduced)';
+            }
+
+            const serverSettings = await this._putSettings(patch);
+            const merged         = Settings._mergeSettings(serverSettings, patch);
+            this._setCurrentSettings(merged);
+
+            // Reflect in UI toggles immediately using merged state
+            try {
+                const blurEl   = document.getElementById('perf-disable-blur');
+                const shadowEl = document.getElementById('perf-disable-shadows');
+                const animEl   = document.getElementById('perf-disable-animations');
+                const glowEl   = document.getElementById('perf-disable-glow');
+                if (blurEl)   blurEl.checked   = !!merged.perf_disable_blur;
+                if (shadowEl) shadowEl.checked = !!merged.perf_disable_shadows;
+                if (animEl)   animEl.checked   = !!merged.perf_disable_animations;
+                if (glowEl)   glowEl.checked   = !!merged.perf_disable_glow;
+            } catch (e) { /* no-op */ }
+
+            // Update button label to reflect Perf Max state
+            try { this.updatePerfMaxButtonLabel(); } catch (e) { /* no-op */ }
+ 
+            // Re-apply theme and performance-related CSS overrides
+            this.applyThemeAndDPI();
+
+            if (typeof showNotification === 'function') {
+                showNotification(message, 'success');
+            }
+            window.incrementSettingsChangeCount?.();
+        } catch (error) {
+            Utils.Logger.error('Error applying Perf Max preset:', error);
+            if (typeof showNotification === 'function') {
+                showNotification('Error applying Perf Max preset', 'error');
+            }
+        }
+    },
+
+    async updatePerfDisableBlur() {
+        const el      = document.getElementById('perf-disable-blur');
+        const enabled = !!el?.checked;
+        const prev    = !!this._getCurrentSettings().perf_disable_blur;
+        try {
+            const patch          = { perf_disable_blur: enabled };
+            const serverSettings = await this._putSettings(patch);
+            const merged         = Settings._mergeSettings(serverSettings, patch);
+            this._setCurrentSettings(merged);
+            this.applyThemeAndDPI();
+            try { this.updatePerfMaxButtonLabel(); } catch (e) { /* no-op */ }
+            if (typeof showNotification === 'function') {
+                showNotification(enabled ? 'Blur effects disabled' : 'Blur effects enabled', 'success');
+            }
+            window.incrementSettingsChangeCount?.();
+        } catch (error) {
+            Utils.Logger.error('Error updating perf blur setting:', error);
+            if (el) el.checked = prev;
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating blur setting', 'error');
+            }
+        }
+    },
+
+    async updatePerfDisableShadows() {
+        const el      = document.getElementById('perf-disable-shadows');
+        const enabled = !!el?.checked;
+        const prev    = !!this._getCurrentSettings().perf_disable_shadows;
+        try {
+            const patch          = { perf_disable_shadows: enabled };
+            const serverSettings = await this._putSettings(patch);
+            const merged         = Settings._mergeSettings(serverSettings, patch);
+            this._setCurrentSettings(merged);
+            this.applyThemeAndDPI();
+            try { this.updatePerfMaxButtonLabel(); } catch (e) { /* no-op */ }
+            if (typeof showNotification === 'function') {
+                showNotification(enabled ? 'Shadows and heavy glows disabled' : 'Shadows enabled', 'success');
+            }
+            window.incrementSettingsChangeCount?.();
+        } catch (error) {
+            Utils.Logger.error('Error updating perf shadows setting:', error);
+            if (el) el.checked = prev;
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating shadows setting', 'error');
+            }
+        }
+    },
+
+    async updatePerfDisableAnimations() {
+        const el      = document.getElementById('perf-disable-animations');
+        const enabled = !!el?.checked;
+        const prev    = !!this._getCurrentSettings().perf_disable_animations;
+        try {
+            const patch          = { perf_disable_animations: enabled };
+            const serverSettings = await this._putSettings(patch);
+            const merged         = Settings._mergeSettings(serverSettings, patch);
+            this._setCurrentSettings(merged);
+            this.applyThemeAndDPI();
+            try { this.updatePerfMaxButtonLabel(); } catch (e) { /* no-op */ }
+            if (typeof showNotification === 'function') {
+                showNotification(enabled ? 'Most UI animations disabled' : 'Animations enabled', 'success');
+            }
+            window.incrementSettingsChangeCount?.();
+        } catch (error) {
+            Utils.Logger.error('Error updating perf animations setting:', error);
+            if (el) el.checked = prev;
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating animations setting', 'error');
+            }
+        }
+    },
+
+    async updatePerfDisableGlow() {
+        const el      = document.getElementById('perf-disable-glow');
+        const enabled = !!el?.checked;
+        const prev    = !!this._getCurrentSettings().perf_disable_glow;
+        try {
+            const patch          = { perf_disable_glow: enabled };
+            const serverSettings = await this._putSettings(patch);
+            const merged         = Settings._mergeSettings(serverSettings, patch);
+            this._setCurrentSettings(merged);
+            this.applyThemeAndDPI();
+            try { this.updatePerfMaxButtonLabel(); } catch (e) { /* no-op */ }
+            if (typeof showNotification === 'function') {
+                showNotification(enabled ? 'Glossy overlays disabled' : 'Glossy overlays enabled', 'success');
+            }
+            window.incrementSettingsChangeCount?.();
+        } catch (error) {
+            Utils.Logger.error('Error updating perf glow setting:', error);
+            if (el) el.checked = prev;
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating glow setting', 'error');
             }
         }
     },
@@ -1027,6 +1317,11 @@ window.updateFinish = () => Settings.updateFinish();
 window.updateIntensity = () => Settings.updateIntensity();
 window.updateDPI = () => Settings.updateDPI();
 window.updateResetTime = () => Settings.updateResetTime();
+window.updatePerfDisableBlur = () => Settings.updatePerfDisableBlur();
+window.updatePerfDisableShadows = () => Settings.updatePerfDisableShadows();
+window.updatePerfDisableAnimations = () => Settings.updatePerfDisableAnimations();
+window.updatePerfDisableGlow = () => Settings.updatePerfDisableGlow();
+window.applyPerfMaxPreset = () => Settings.applyPerfMaxPreset();
 
 // Initialize time select/spinner event handlers when DOM loads
 (function initResetTimeBindings(){

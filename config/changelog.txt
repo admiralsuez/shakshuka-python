@@ -1,3 +1,111 @@
+## Version 21.5 - Release
+Release Date: 2026-01-23T03:48:08.688959
+
+Highlights
+
+---
+## Version 21.4 - Release
+Release Date: 2026-01-23T03:26:29.811407
+
+Highlights
+
+---
+## Version 21.3 - Release
+Release Date: 2026-01-23T02:12:22.139542
+
+Highlights
+
+---
+## Version 21.2 - Release
+Release Date: 2026-01-23T01:22:20.518706
+
+Highlights
+
+---
+## Version 21.1 - Release
+Release Date: 2026-01-22T01:21:19.494971
+
+Highlights
+
+---
+## Version 21.0 - Release
+Release Date: 2026-01-22T01:04:02.979183
+
+Highlights
+
+---
+## Version 20.9 - Release
+Release Date: 2026-01-21T21:25:50.138357
+
+Highlights
+
+---
+## Version 20.8 - Release
+Release Date: 2026-01-21T19:35:04.550100
+
+Highlights
+
+---
+## Version 20.7 - Release
+Release Date: 2026-01-21T18:03:47.050537
+
+Highlights
+
+---
+## Version 20.6 - Release
+Release Date: 2026-01-21T15:00:07.641791
+
+Highlights
+
+---
+## Version 20.5 - Release
+Release Date: 2026-01-20T23:16:22.575888
+
+Highlights
+
+---
+## Version 20.4 - Release
+Release Date: 2026-01-20T16:49:03.449196
+
+Highlights
+
+---
+## Version 20.3 - Release
+Release Date: 2026-01-20T16:08:52.494966
+
+Highlights
+
+---
+## Version 20.2 - Release
+Release Date: 2026-01-20T16:02:11.758510
+
+Highlights
+
+---
+## Version 20.1 - Release
+Release Date: 2026-01-20T15:08:47.172600
+
+Highlights
+
+---
+## Version 20.0 - Release
+Release Date: 2026-01-20T14:25:52.780515
+
+Highlights
+
+---
+## Version 19.9 - Release
+Release Date: 2026-01-20T03:01:24.457444
+
+Highlights
+
+---
+## Version 19.8 - Release
+Release Date: 2026-01-20T02:42:37.111204
+
+Highlights
+
+---
 ## Version 19.7 - Major Mobile & Analytics Update
 Release Date: 2026-01-18
 

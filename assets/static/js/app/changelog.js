@@ -267,8 +267,27 @@ function formatChangelogSections(groups) {
         const isExpanded = index === 0; // Expand latest major version by default
         const sectionId = `changelog-section-${group.majorVersion}`;
 
+        // Filter out sections that have no highlights and no meaningful body
+        const visibleSections = (group.sections || []).filter(section => {
+            const split = splitHighlightsAndBody(section.content || []);
+            const bodyLines = (split.body || []).filter(line => {
+                const t = (line || '').trim();
+                if (!t) return false;
+                if (/^highlights$/i.test(t) || /^consolidated highlights$/i.test(t)) return false;
+                if (/^technical notes$/i.test(t) || /^notes$/i.test(t)) return false;
+                if (t === '---') return false;
+                return true;
+            });
+            return split.highlights.length > 0 || bodyLines.length > 0;
+        });
+
+        // If nothing in this major version has content, skip rendering the group entirely
+        if (!visibleSections.length) {
+            return;
+        }
+
         // Derive a simple date range for the group if dates are present
-        const dates = group.sections
+        const dates = visibleSections
             .map(s => s.date)
             .filter(Boolean)
             .sort(); // ascending
@@ -294,9 +313,9 @@ function formatChangelogSections(groups) {
                 </div>
                 <div class="changelog-section-content ${isExpanded ? 'expanded' : ''}" id="${sectionId}">
                     <div class="changelog-section-text">
-                        ${group.sections.map(section => {
+                        ${visibleSections.map(section => {
                             const split = splitHighlightsAndBody(section.content || []);
-const highlightsHtml = split.highlights.length
+                            const highlightsHtml = split.highlights.length
                                 ? `
                                     <div class="changelog-highlights">
                                         <div class="changelog-highlights-title">Quick Highlights</div>

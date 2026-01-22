@@ -267,6 +267,13 @@
     margin: calc(0.4rem * var(--dpi-scale));
     box-shadow: 0 calc(3px * var(--dpi-scale)) calc(10px * var(--dpi-scale)) var(--shadow-color);
 }
+
+.nav-compact-schedule .nav-plan-now-link,
+.nav-compact-schedule .nav-plan-now-link:visited {
+    color: var(--accent-color);
+    text-decoration: underline;
+    font-weight: 600;
+}
 /* Clean (stacked) layout pieces remain */
 .nav-compact-schedule.clean .entry { display: flex; flex-direction: column; gap: calc(0.2rem * var(--dpi-scale)); padding: calc(0.35rem * var(--dpi-scale)) calc(0.45rem * var(--dpi-scale)); }
 .nav-compact-schedule.clean .entry + .entry { border-top: 1px solid var(--border-color); margin-top: calc(0.2rem * var(--dpi-scale)); padding-top: calc(0.4rem * var(--dpi-scale)); }

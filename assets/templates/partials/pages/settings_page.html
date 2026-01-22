@@ -131,10 +131,10 @@
                                 Theme:
                                 <select id="theme-selector">
                                     <option value="light">Light (Orange)</option>
-                                    <option value="dark">Dark (Blue)</option>
                                     <option value="orange" selected>Orange/Peach</option>
                                     <option value="self-esteem">Self-Esteem (Mint Green)</option>
                                     <option value="anxiety">Anxiety (Sky Blue)</option>
+                                    <option value="yellow">Yellow (Sunny)</option>
                                     <option value="auto">Auto</option>
                                 </select>
                             </label>
@@ -184,6 +184,52 @@
                                     <option value="clean">Clean</option>
                                 </select>
                             </label>
+                        </div>
+                        <div class="setting-item">
+                            <div class="stacked-setting">
+                                <div class="setting-label">
+                                    <span>Perf Max (Chrome / low FPS)</span>
+                                    <button
+                                        type="button"
+                                        id="perf-max-button"
+                                        class="btn-secondary"
+                                        style="margin-left:auto;"
+                                        onclick="applyPerfMaxPreset()"
+                                    >
+                                        Apply max
+                                    </button>
+                                </div>
+                                <div class="perf-flags-grid">
+                                    <label class="setting-label">
+                                        <span>Disable blur &amp; glass effects</span>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="perf-disable-blur" onchange="updatePerfDisableBlur()">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </label>
+                                    <label class="setting-label">
+                                        <span>Disable large shadows &amp; glows</span>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="perf-disable-shadows" onchange="updatePerfDisableShadows()">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </label>
+                                    <label class="setting-label">
+                                        <span>Disable button/card animations</span>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="perf-disable-animations" onchange="updatePerfDisableAnimations()">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </label>
+                                    <label class="setting-label">
+                                        <span>Disable glossy overlays</span>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="perf-disable-glow" onchange="updatePerfDisableGlow()">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="settings-section updates-backups">

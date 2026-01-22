@@ -40,6 +40,32 @@ async function updateDashboardStats() {
     setText('completed-today', completedToday);
     setText('expired-tasks', overdue);
 
+    const computeHoursWorked = () => {
+        try {
+            let minutes = 0;
+            tasks.forEach((t) => {
+                if (!t) return;
+                const hasPlanned = t.planned_date || t.scheduled_date;
+                if (!hasPlanned) return;
+                const rawMinutes = t.scheduled_duration ?? t.estimated_duration ?? t.duration;
+                const n = parseInt(rawMinutes || 0, 10);
+                if (Number.isFinite(n) && n > 0) {
+                    minutes += n;
+                }
+            });
+            return minutes / 60;
+        } catch (e) {
+            return 0;
+        }
+    };
+
+    const formatHours = (hours) => {
+        if (!hours || !Number.isFinite(hours)) return '0';
+        if (hours >= 100) return String(Math.round(hours));
+        if (hours >= 10) return hours.toFixed(1);
+        return hours.toFixed(1);
+    };
+
     // Fetch all analytics from consolidated endpoint (single API call instead of multiple)
     try {
         // Try consolidated endpoint first (with or without ErrorHandler)
@@ -75,7 +101,8 @@ async function updateDashboardStats() {
             setText('tasks-deleted', summary.tasks_deleted || 0);
             setText('tasks-edited', summary.tasks_edited || 0);
             setText('tasks-with-dates', summary.tasks_with_dates || 0);
-            setText('tasks-with-time', summary.tasks_with_time || 0);
+            const hoursWorked = computeHoursWorked();
+            setText('tasks-with-time', formatHours(hoursWorked));
             setText('tasks-planned', summary.tasks_planned || 0);
             setText('daily-reset-count', summary.daily_reset_count || 0);
             
@@ -102,7 +129,8 @@ async function updateDashboardStats() {
             setText('tasks-deleted', 0);
             setText('tasks-edited', 0);
             setText('tasks-with-dates', tasks.filter(t => t && t.due_date).length);
-            setText('tasks-with-time', tasks.filter(t => t && (t.estimated_duration || t.duration)).length);
+            const hoursWorked = computeHoursWorked();
+            setText('tasks-with-time', formatHours(hoursWorked));
             setText('tasks-planned', tasks.filter(t => t && t.planned_date).length);
         }
     } catch (e) {
@@ -123,7 +151,8 @@ async function updateDashboardStats() {
         setText('tasks-deleted', 0);
         setText('tasks-edited', 0);
         setText('tasks-with-dates', tasks.filter(t => t && t.due_date).length);
-        setText('tasks-with-time', tasks.filter(t => t && (t.estimated_duration || t.duration)).length);
+        const hoursWorked = computeHoursWorked();
+        setText('tasks-with-time', formatHours(hoursWorked));
         setText('tasks-planned', tasks.filter(t => t && t.planned_date).length);
     }
 }

@@ -426,14 +426,76 @@
         }
     };
 
+    const CompletedByMonth = {
+        async refresh() {
+            try {
+                const root = getActiveAnalyticsRoot();
+                const listEl = qIn(root, '#completed-by-month-list');
+                if (!listEl) return;
+
+                let tasks = [];
+                try {
+                    if (typeof AppState !== 'undefined' && typeof AppState.getTasks === 'function') {
+                        tasks = AppState.getTasks() || [];
+                    }
+                } catch (e) { tasks = []; }
+
+                if (!tasks.length) {
+                    const payload = await requestJson('/api/tasks');
+                    if (Array.isArray(payload)) tasks = payload;
+                }
+
+                const groups = {};
+                tasks.forEach((t) => {
+                    if (!t) return;
+                    if (!(t.completed || t.struck_forever)) return;
+                    if (!t.completed_at) return;
+                    const s = String(t.completed_at);
+                    const d = s.includes('T') ? s.split('T')[0] : s;
+                    if (!d || d.length < 7) return;
+                    const monthKey = d.slice(0, 7); // YYYY-MM
+                    if (!groups[monthKey]) groups[monthKey] = 0;
+                    groups[monthKey] += 1;
+                });
+
+                const months = Object.keys(groups).sort().reverse();
+                listEl.innerHTML = '';
+                if (!months.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'completed-month-empty';
+                    empty.textContent = 'No completed tasks with dates yet';
+                    listEl.appendChild(empty);
+                    return;
+                }
+
+                months.forEach((m) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn-secondary completed-month-btn';
+                    btn.textContent = `${monthToLabel(m)} (${groups[m]})`;
+                    btn.addEventListener('click', () => {
+                        if (typeof window.openCompletedTasksForMonth === 'function') {
+                            window.openCompletedTasksForMonth(m);
+                        }
+                    });
+                    listEl.appendChild(btn);
+                });
+            } catch (e) {
+                // no-op
+            }
+        },
+    };
+
     window.AnalyticsExtras = {
         StrikeCalendar,
         DailyRecap,
+        CompletedByMonth,
     };
 
     // Best-effort init for Analytics card (render if card exists)
     document.addEventListener('DOMContentLoaded', () => {
         try { StrikeCalendar.init(); } catch (e) { /* no-op */ }
         try { DailyRecap.init(); } catch (e) { /* no-op */ }
+        try { CompletedByMonth.refresh(); } catch (e) { /* no-op */ }
     });
 }());

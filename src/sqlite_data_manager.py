@@ -1960,6 +1960,10 @@ class SQLiteDataManager:
                                 has_streak_count_settings = 'streak_count_settings' in cols
                                 has_finish = 'finish' in cols
                                 has_intensity = 'intensity' in cols
+                                has_perf_disable_blur = 'perf_disable_blur' in cols
+                                has_perf_disable_shadows = 'perf_disable_shadows' in cols
+                                has_perf_disable_animations = 'perf_disable_animations' in cols
+                                has_perf_disable_glow = 'perf_disable_glow' in cols
 
                                 select_cols = [
                                     'theme',
@@ -1989,6 +1993,14 @@ class SQLiteDataManager:
                                     select_cols.append('finish')
                                 if has_intensity:
                                     select_cols.append('intensity')
+                                if has_perf_disable_blur:
+                                    select_cols.append('perf_disable_blur')
+                                if has_perf_disable_shadows:
+                                    select_cols.append('perf_disable_shadows')
+                                if has_perf_disable_animations:
+                                    select_cols.append('perf_disable_animations')
+                                if has_perf_disable_glow:
+                                    select_cols.append('perf_disable_glow')
                                 select_cols.extend(['created_at', 'updated_at'])
 
                                 cursor = conn.execute(
@@ -2017,6 +2029,10 @@ class SQLiteDataManager:
                                         'streak_count_settings': bool(raw.get('streak_count_settings')) if raw.get('streak_count_settings') is not None else False,
                                         'finish': raw.get('finish') or 'glossy',
                                         'intensity': raw.get('intensity') or '5',
+                                        'perf_disable_blur': bool(raw.get('perf_disable_blur')) if 'perf_disable_blur' in raw and raw.get('perf_disable_blur') is not None else False,
+                                        'perf_disable_shadows': bool(raw.get('perf_disable_shadows')) if 'perf_disable_shadows' in raw and raw.get('perf_disable_shadows') is not None else False,
+                                        'perf_disable_animations': bool(raw.get('perf_disable_animations')) if 'perf_disable_animations' in raw and raw.get('perf_disable_animations') is not None else False,
+                                        'perf_disable_glow': bool(raw.get('perf_disable_glow')) if 'perf_disable_glow' in raw and raw.get('perf_disable_glow') is not None else False,
                                         'created_at': raw.get('created_at'),
                                         'updated_at': raw.get('updated_at'),
                                     }
@@ -2119,7 +2135,12 @@ class SQLiteDataManager:
             # title becomes the project name. Defaults to False for backwards compatibility.
             'quick_project_from_title': False,
             # When true, show human-friendly relative dates ("today", "in 2 days", "this weekend").
-            'casual_dates': False
+            'casual_dates': False,
+            # Performance-related UI flags (Chrome / low FPS helpers)
+            'perf_disable_blur': False,
+            'perf_disable_shadows': False,
+            'perf_disable_animations': False,
+            'perf_disable_glow': False,
         }
     
     def _validate_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -2131,7 +2152,7 @@ class SQLiteDataManager:
         # Note: this list must stay in sync with frontend theme selector and CSS
         valid_themes = [
             'orange', 'blue', 'green', 'purple', 'dark', 'light',
-            'self-esteem', 'anxiety', 'depression', 'focus', 'auto'
+            'self-esteem', 'anxiety', 'depression', 'focus', 'yellow', 'auto'
         ]
         if not isinstance(theme, str) or theme not in valid_themes:
             theme = 'orange'
@@ -2239,6 +2260,27 @@ class SQLiteDataManager:
         if not isinstance(intensity, str) or intensity not in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
             intensity = '5'
         validated['intensity'] = intensity
+
+        # Performance flags (Chrome / low FPS helpers)
+        perf_disable_blur = settings.get('perf_disable_blur', False)
+        if not isinstance(perf_disable_blur, bool):
+            perf_disable_blur = False
+        validated['perf_disable_blur'] = perf_disable_blur
+
+        perf_disable_shadows = settings.get('perf_disable_shadows', False)
+        if not isinstance(perf_disable_shadows, bool):
+            perf_disable_shadows = False
+        validated['perf_disable_shadows'] = perf_disable_shadows
+
+        perf_disable_animations = settings.get('perf_disable_animations', False)
+        if not isinstance(perf_disable_animations, bool):
+            perf_disable_animations = False
+        validated['perf_disable_animations'] = perf_disable_animations
+
+        perf_disable_glow = settings.get('perf_disable_glow', False)
+        if not isinstance(perf_disable_glow, bool):
+            perf_disable_glow = False
+        validated['perf_disable_glow'] = perf_disable_glow
         
         return validated
     
@@ -2307,7 +2349,7 @@ class SQLiteDataManager:
                             table_exists = cursor.fetchone() is not None
                             
                             if table_exists:
-                                # Ensure quick_project_from_title and casual_dates columns exist (schema may be from older builds)
+                                # Ensure settings-related columns exist (schema may be from older builds)
                                 try:
                                     col_cursor = conn.execute("PRAGMA table_info(user_preferences)")
                                     cols = [row[1] for row in col_cursor.fetchall()]
@@ -2331,11 +2373,19 @@ class SQLiteDataManager:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN finish TEXT DEFAULT 'glossy'")
                                     if 'intensity' not in cols:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN intensity TEXT DEFAULT '5'")
+                                    if 'perf_disable_blur' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN perf_disable_blur INTEGER DEFAULT 0")
+                                    if 'perf_disable_shadows' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN perf_disable_shadows INTEGER DEFAULT 0")
+                                    if 'perf_disable_animations' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN perf_disable_animations INTEGER DEFAULT 0")
+                                    if 'perf_disable_glow' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN perf_disable_glow INTEGER DEFAULT 0")
                                 except Exception as schema_e:
                                     # Log but do not fail save if ALTER fails; feature will just fall back to default
                                     self.logger.warning(f"Could not ensure settings columns on user_preferences: {schema_e}")
 
-                                # Use new user_preferences table (including quick_project_from_title & casual_dates when available)
+                                # Use new user_preferences table (including additional flags when available)
                                 conn.execute('''
                                     INSERT OR REPLACE INTO user_preferences (
                                         user_id, theme, dpi_scale, autosave_interval, notifications,
@@ -2344,8 +2394,9 @@ class SQLiteDataManager:
                                         quick_project_from_title, casual_dates, 
                                         streak_skip_weekends, streak_count_new_tasks, streak_count_settings,
                                         finish, intensity,
+                                        perf_disable_blur, perf_disable_shadows, perf_disable_animations, perf_disable_glow,
                                         updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ''', (
                                     user_id,
                                     validated_settings['theme'],
@@ -2365,6 +2416,10 @@ class SQLiteDataManager:
                                     1 if validated_settings.get('streak_count_settings', False) else 0,
                                     validated_settings.get('finish', 'glossy'),
                                     validated_settings.get('intensity', '5'),
+                                    1 if validated_settings.get('perf_disable_blur', False) else 0,
+                                    1 if validated_settings.get('perf_disable_shadows', False) else 0,
+                                    1 if validated_settings.get('perf_disable_animations', False) else 0,
+                                    1 if validated_settings.get('perf_disable_glow', False) else 0,
                                     datetime.now().isoformat()
                                 ))
                             else:

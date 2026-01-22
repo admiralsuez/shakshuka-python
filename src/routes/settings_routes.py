@@ -228,6 +228,10 @@ def _validate_settings(settings: dict) -> dict:
         'streak_skip_weekends': bool(settings.get('streak_skip_weekends', False)),
         'streak_count_new_tasks': bool(settings.get('streak_count_new_tasks', False)),
         'streak_count_settings': bool(settings.get('streak_count_settings', False)),
+        'perf_disable_blur': bool(settings.get('perf_disable_blur', False)),
+        'perf_disable_shadows': bool(settings.get('perf_disable_shadows', False)),
+        'perf_disable_animations': bool(settings.get('perf_disable_animations', False)),
+        'perf_disable_glow': bool(settings.get('perf_disable_glow', False)),
         'finish': settings.get('finish', 'glossy'),
         'intensity': settings.get('intensity', '5'),
     }
@@ -241,7 +245,7 @@ def _validate_and_merge_updates(settings_data: dict, current_settings: dict) -> 
     # Theme validation
     if 'theme' in settings_data:
         theme = settings_data['theme']
-        valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'auto']
+        valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'yellow', 'auto']
         if isinstance(theme, str) and theme in valid_themes:
             validated_updates['theme'] = theme
     
@@ -288,7 +292,8 @@ def _validate_and_merge_updates(settings_data: dict, current_settings: dict) -> 
     # Boolean toggles
     bool_fields = [
         'quick_project_from_title', 'casual_dates', 'streak_skip_weekends',
-        'streak_count_new_tasks', 'streak_count_settings'
+        'streak_count_new_tasks', 'streak_count_settings',
+        'perf_disable_blur', 'perf_disable_shadows', 'perf_disable_animations', 'perf_disable_glow'
     ]
     for field in bool_fields:
         if field in settings_data and isinstance(settings_data[field], bool):

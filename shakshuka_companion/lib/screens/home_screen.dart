@@ -648,6 +648,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isPaired = _storage.isPaired;
+    final bool needRepair = isPaired && !_isConnected;
+
     return Scaffold(
       appBar: AppBar(
         leading: Builder(
@@ -661,20 +664,24 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton.icon(
             onPressed: _openScanner,
             icon: Icon(
-              _storage.isPaired ? Icons.link : Icons.link_off,
+              isPaired
+                  ? (needRepair ? Icons.link_off : Icons.link)
+                  : Icons.link_off,
               size: 18,
-              color: _storage.isPaired && _isConnected
+              color: isPaired && _isConnected
                   ? Colors.green
-                  : Colors.grey[400],
+                  : (needRepair ? Colors.orange : Colors.grey[400]),
             ),
             label: Text(
-              _storage.isPaired ? 'PAIRED' : 'PAIR',
+              isPaired
+                  ? (needRepair ? 'NEED REPAIR' : 'PAIRED')
+                  : 'PAIR',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
-                color: _storage.isPaired && _isConnected
+                color: isPaired && _isConnected
                     ? Colors.green
-                    : Colors.grey[400],
+                    : (needRepair ? Colors.orange : Colors.grey[400]),
               ),
             ),
           ),
@@ -726,15 +733,17 @@ class _HomeScreenState extends State<HomeScreen> {
               const Divider(color: Colors.grey),
               ListTile(
                 leading: Icon(
-                  _storage.isPaired ? Icons.link : Icons.link_off,
-                  color: _storage.isPaired 
-                      ? const Color(0xFFE85D04) 
+                  isPaired ? Icons.link : Icons.link_off,
+                  color: isPaired
+                      ? (needRepair ? Colors.orange : const Color(0xFFE85D04))
                       : Colors.grey[600],
                 ),
-                title: Text(_storage.isPaired ? 'Paired' : 'Pair with PC'),
-                subtitle: _storage.isPaired
+                title: Text(isPaired ? 'Paired' : 'Pair with PC'),
+                subtitle: isPaired
                     ? Text(
-                        _isConnected ? 'Connected' : 'Offline',
+                        _isConnected
+                            ? 'Connected'
+                            : (needRepair ? 'Need repair' : 'Offline'),
                         style: TextStyle(
                           color: _isConnected ? const Color(0xFFE85D04) : Colors.orange,
                           fontSize: 12,
@@ -888,7 +897,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Column(
         children: [
           // Offline indicator - not paired (clickable, dismissable)
-          if (!_storage.isPaired && !_notPairedBarDismissed)
+          if (!isPaired && !_notPairedBarDismissed)
             GestureDetector(
               onTap: _openScanner,
               child: Container(
@@ -934,7 +943,37 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             )
-          // Offline indicator - paired but disconnected
+          // Offline indicator - paired but disconnected (need repair)
+          else if (needRepair)
+            GestureDetector(
+              onTap: _openScanner,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade800,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    Icon(Icons.link_off, size: 18, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text(
+                      'Paired but offline - Tap to repair',
+                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          // Offline indicator - generic offline (not paired banner already dismissed)
           else if (!_isConnected)
             Container(
               width: double.infinity,
@@ -951,10 +990,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.wifi_off, size: 18, color: Colors.white),
-                  const SizedBox(width: 8),
-                  const Text(
+                children: const [
+                  Icon(Icons.wifi_off, size: 18, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text(
                     'Offline - Tasks saved locally',
                     style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
                   ),

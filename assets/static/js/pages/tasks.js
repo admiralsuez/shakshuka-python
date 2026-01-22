@@ -160,7 +160,23 @@ if (!window.MiniAnalyticsTicker) {
             const tasksDeleted = (summary && summary.success) ? (summary.tasks_deleted ?? 0) : 0;
             const tasksEdited = (summary && summary.success) ? (summary.tasks_edited ?? 0) : 0;
             const tasksWithDates = (summary && summary.success) ? (summary.tasks_with_dates ?? 0) : 0;
-            const tasksWithTime = (summary && summary.success) ? (summary.tasks_with_time ?? 0) : 0;
+
+            let minutes = 0;
+            tasks.forEach((t) => {
+                if (!t) return;
+                const hasPlanned = t.planned_date || t.scheduled_date;
+                if (!hasPlanned) return;
+                const rawMinutes = t.scheduled_duration ?? t.estimated_duration ?? t.duration;
+                const n = Number(rawMinutes);
+                if (Number.isFinite(n) && n > 0) {
+                    minutes += n;
+                }
+            });
+            const hours = minutes / 60;
+            const hoursDisplay = !hours || !Number.isFinite(hours)
+                ? '0'
+                : (hours >= 100 ? String(Math.round(hours)) : hours.toFixed(1));
+
             const tasksPlanned = (summary && summary.success) ? (summary.tasks_planned ?? 0) : 0;
 
             return [
@@ -177,7 +193,7 @@ if (!window.MiniAnalyticsTicker) {
                 { label: 'Deleted (All-time)', value: tasksDeleted },
                 { label: 'Tasks Edited', value: tasksEdited },
                 { label: 'Tasks with Dates', value: tasksWithDates },
-                { label: 'Tasks with Time', value: tasksWithTime },
+                { label: 'Hours Worked', value: hoursDisplay },
                 { label: 'Planned (All-time)', value: tasksPlanned },
             ];
         },
@@ -603,7 +619,20 @@ function renderTasks() {
     const sortedTasks = sortTasksForDisplay(tasks);
     const filter = AppState.get('currentFilter') || 'active';
     const projectFilter = AppState.get('projectFilter') || 'all';
+    const completedMonthFilter = (AppState && AppState.get) ? (AppState.get('completedMonthFilter') || null) : null;
     let filteredTasks = filterTasks(sortedTasks, filter);
+
+    // If coming from Analytics "Completed by Month", further filter completed tasks by month key (YYYY-MM)
+    if (filter === 'completed' && completedMonthFilter) {
+        filteredTasks = filteredTasks.filter(task => {
+            if (!task || !task.completed_at) return false;
+            const s = String(task.completed_at);
+            const d = s.includes('T') ? s.split('T')[0] : s;
+            if (!d || d.length < 7) return false;
+            const monthKey = d.slice(0, 7);
+            return monthKey === completedMonthFilter;
+        });
+    }
 
     if (projectFilter && projectFilter !== 'all') {
         filteredTasks = filteredTasks.filter(task => {
@@ -639,8 +668,11 @@ function renderTasks() {
     // Re-attach drag and drop listeners
     setupDragAndDrop();
     
-    // Setup scrolling titles for long task names
-    setupScrollingTitles();
+    // Scrolling titles were found to be expensive in Chrome; disabled for now.
+    // setupScrollingTitles();
+
+    // Update completed-month banner if present
+    updateCompletedMonthBanner();
 }
 
 // Sync strike classes with current task state (used after daily reset to remove stale CSS classes)
@@ -1206,6 +1238,46 @@ async function updateTaskStats() {
     }
 }
 
+function updateCompletedMonthBanner() {
+    const banner = document.getElementById('completed-month-banner');
+    const labelEl = document.getElementById('completed-month-label');
+    if (!banner || !labelEl) return;
+    const monthKey = (AppState && AppState.get) ? (AppState.get('completedMonthFilter') || null) : null;
+    if (!monthKey) {
+        banner.style.display = 'none';
+        return;
+    }
+    try {
+        const [y, m] = monthKey.split('-').map(Number);
+        const d = new Date(y || 0, (m || 1) - 1, 1);
+        labelEl.textContent = `Completed in ${d.toLocaleString(undefined, { month: 'long', year: 'numeric' })}`;
+    } catch (e) {
+        labelEl.textContent = `Completed in ${monthKey}`;
+    }
+    banner.style.display = 'flex';
+}
+
+function openCompletedTasksForMonth(monthKey) {
+    try {
+        AppState.set('completedMonthFilter', monthKey);
+        AppState.set('currentFilter', 'completed');
+    } catch (e) { /* no-op */ }
+    if (typeof window.navigateToPage === 'function') {
+        window.navigateToPage('tasks');
+    }
+    renderTasks();
+    updateTaskStats();
+}
+
+function clearCompletedMonthFilter() {
+    try {
+        AppState.set('completedMonthFilter', null);
+    } catch (e) { /* no-op */ }
+    updateCompletedMonthBanner();
+    renderTasks();
+    updateTaskStats();
+}
+
 // Export functions for use in other modules
 // Ensure DOM classes match current task flags (used after resets)
 function syncStrikeClassesFromState() {
@@ -1366,5 +1438,11 @@ window.Tasks = {
     syncStrikeClassesFromState,
     initTaskSearch,
     openTaskSearch,
-    closeTaskSearch
+    closeTaskSearch,
+    openCompletedTasksForMonth,
+    clearCompletedMonthFilter,
+    updateCompletedMonthBanner,
 };
+
+window.openCompletedTasksForMonth = openCompletedTasksForMonth;
+window.clearCompletedMonthFilter = clearCompletedMonthFilter;

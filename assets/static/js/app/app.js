@@ -1619,17 +1619,28 @@ function updateThemeCSSVariables(theme, intensity) {
             'accent-color': '#4ECDC4'
         },
         'anxiety': {
-            'primary-gradient': 'linear-gradient(135deg, #74B9FF, #0984E3)',
-            'secondary-gradient': 'linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%)',
-            'background-color': '#E3F2FD',
-            'surface-color': 'rgba(255, 255, 255, 0.95)',
-            'text-color': '#0D47A1',
-            'text-secondary': '#1565C0',
-            'border-color': 'rgba(116, 185, 255, 0.3)',
-            'shadow-color': 'rgba(116, 185, 255, 0.1)',
-            'accent-color': '#74B9FF'
-        }
-    };
+        'primary-gradient': 'linear-gradient(135deg, #74B9FF, #0984E3)',
+        'secondary-gradient': 'linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%)',
+        'background-color': '#E3F2FD',
+        'surface-color': 'rgba(255, 255, 255, 0.95)',
+        'text-color': '#0D47A1',
+        'text-secondary': '#1565C0',
+        'border-color': 'rgba(116, 185, 255, 0.3)',
+        'shadow-color': 'rgba(116, 185, 255, 0.1)',
+        'accent-color': '#74B9FF'
+    },
+    'yellow': {
+        'primary-gradient': 'linear-gradient(135deg, #FFE066, #FFC107)',
+        'secondary-gradient': 'linear-gradient(135deg, #FFFDE7 0%, #FFF3CD 100%)',
+        'background-color': '#FFFDE7',
+        'surface-color': 'rgba(255, 255, 255, 0.95)',
+        'text-color': '#5C4A00',
+        'text-secondary': '#8D6E63',
+        'border-color': 'rgba(255, 193, 7, 0.3)',
+        'shadow-color': 'rgba(255, 193, 7, 0.1)',
+        'accent-color': '#FFC107'
+    }
+};
     
     // Apply intensity variations for orange theme
     if (theme === 'orange' && intensity !== '5') {
@@ -1700,6 +1711,24 @@ function updateThemeCSSVariables(theme, intensity) {
         };
         if (intensityMap[intensity]) {
             themeColors.anxiety['primary-gradient'] = intensityMap[intensity];
+        }
+    }
+    
+    // Apply intensity variations for yellow theme
+    if (theme === 'yellow' && intensity !== '5') {
+        const intensityMap = {
+            '1': 'linear-gradient(135deg, #FFF3CD, #FFE082)',
+            '2': 'linear-gradient(135deg, #FFECB3, #FFD54F)',
+            '3': 'linear-gradient(135deg, #FFE082, #FFC107)',
+            '4': 'linear-gradient(135deg, #FFD54F, #FFB300)',
+            '6': 'linear-gradient(135deg, #FFC107, #FFB300)',
+            '7': 'linear-gradient(135deg, #FFB300, #FFA000)',
+            '8': 'linear-gradient(135deg, #FFA000, #FF8F00)',
+            '9': 'linear-gradient(135deg, #FF8F00, #FF6F00)',
+            '10': 'linear-gradient(135deg, #FF6F00, #E65100)'
+        };
+        if (intensityMap[intensity]) {
+            themeColors.yellow['primary-gradient'] = intensityMap[intensity];
         }
     }
     

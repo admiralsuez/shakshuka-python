@@ -594,6 +594,11 @@ def get_settings():
             'streak_skip_weekends': bool(settings.get('streak_skip_weekends', False)),
             'streak_count_new_tasks': bool(settings.get('streak_count_new_tasks', False)),
             'streak_count_settings': bool(settings.get('streak_count_settings', False)),
+            # Perf Max flags (persisted via SQLiteDataManager)
+            'perf_disable_blur': bool(settings.get('perf_disable_blur', False)),
+            'perf_disable_shadows': bool(settings.get('perf_disable_shadows', False)),
+            'perf_disable_animations': bool(settings.get('perf_disable_animations', False)),
+            'perf_disable_glow': bool(settings.get('perf_disable_glow', False)),
             'finish': settings.get('finish', 'glossy'),
             'intensity': settings.get('intensity', '5'),
         }
@@ -638,7 +643,8 @@ def update_settings():
 
         if 'theme' in settings_data:
             theme = settings_data['theme']
-            valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'auto']
+            # Must stay in sync with frontend theme selector and SQLite validation
+            valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'yellow', 'auto']
             if isinstance(theme, str) and theme in valid_themes:
                 validated_updates['theme'] = theme
 
@@ -705,12 +711,23 @@ def update_settings():
             val = settings_data['streak_count_settings']
             if isinstance(val, bool):
                 validated_updates['streak_count_settings'] = val
-
+ 
+        # Perf Max flags (simple booleans)
+        perf_fields = [
+            'perf_disable_blur',
+            'perf_disable_shadows',
+            'perf_disable_animations',
+            'perf_disable_glow',
+        ]
+        for field in perf_fields:
+            if field in settings_data and isinstance(settings_data[field], bool):
+                validated_updates[field] = settings_data[field]
+ 
         if 'finish' in settings_data:
             finish = settings_data['finish']
             if isinstance(finish, str) and finish in ['glossy', 'matte']:
                 validated_updates['finish'] = finish
-
+ 
         if 'intensity' in settings_data:
             intensity = settings_data['intensity']
             if isinstance(intensity, str) and intensity in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
