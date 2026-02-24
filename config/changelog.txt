@@ -1,107 +1,31 @@
-## Version 23.3 - Release
+## Version 23.3 - Daily Reset Log & Build Pipeline Fixes
 Release Date: 2026-02-22T19:38:45.632503
 
-Highlights
-
-- Windows build workflow: clarified that running `scripts\\build.bat` from an existing terminal keeps the console open after completion, while double-clicking the .bat closes the transient window once the script finishes.
-- Changelog generation: builds now only add a changelog entry when real release notes are provided, avoiding empty "Highlights" sections.
-- Daily reset: added a sidebar "Daily Reset" badge and summary modal listing tasks refreshed by each daily reset, including their project, due date, and scheduled date.
-
----
-## Version 23.2 - Release
-Release Date: 2026-02-22T15:51:02.375530
-
-Highlights
+- Daily reset log: backend now records each daily reset into a dedicated `daily_reset_log` table and exposes `/api/tasks/reset-log` and `/api/tasks/reset-log/clear` so the UI can show a compact summary of refreshed and unscheduled tasks.
+- Daily reset notification: the Tasks sidebar shows a "Daily Reset" badge whenever a new log is available; clicking it opens a modal with a readable summary and two explicit actions — "Dismiss notifications" (marks the log as seen and clears the badge) and "Close" (just closes the dialog, leaving the badge).
+- Installed build parity: Windows installer now packages `scripts\\dist\\Shakshuka.exe` instead of a stale `dist\\Shakshuka.exe`, so the installed app always uses the latest backend with the new daily reset log routes and scheduler behavior.
+- Build UX & changelog: `scripts\\build.bat` is simplified to just run the modular Python build and pause, and changelog generation now only creates a new version entry when real release notes are provided, avoiding empty placeholder sections.
 
 ---
-## Version 23.1 - Release
-Release Date: 2026-02-22T15:49:47.553635
+## Versions 23.0 – 23.2 - Internal Build Iterations
+Release Period: 2026-02-22T15:43:00.791618 – 2026-02-22T15:51:02.375530
 
-Highlights
-
----
-## Version 23.0 - Release
-Release Date: 2026-02-22T15:43:00.791618
-
-Highlights
+- Internal incremental builds while wiring up the new daily reset log backend, frontend badge/modal, and build/installer changes.
+- Used for smoke-testing migrations, scheduler wiring, and installer outputs; no additional user-facing behavior beyond what is described for Version 23.3.
 
 ---
-## Version 22.9 - Release
-Release Date: 2026-02-22T15:36:27.372694
+## Versions 22.0 – 22.9 - Internal Refactors & Packaging
+Release Period: 2026-02-19T01:52:49.194953 – 2026-02-22T15:36:27.372694
 
-Highlights
-
----
-## Version 22.8 - Release
-Release Date: 2026-02-22T15:36:09.240641
-
-Highlights
+- Internal refactors to build scripts, exception policy tooling, and packaging as the codebase moved from mobile/analytics work into the Notes Explorer and daily reset changes.
+- Test and packaging builds used to validate the modular build system and installer behavior; no distinct user-facing features beyond those documented in Versions 21.6 and 23.3.
 
 ---
-## Version 22.7 - Release
-Release Date: 2026-02-22T15:35:58.781097
+## Versions 21.7 – 21.9 - Internal Release Iterations
+Release Period: 2026-02-19T01:21:30.031126 – 2026-02-19T01:43:52.156311
 
-Highlights
-
----
-## Version 22.6 - Release
-Release Date: 2026-02-21T22:06:27.323940
-
-Highlights
-
----
-## Version 22.5 - Release
-Release Date: 2026-02-21T22:06:17.235441
-
-Highlights
-
----
-## Version 22.4 - Release
-Release Date: 2026-02-21T22:06:00.400864
-
-Highlights
-
----
-## Version 22.3 - Release
-Release Date: 2026-02-19T14:52:25.745670
-
-Highlights
-
----
-## Version 22.2 - Release
-Release Date: 2026-02-19T14:31:47.680711
-
-Highlights
-
----
-## Version 22.1 - Release
-Release Date: 2026-02-19T02:08:22.746814
-
-Highlights
-
----
-## Version 22.0 - Release
-Release Date: 2026-02-19T01:52:49.194953
-
-Highlights
-
----
-## Version 21.9 - Release
-Release Date: 2026-02-19T01:43:52.156311
-
-Highlights
-
----
-## Version 21.8 - Release
-Release Date: 2026-02-19T01:22:37.258536
-
-Highlights
-
----
-## Version 21.7 - Release
-Release Date: 2026-02-19T01:21:30.031126
-
-Highlights
+- Small internal release iterations immediately after the Notes Explorer/OCR release (21.6) to stabilize migrations, layout tweaks, and packaging.
+- No separate user-visible changes beyond what is already documented for Version 21.6.
 
 ---
 ## Version 21.6 - Notes Explorer Dashboard & OCR Import
@@ -127,10 +51,8 @@ Highlights
 - No separate user-facing features beyond what is captured in Version 21.6.
 
 ---
-## Versions 20.0 – 20.9 - Release
+## Versions 20.0 – 20.9 - Internal Release Iterations
 Release Period: 2026-01-20T14:25:52.780515 – 2026-01-21T21:25:50.138357
-
-Highlights
 
 - Internal release iterations and packaging updates between major feature releases.
 - No standalone user-facing changes beyond what is documented in nearby major versions.
@@ -628,7 +550,6 @@ Highlights
 ## Versions 13.8 – 13.9 - Release
 Release Period: 2025-12-11T23:50:21.466966 – 2025-12-11T23:57:14.570864
 
-Highlights
 - Updates: GitHub update modal now shows a progress bar while the installer is downloading so you always see activity.
 - Updates: GitHub installer downloads are now saved into your Downloads folder (instead of a hidden temp file) so you can easily run them.
 - Updates: Wording in the GitHub update flow clearly explains that Shakshuka will not auto-restart; close the app and run the downloaded installer manually.
@@ -637,7 +558,6 @@ Highlights
 ## Version 13.7 - Release
 Release Date: 2025-12-11T22:57:26.903697
 
-Highlights
 - Changelog: grouped by major version (13.x, 12.x, 11.x, …) with nested sub-versions and per-version highlights so you can skim changes quickly.
 - Updates: new one-time “What’s New” modal after an update that summarizes the latest features and links directly to the full changelog.
 - Internal: refined daily-strikes SQLite migration and build metadata handling; no breaking changes for existing data.
@@ -646,7 +566,6 @@ Highlights
 ## Version 13.6 - Notes Ephemeral Tabs & Header Polish
 Release Date: 2025-12-11T19:57:25.936517
 
-Highlights
 - Notes: brand-new, untouched notes are now treated as ephemeral; they are not saved to SQLite or localStorage and are hidden from the View Notes modal until you actually type content or rename them.
 - Notes: View Notes modal filters out these empty scratch tabs so only real notes show up, keeping the list clean and meaningful.
 - Notes tabs: tightened padding and added subtle spacing and borders between inactive tabs so multiple open notes remain readable without feeling cramped.
@@ -657,7 +576,6 @@ Highlights
 ## Version 13.5 - Notes SQL Persistence & Split View UX
 Release Date: 2025-12-11T13:33:48.000000
 
-Highlights
 - Notes now persist in the main SQLite database via a dedicated `notes` table and `/api/notes` CRUD API, instead of relying solely on browser localStorage.
 - Seamless migration path: existing local notes remain cached in `shakshuka_notes_v1`, and each note is copied to SQLite on first successful save, with resilient fallback to localStorage on any API failure.
 - Notes editor split view upgraded to support showing two *different* notes at once: primary editor follows the active tab, secondary editor can target a separate note.
@@ -671,7 +589,6 @@ Highlights
 ## Versions 13.0 – 13.4 - Notes Workspace & Task UX
 Release Period: 2025-12-10T10:52:27.000000 – 2025-12-11T00:45:03.116133
 
-Highlights
 - New Notes workspace with multiple tabs, split view, and local auto-save so you can keep quick scratch notes inside Shakshuka.
 - Notes sidebar nav item and "P" keyboard shortcut to jump into Notes from anywhere.
 - Notes tabs are closable and renameable (double-click the tab title or use the View Notes list), with improved hover/focus states.
@@ -705,7 +622,6 @@ Notes
 ## Version 10.5 - Release
 Release Date: 2025-11-19T00:57:11.474413
 
-Highlights
 - Settings: Added "Quick project from title (first word before comma)" toggle so new tasks can auto-populate the Project field from the title across Add Task, Quick Add, and inline quick-add.
 - Updates: Settings "Check for Updates" now delegates to the GitHub-based updater so newer GitHub releases reliably surface via the GitHub update modal.
 - Changelog: Frontend now merges versions that share identical release notes into combined ranges (e.g. 8.1–9.2) to reduce duplicate sections.
@@ -714,7 +630,6 @@ Highlights
 ## Version 10.2 - Stability & QA Fixes
 Release Date: 2025-11-18T03:08:03.858977
 
-Highlights
 - Fixed task import so CSV/TXT imports now save correctly using the new user-scoped data manager.
 - Settings autostart toggle now reflects the real Windows autostart state (`autostart_enabled`) instead of a stale flag.
 - Backend settings validation now accepts all CSS-backed themes, including "Depression" and "Focus", so appearance options persist reliably.
@@ -728,7 +643,6 @@ Highlights
 ## Version 10.1 - Loader Theme & Startup Polish
 Release Date: 2025-11-18T00:56:32.499885
 
-Highlights
 - Loader background and initial HTML/body now use theme variables from the first paint, eliminating the brief black flash on startup and refresh.
 - Centralized loader show/hide control in the core app initialization flow so PIN auth and settings no longer manipulate the loader directly.
 - Auth initialization now runs through the Settings module (`Settings.load()`), ensuring themes, DPI, and appearance are fully applied before the app becomes interactive.
@@ -738,7 +652,6 @@ Highlights
 ## Version 9.9 - UX Loader & Project Filter
 Release Date: 2025-11-17T23:59:59
 
-Highlights
 - New folder-style loading screen with soft animations so startup feels more polished.
 - Loader shows a short, animated list of your active tasks while the app initialises (with safe fallbacks if the API is slow).
 - Enforced a short minimum loader duration so the animation is visible but doesn’t block longer than needed.
@@ -751,7 +664,6 @@ Highlights
 ## Version 8.9 - Backend Cleanup & Modularisation
 Release Date: 2025-11-17T03:06:23.888160
 
-Highlights
 - Added `src.core.config` with an `AppConfig` singleton so launcher, app, and templates share one central runtime configuration.
 - Fixed `SecurityManager.sanitize_input` regex to avoid import-time crashes while keeping XSS filtering intact.
 - Updated `rate_limit` decorator to record real HTTP status codes from responses/tuples so monitoring reflects accurate error rates.
@@ -782,7 +694,6 @@ Additional Fixes (v6.5 post-build)
 ## Version 6.2 - Task View Fixes & Version Build System
 Release Date: 2025-11-06T19:30:00Z
 
-Highlights
 - View Switching: Fixed task creation switching to active view so users can see their new tasks
 - Filter Preservation: Task deletion now preserves current filter view (completed, active, etc.) instead of auto-switching
 - Empty State Messages: Customized empty state messages for different filters ("Yay! No missed tasks" for expired view)
@@ -801,7 +712,6 @@ Technical Fixes
 ## Version 6.1 - Birthday Update
 Release Date: 2025-11-05T16:33:46Z
 
-Highlights
 - Daily Strikes: Reliable reset at your selected local time; clears struck_today and unschedules previous-day items.
 - Reset UX: Reset Now triggers a full tasks reload, planner refresh, overdue cleanup, and a delayed re-fetch to squash races.
 - UI Sync: Fixed edge case where a task appeared struck post-reset; DOM now re-syncs classes from state; completed tasks render as persistent strike.

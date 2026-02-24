@@ -196,13 +196,22 @@ async function downloadGitHubUpdate() {
             // Persistent, clickable toast that shows where the file went and
             // lets the user open the folder directly.
             const friendlyPath = path;
-            const safeMessage = `Download finished to "${friendlyPath}" (click to open folder)`;
+            const safeMessage = `Download finished to \"${friendlyPath}\" (click to open folder)`;
             showNotification(safeMessage, 'info', {
                 persistent: true,
                 onClick: () => {
                     try {
-                        const payload = encodeURIComponent(friendlyPath);
-                        window.location.href = `shakshuka-open-folder://${payload}`;
+                        // Ask the backend to open the downloads folder using the
+                        // same logic it used when saving the installer.
+                        fetch('/api/github/open-downloads-folder', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({})
+                        }).catch((e) => {
+                            console.error('Failed to request opening downloads folder', e);
+                        });
                     } catch (e) {
                         console.error('Failed to trigger folder open for installer path', e);
                     }

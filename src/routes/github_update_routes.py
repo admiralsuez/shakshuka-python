@@ -1,6 +1,9 @@
 from flask import Blueprint, jsonify, request
 import logging
 import os
+import sys
+import subprocess
+import tempfile
 
 from src.exceptions import DatabaseError, ValidationError
 from src.routes.api_utils import get_json_object, register_api_error_handlers
@@ -211,3 +214,43 @@ def download_github_update():
             }
         }
     ), 200
+
+
+@github_update_bp.route('/open-downloads-folder', methods=['POST'])
+def open_downloads_folder():
+    """Open the folder where GitHub installers are downloaded.
+
+    This mirrors the logic in download_github_update() for resolving the
+    Downloads directory, then asks the OS to open that folder in the
+    platform file explorer.
+    """
+    try:
+        try:
+            home_dir = os.path.expanduser('~')
+            downloads_dir = os.path.join(home_dir, 'Downloads')
+            if not os.path.isdir(downloads_dir):
+                downloads_dir = tempfile.gettempdir()
+        except Exception as e:  # noqa: broad-except
+            logger.exception('Failed to resolve downloads directory, falling back to temp dir')
+            downloads_dir = tempfile.gettempdir()
+
+        if not os.path.isdir(downloads_dir):
+            raise DatabaseError(message='Downloads directory not available')
+
+        try:
+            if sys.platform == 'win32':
+                os.startfile(downloads_dir)  # type: ignore[attr-defined]
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', downloads_dir])
+            else:
+                subprocess.Popen(['xdg-open', downloads_dir])
+        except Exception as e:
+            logger.exception('Failed to open downloads folder')
+            raise DatabaseError(message='Failed to open downloads folder', cause=e)
+
+        return jsonify({'success': True, 'downloads_dir': downloads_dir}), 200
+    except DatabaseError:
+        raise
+    except Exception as e:  # noqa: broad-except
+        logger.exception('Unexpected error opening downloads folder')
+        raise DatabaseError(message='Unexpected error opening downloads folder', cause=e)

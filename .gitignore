@@ -31,6 +31,7 @@ MANIFEST
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
+WARP.md
 
 # Unit test / coverage reports
 htmlcov/
