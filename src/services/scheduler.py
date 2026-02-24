@@ -305,6 +305,29 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
             logger.info("No tasks found for daily reset")
             return
 
+        # Clean rolling daily_strikes history (keep only the most recent 7 days).
+        try:
+            try:
+                today_dt = datetime.strptime(today_str_local, '%Y-%m-%d')
+            except Exception:
+                today_dt = now
+            for t in tasks:
+                daily_strikes = t.get('daily_strikes')
+                if not isinstance(daily_strikes, dict) or not daily_strikes:
+                    continue
+                cleaned = {}
+                for day_str, value in list(daily_strikes.items()):
+                    try:
+                        day_dt = datetime.strptime(str(day_str), '%Y-%m-%d')
+                        if (today_dt - day_dt).days <= 7:
+                            cleaned[day_str] = value
+                    except Exception:
+                        # Ignore malformed keys
+                        continue
+                t['daily_strikes'] = cleaned
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Failed to clean daily_strikes history during daily reset")
+
         # Snapshot previous day's planner tasks before we clear scheduling/strike flags.
         try:
             previous_day = (now - timedelta(days=1)).strftime('%Y-%m-%d')
@@ -331,6 +354,9 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
         
         # 1) Clear today's strike flags and ALL scheduling for struck-today tasks
         reset_count = 0
+        reset_timestamp = datetime.now().isoformat()
+        reset_tasks_for_log = []
+        reset_task_ids = set()
         for task in tasks:
             if task.get('struck_today'):
                 struck_date = task.get('struck_date')
@@ -339,11 +365,26 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
                     continue
                 # Check if task was struck forever (completed)
                 is_struck_forever = task.get('completed', False)
+
+                summary_task_for_log = None
+                if not is_struck_forever:
+                    summary_task_for_log = {
+                        'id': task.get('id'),
+                        'title': task.get('title'),
+                        'project': task.get('project') or '',
+                        'due_date': task.get('due_date'),
+                        'scheduled_date': task.get('scheduled_date'),
+                        'strike_count': int(task.get('strike_count') or 0),
+                        'completed': bool(task.get('completed', False)),
+                        'struck_forever': bool(task.get('struck_forever', False)),
+                    }
                 
                 # Clear the today's strike flag
                 task['struck_today'] = False
                 task['struck_date'] = None
                 task['strike_report'] = None
+                # Mark task as refreshed so the UI can surface a badge after reset
+                task['refreshed_at'] = reset_timestamp
                 reset_count += 1
                 
                 # If struck TODAY (not forever), clear scheduling so it returns to available tasks
@@ -353,6 +394,9 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
                     task['scheduled_date'] = None
                     task['scheduled_duration'] = None
                     logger.debug(f"Task '{task.get('title', 'Unknown')}' unscheduled after today's strike reset")
+                    if summary_task_for_log and summary_task_for_log.get('id'):
+                        reset_tasks_for_log.append(summary_task_for_log)
+                        reset_task_ids.add(str(summary_task_for_log['id']))
         
         # 2) Clear remaining scheduled tasks.
         # For missed-reset replay we must be conservative and avoid wiping today's schedule.
@@ -376,11 +420,43 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
                 t['scheduled_duration'] = None
                 unscheduled += 1
                 logger.debug(f"Task '{t.get('title', 'Unknown')}' unscheduled during daily reset")
+
+                # Include unscheduled tasks in the reset log, but avoid
+                # duplicating entries already captured from the struck-today
+                # pass.
+                task_id = str(t.get('id') or '').strip()
+                if task_id and task_id not in reset_task_ids:
+                    reset_tasks_for_log.append({
+                        'id': task_id,
+                        'title': t.get('title'),
+                        'project': t.get('project') or '',
+                        'due_date': t.get('due_date'),
+                        'scheduled_date': scheduled_date,
+                        'strike_count': int(t.get('strike_count') or 0),
+                        'completed': bool(t.get('completed', False)),
+                        'struck_forever': bool(t.get('struck_forever', False)),
+                    })
+                    reset_task_ids.add(task_id)
         
         if reset_count > 0 or unscheduled > 0:
             success = data_manager.save_tasks_for_user(user_id, tasks)
             if success:
                 logger.info(f"Daily reset done: {reset_count} strikes cleared, {unscheduled} tasks unscheduled")
+
+                # Persist a compact daily reset log for the UI. This is best-effort
+                # and should not cause the job to fail on its own.
+                if reset_tasks_for_log:
+                    try:
+                        data_manager.save_daily_reset_log(
+                            user_id=user_id,
+                            reset_at_iso=reset_timestamp,
+                            tasks=reset_tasks_for_log,
+                            reset_reason='replay' if replay else 'scheduled',
+                        )
+                    except DatabaseError:
+                        logger.exception("Failed to save daily reset log")
+                    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+                        logger.exception("Failed to save daily reset log")
 
                 # Persist last-run markers.
                 _write_last_run('daily_reset', datetime.now())

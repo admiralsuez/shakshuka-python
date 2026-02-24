@@ -1,14 +1,14 @@
-            <!-- Settings Page -->
+            <!-- Notes Page -->
             <div id="notes-page" class="page">
                 <div class="page-header">
                     <div class="notes-header-inner">
                         <h2>Notes</h2>
                         <div class="notes-header-actions">
-                            <button class="btn-primary btn-icon" id="notes-view-list-btn" title="View all notes">
-                                <i class="fas fa-folder"></i>
+                            <button class="btn-primary" id="notes-view-list-btn" title="View all notes">
+                                View all notes
                             </button>
-                            <button class="btn-primary btn-icon" id="notes-split-toggle-btn" title="Toggle split view">
-                                <i class="fas fa-arrows-alt-h"></i>
+                            <button class="btn-primary" id="notes-split-toggle-btn" title="Toggle split view">
+                                Split view
                             </button>
                             <button class="btn-primary" id="notes-add-selection-task-btn" title="Make selected text a task">
                                 Make selection a task
@@ -17,13 +17,47 @@
                     </div>
                 </div>
                 <div class="notes-container">
-                    <div class="notes-tabs-bar filter-tabs">
-                        <div class="notes-tabs-scroll" id="notes-tabs"></div>
-                        <button class="notes-tab notes-tab--new btn-primary btn-icon" id="notes-tab-new" type="button" title="New note tab">+</button>
+                    <div class="notes-dashboard-view" id="notes-dashboard-view">
+                        <div class="notes-explorer" id="notes-explorer">
+                            <div class="notes-folders-panel">
+                                <div class="notes-folders-header">
+                                    <h3>Folders</h3>
+                                    <button type="button" class="btn-primary btn-icon" id="notes-add-folder-btn" title="Create folder">
+                                        <i class="fas fa-folder-plus"></i>
+                                    </button>
+                                </div>
+                                <ul class="notes-folder-list" id="notes-folder-list"></ul>
+                            </div>
+                            <div class="notes-explorer-main">
+                                <div class="notes-explorer-header">
+                                    <h3 id="notes-explorer-current-folder">All notes</h3>
+                                    <div class="notes-explorer-controls task-controls-wrapper">
+                                        <div class="task-search-wrapper" id="notes-search-wrapper">
+                                            <input type="text" id="notes-explorer-filter" class="task-search-input" placeholder="Search notes..." autocomplete="off">
+                                        </div>
+                                        <select id="notes-explorer-sort" class="task-sort-select" title="Sort by">
+                                            <option value="updated" selected>Last updated</option>
+                                            <option value="title">Title AZ</option>
+                                            <option value="created">Created date</option>
+                                        </select>
+                                        <button type="button" class="btn-primary btn-icon" id="notes-quick-add-btn" title="Quick add note">
+                                            <i class="fas fa-plus"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <ul class="notes-explorer-notes" id="notes-explorer-notes"></ul>
+                            </div>
+                        </div>
                     </div>
-                    <div class="notes-editors" id="notes-editors">
-                        <textarea id="notes-editor-primary" class="notes-editor" spellcheck="false" placeholder="enter your thoughts here, you can use the buttons on top to view notes, split view and add selection to tasklist directly"></textarea>
-                        <textarea id="notes-editor-secondary" class="notes-editor notes-editor--secondary" spellcheck="false"></textarea>
+                    <div class="notes-editor-view" id="notes-editor-view" style="display:none;">
+                        <div class="notes-tabs-bar filter-tabs">
+                            <div class="notes-tabs-scroll" id="notes-tabs"></div>
+                            <button class="notes-tab notes-tab--new btn-primary btn-icon" id="notes-tab-new" type="button" title="New note tab">+</button>
+                        </div>
+                        <div class="notes-editors" id="notes-editors">
+                            <textarea id="notes-editor-primary" class="notes-editor" spellcheck="false" placeholder="enter your thoughts here, you can use the buttons on top to view notes, split view and add selection to tasklist directly"></textarea>
+                            <textarea id="notes-editor-secondary" class="notes-editor notes-editor--secondary" spellcheck="false"></textarea>
+                        </div>
                     </div>
                 </div>
             </div>

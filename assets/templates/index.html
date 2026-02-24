@@ -358,6 +358,34 @@
                     </div>
                 </div>
                 <div class="notes-container">
+                    <div class="notes-explorer" id="notes-explorer">
+                        <div class="notes-folders-panel">
+                            <div class="notes-folders-header">
+                                <h3>Folders</h3>
+                                <button type="button" class="btn-secondary btn-sm" id="notes-add-folder-btn" title="Create folder">
+                                    <i class="fas fa-folder-plus"></i>
+                                </button>
+                            </div>
+                            <ul class="notes-folder-list" id="notes-folder-list"></ul>
+                        </div>
+                        <div class="notes-explorer-main">
+                            <div class="notes-explorer-header">
+                                <h3 id="notes-explorer-current-folder">All notes</h3>
+                                <div class="notes-explorer-controls">
+                                    <input type="text" id="notes-explorer-filter" class="form-input notes-explorer-filter-input" placeholder="Search notes...">
+                                    <select id="notes-explorer-sort" class="notes-explorer-sort-select" title="Sort by">
+                                        <option value="updated" selected>Last updated</option>
+                                        <option value="title">Title A–Z</option>
+                                        <option value="created">Created date</option>
+                                    </select>
+                                    <button type="button" class="btn-primary btn-icon" id="notes-quick-add-btn" title="Quick add note">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <ul class="notes-explorer-notes" id="notes-explorer-notes"></ul>
+                        </div>
+                    </div>
                     <div class="notes-tabs-bar filter-tabs">
                         <div class="notes-tabs-scroll" id="notes-tabs"></div>
                         <button class="notes-tab notes-tab--new btn-primary btn-icon" id="notes-tab-new" type="button" title="New note tab">+</button>
@@ -860,26 +888,55 @@
         </div>
     </div>
 
-    <!-- Developer Logs Modal -->
-    <div class="modal" id="notes-list-modal">
+    <!-- Notes Folder Dialog Modal -->
+    <div class="modal" id="notes-folder-dialog-modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>All Notes</h3>
-                <button class="modal-close" id="close-notes-list-modal">
+                <h3 id="notes-folder-dialog-title">Folder</h3>
+                <button class="modal-close" id="notes-folder-dialog-close">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
             <div class="modal-body">
-                <div class="notes-list-toolbar">
-                    <label class="notes-list-select-all">
-                        <input type="checkbox" id="notes-select-all">
-                        <span>Select all</span>
-                    </label>
-                    <button type="button" id="notes-delete-selected-btn" class="notes-list-bulk-delete-btn" disabled>
-                        Delete selected
-                    </button>
+                <div class="form-group">
+                    <label for="notes-folder-dialog-select">Existing folders</label>
+                    <select id="notes-folder-dialog-select">
+                        <!-- options populated dynamically -->
+                    </select>
                 </div>
-                <ul class="notes-list" id="notes-list"></ul>
+                <div class="form-group">
+                    <label for="notes-folder-dialog-name">Folder name</label>
+                    <input type="text" id="notes-folder-dialog-name" class="form-input" placeholder="Enter folder name">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="notes-folder-dialog-cancel">Cancel</button>
+                <button type="button" class="btn-primary" id="notes-folder-dialog-apply">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Duplicate Task Modal -->
+    <div class="modal" id="duplicate-task-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Duplicate Task</h3>
+                <button class="modal-close" id="duplicate-task-cancel" type="button">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>A similar active task with the same title and project already exists.</p>
+                <div id="duplicate-task-existing-preview" class="duplicate-task-preview"></div>
+                <div class="form-group">
+                    <label for="duplicate-task-new-title">Rename task title (optional):</label>
+                    <input type="text" id="duplicate-task-new-title" class="form-input" placeholder="Enter a new task title">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="duplicate-task-cancel-footer">Cancel</button>
+                <button type="button" class="btn-secondary" id="duplicate-task-add-again">Add again</button>
+                <button type="button" class="btn-primary" id="duplicate-task-rename-add">Rename &amp; add</button>
             </div>
         </div>
     </div>

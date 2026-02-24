@@ -20,6 +20,7 @@ from src.constants import DEFAULT_USER_ID
 from src.services.importer import parse_csv_tasks, parse_txt_tasks
 from src.exceptions import DatabaseError
 from src.routes.api_utils import register_api_error_handlers
+from src.services import scheduler as scheduler_service
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,12 @@ def import_tasks():
 
 @task_bp.route('', methods=['POST'])
 def create_task():
-    """Create a new task with comprehensive validation and error handling"""
+    """Create a new task with comprehensive validation and error handling.
+
+    When a task with the same (title, project) already exists for the user and
+    is still active, the data manager will refuse creation and we return a
+    409 Conflict so the UI can offer "Add again" / "Rename & add" options.
+    """
     user_id = _get_user_id()
     logger.info(f"API create_task called with user_id: {user_id}")
     
@@ -278,8 +284,10 @@ def create_task():
             logger.info(f"Successfully created task {created_task['id']} for user {user_id}")
             return jsonify(created_task), 201
         else:
-            logger.error(f"Failed to create task for user {user_id}")
-            return jsonify({'error': 'Failed to create task'}), 500
+            # Treat a failed creation here as a likely duplicate conflict so
+            # the frontend can offer the user an explicit choice.
+            logger.warning(f"Duplicate or failed task creation for user {user_id}; returning 409")
+            return jsonify({'error': 'A similar task already exists'}), 409
             
     except Exception:  # noqa: broad-except
         logger.exception("Unexpected error in create_task for user %s", user_id)
@@ -763,57 +771,87 @@ def schedule_task(task_id):
 
 @task_bp.route('/reset-daily-strikes', methods=['POST'])
 def reset_daily_strikes():
-    """Reset all daily strikes and clean overdue schedule for the authenticated user (local time)."""
+    """Trigger a daily reset for the authenticated user via the scheduler service.
+
+    Delegating to the centralized scheduler keeps behavior (refreshed_at,
+    analytics, and reset logs) consistent whether the reset is automatic or
+    user-initiated from the UI.
+    """
     user_id = _get_user_id()
     data_manager = _get_data_manager()
     if not data_manager:
         return jsonify({'error': 'Data manager not available'}), 500
 
     try:
-        tasks = data_manager.load_tasks(user_id)
+        try:
+            # Ensure the scheduler service can resolve the data manager and
+            # execute the canonical reset job for this user.
+            scheduler_service.set_data_manager_getter(lambda: _get_data_manager())
+            scheduler_service.reset_daily_strikes_job(replay=False, replay_reason='manual_api')
+        except Exception:  # noqa: broad-except
+            logger.exception("Scheduler daily reset job failed when triggered via API for user %s", user_id)
+            return jsonify({'error': 'Failed to reset daily strikes'}), 500
+
+        # For API callers we keep the simple success envelope that existing
+        # frontend code expects. Detailed counts are available via analytics and
+        # the /api/tasks/reset-log endpoint.
+        return jsonify({'success': True, 'message': 'Daily reset completed'}), 200
+    except Exception:  # noqa: broad-except
+        logger.exception("Unexpected error in reset_daily_strikes for user %s", user_id)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@task_bp.route('/reset-log', methods=['GET'])
+def get_reset_log():
+    """Return the latest unseen daily reset log for the current user, if any."""
+    user_id = _get_user_id()
+    data_manager = _get_data_manager()
+    if not data_manager:
+        return jsonify({'success': False, 'error': 'Data manager not available'}), 500
+
+    try:
+        log_entry = data_manager.get_latest_daily_reset_log(user_id, include_seen=False)
+        if not log_entry:
+            return jsonify({'success': True, 'log': None}), 200
+
+        # The data manager already returns a safe, compact payload.
+        return jsonify({'success': True, 'log': log_entry}), 200
     except DatabaseError:
-        logger.exception("Database error loading tasks for reset_daily_strikes (user %s)", user_id)
-        return jsonify({'error': 'Database error loading tasks'}), 503
-    now = datetime.now()
-    today_local = now.strftime('%Y-%m-%d')
-    
-    reset_count = 0
-    unscheduled = 0
-    
-    for i, task in enumerate(tasks):
-        # Clean the rolling daily_strikes dict (keep recent 7 days) if present
-        if 'daily_strikes' in task:
-            daily_strikes = task.get('daily_strikes', {})
-            cleaned_strikes = {}
-            for strike_date in list(daily_strikes.keys()):
-                try:
-                    strike_datetime = datetime.strptime(strike_date, '%Y-%m-%d')
-                    today_datetime = datetime.strptime(today_local, '%Y-%m-%d')
-                    days_diff = (today_datetime - strike_datetime).days
-                    if days_diff <= 7:
-                        cleaned_strikes[strike_date] = daily_strikes[strike_date]
-                except ValueError as e:
-                    logger.debug("Invalid date format in daily_strikes dict: %s", e)
-            tasks[i]['daily_strikes'] = cleaned_strikes
-        
-        # Clear today's strike flags unconditionally for new day
-        if task.get('struck_today'):
-            tasks[i]['struck_today'] = False
-            tasks[i]['struck_date'] = None
-            tasks[i]['strike_report'] = None
-            reset_count += 1
-    
-    # Unschedule previous-day tasks that aren't completed
-    for i, t in enumerate(tasks):
-        sd = t.get('scheduled_date')
-        if sd and sd < today_local:
-            tasks[i]['scheduled_hour'] = None
-            tasks[i]['scheduled_minute'] = None
-            tasks[i]['scheduled_date'] = None
-            tasks[i]['scheduled_duration'] = None
-            unscheduled += 1
-    
-    if data_manager.save_tasks_for_user(user_id, tasks):
-        return jsonify({'success': True, 'message': 'Daily reset completed', 'strikes_cleared': reset_count, 'unscheduled': unscheduled})
-    else:
-        return jsonify({'error': 'Failed to reset daily strikes'}), 500
+        logger.exception("Database error loading daily reset log for user %s", user_id)
+        return jsonify({'success': False, 'error': 'Database error loading reset log'}), 503
+    except Exception as e:  # noqa: broad-except
+        logger.exception("Unexpected error loading daily reset log for user %s", user_id)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@task_bp.route('/reset-log/clear', methods=['POST'])
+def clear_reset_log():
+    """Mark the latest (or a specific) daily reset log as seen for the current user."""
+    user_id = _get_user_id()
+    data_manager = _get_data_manager()
+    if not data_manager:
+        return jsonify({'success': False, 'error': 'Data manager not available'}), 500
+
+    payload = request.json if request.is_json else None
+    log_id = None
+    if isinstance(payload, dict):
+        try:
+            log_id_raw = payload.get('id')
+            if log_id_raw is not None:
+                log_id = int(log_id_raw)
+        except (TypeError, ValueError):
+            log_id = None
+
+    try:
+        ok = data_manager.mark_daily_reset_log_seen(user_id, log_id=log_id)
+        if not ok:
+            # Not fatal; simply indicate that nothing changed so callers can
+            # clear local state.
+            return jsonify({'success': True, 'updated': False}), 200
+        return jsonify({'success': True, 'updated': True}), 200
+    except DatabaseError:
+        logger.exception("Database error marking daily reset log seen for user %s", user_id)
+        return jsonify({'success': False, 'error': 'Database error updating reset log'}), 503
+    except Exception as e:  # noqa: broad-except
+        logger.exception("Unexpected error marking daily reset log seen for user %s", user_id)
+        return jsonify({'success': False, 'error': str(e)}), 500

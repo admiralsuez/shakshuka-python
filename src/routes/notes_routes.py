@@ -84,11 +84,16 @@ def create_note():
 
     title = (note_data.get("title") or "").strip() or "Untitled"
     content = note_data.get("content", "")
+    folder_raw = note_data.get("folder")
+    folder = (folder_raw or "").strip() if isinstance(folder_raw, str) else None
+    if folder == "":
+        folder = None
+
     dm = _get_data_manager()
     if not dm:
         raise DatabaseError(message='Data manager not available')
 
-    created = dm.create_note_for_user(user_id, {"title": title, "content": content})
+    created = dm.create_note_for_user(user_id, {"title": title, "content": content, "folder": folder})
     if not created:
         raise DatabaseError(message='Failed to create note')
     return jsonify(created), 201
@@ -96,7 +101,7 @@ def create_note():
 
 @notes_bp.route("/<note_id>", methods=["PUT"])
 def update_note(note_id: str):
-    """Update title/content of a note."""
+    """Update title/content/folder of a note."""
     user_id = _get_user_id()
     note_data: Dict[str, Any] = get_json_object(required=True)
     if _sanitize_input_func:

@@ -39,10 +39,17 @@ async function _apiRequestTask(url, options) {
     const data = await resp.json().catch(() => null);
     if (!resp.ok) {
         const msg = (data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${resp.status}`;
-        throw new Error(msg);
+        const err = new Error(msg);
+        err.status = resp.status;
+        err.data = data;
+        err.url = url;
+        throw err;
     }
     if (!_isTaskObject(data)) {
-        throw new Error('Invalid task payload from server');
+        const err = new Error('Invalid task payload from server');
+        err.data = data;
+        err.url = url;
+        throw err;
     }
     return data;
 }
@@ -72,7 +79,10 @@ function isTaskOperationInProgress() {
     return taskOperationLock;
 }
 
-async function createTask(taskData) {
+async function createTask(taskData, options) {
+    options = options || {};
+    const bypassDuplicateModal = Boolean(options.bypassDuplicateModal);
+
     // Check if another task operation is in progress
     if (!acquireTaskOperationLock()) {
         console.warn('Task operation already in progress, skipping create');
@@ -127,7 +137,30 @@ async function createTask(taskData) {
             return newTask;
     } catch (error) {
         console.error('Error creating task:', error);
-        _safeNotify(error.message || 'Error creating task', 'error');
+
+        const status = (error && typeof error.status === 'number') ? error.status : null;
+        const message = (error && error.message) ? String(error.message) : '';
+        const lowerMsg = message.toLowerCase();
+        const isDuplicate = status === 409 || lowerMsg.includes('similar task already exists');
+
+        if (isDuplicate && !bypassDuplicateModal) {
+            try {
+                if (typeof openDuplicateTaskModal === 'function') {
+                    openDuplicateTaskModal(taskData);
+                } else {
+                    _safeNotify(message || 'A similar task already exists', 'warning');
+                }
+            } catch (e) {
+                _safeNotify(message || 'A similar task already exists', 'warning');
+            }
+            return null;
+        }
+
+        if (lowerMsg.includes('login')) {
+            _safeNotify('Please log in to create tasks', 'error');
+        } else {
+            _safeNotify(message || 'Error creating task', 'error');
+        }
         return null;
     } finally {
         releaseTaskOperationLock();
@@ -380,6 +413,151 @@ function closeQuickAddModal() {
     }
 }
 
+let _pendingDuplicateTaskData = null;
+
+function _findExistingDuplicateTask(taskData) {
+    try {
+        const title = (taskData && taskData.title ? String(taskData.title) : '').trim().toLowerCase();
+        const project = (taskData && taskData.project ? String(taskData.project) : '').trim().toLowerCase();
+        if (!title) {
+            return null;
+        }
+
+        let tasks = [];
+        try {
+            if (typeof AppState !== 'undefined' && typeof AppState.getTasks === 'function') {
+                tasks = AppState.getTasks() || [];
+            } else if (AppState && AppState.get) {
+                tasks = AppState.get('tasks') || [];
+            }
+        } catch (e) {
+            tasks = [];
+        }
+
+        if (!Array.isArray(tasks) || !tasks.length) {
+            return null;
+        }
+
+        return tasks.find(t => {
+            if (!t || !t.title) return false;
+            const tTitle = String(t.title).trim().toLowerCase();
+            const tProject = (t.project ? String(t.project) : '').trim().toLowerCase();
+            const isCompleted = Boolean(t.completed);
+            if (isCompleted) return false;
+            return tTitle === title && tProject === project;
+        }) || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function openDuplicateTaskModal(taskData) {
+    const modal = document.getElementById('duplicate-task-modal');
+    if (!modal) {
+        _safeNotify('A similar task already exists', 'warning');
+        return;
+    }
+
+    _pendingDuplicateTaskData = Object.assign({}, taskData || {});
+
+    const titleInput = document.getElementById('duplicate-task-new-title');
+    const previewEl = document.getElementById('duplicate-task-existing-preview');
+
+    const originalTitle = (_pendingDuplicateTaskData.title || '').trim();
+    if (titleInput) {
+        titleInput.value = originalTitle;
+        // Select the whole title so user can quickly overwrite
+        try {
+            titleInput.focus();
+            titleInput.setSelectionRange(0, titleInput.value.length);
+        } catch (e) { /* no-op */ }
+    }
+
+    if (previewEl) {
+        const existing = _findExistingDuplicateTask(_pendingDuplicateTaskData);
+        if (existing) {
+            const project = existing.project ? String(existing.project) : '';
+            previewEl.textContent = project ? `${existing.title}  b7 ${project}` : existing.title;
+        } else {
+            const project = _pendingDuplicateTaskData.project ? String(_pendingDuplicateTaskData.project) : '';
+            previewEl.textContent = project ? `${originalTitle}  b7 ${project}` : originalTitle;
+        }
+    }
+
+    modal.style.display = 'flex';
+    modal.classList.add('active');
+}
+
+function closeDuplicateTaskModal() {
+    const modal = document.getElementById('duplicate-task-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+    }
+    _pendingDuplicateTaskData = null;
+}
+
+async function handleDuplicateAddAgainClick() {
+    if (!_pendingDuplicateTaskData) {
+        closeDuplicateTaskModal();
+        return;
+    }
+    const payload = Object.assign({}, _pendingDuplicateTaskData, { ignore_duplicate: true });
+    closeDuplicateTaskModal();
+    await createTask(payload, { bypassDuplicateModal: true });
+}
+
+async function handleDuplicateRenameAddClick() {
+    if (!_pendingDuplicateTaskData) {
+        closeDuplicateTaskModal();
+        return;
+    }
+    const input = document.getElementById('duplicate-task-new-title');
+    const newTitle = input && typeof input.value === 'string' ? input.value.trim() : '';
+    if (!newTitle) {
+        _safeNotify('Please enter a new title', 'error');
+        if (input) {
+            try { input.focus(); } catch (e) { /* no-op */ }
+        }
+        return;
+    }
+
+    const payload = Object.assign({}, _pendingDuplicateTaskData, { title: newTitle });
+    closeDuplicateTaskModal();
+    await createTask(payload, { bypassDuplicateModal: false });
+}
+
+(function initDuplicateTaskModalHandlers() {
+    function setup() {
+        const modal = document.getElementById('duplicate-task-modal');
+        if (!modal) return;
+
+        const cancelHeader = document.getElementById('duplicate-task-cancel');
+        const cancelFooter = document.getElementById('duplicate-task-cancel-footer');
+        const addAgainBtn = document.getElementById('duplicate-task-add-again');
+        const renameAddBtn = document.getElementById('duplicate-task-rename-add');
+
+        if (cancelHeader) {
+            cancelHeader.addEventListener('click', closeDuplicateTaskModal);
+        }
+        if (cancelFooter) {
+            cancelFooter.addEventListener('click', closeDuplicateTaskModal);
+        }
+        if (addAgainBtn) {
+            addAgainBtn.addEventListener('click', handleDuplicateAddAgainClick);
+        }
+        if (renameAddBtn) {
+            renameAddBtn.addEventListener('click', handleDuplicateRenameAddClick);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setup);
+    } else {
+        setup();
+    }
+})();
+
 // Expose/augment Tasks object with modal helpers without overwriting the module from tasks.js
 window.Tasks = window.Tasks || {};
 Object.assign(window.Tasks, {
@@ -449,11 +627,17 @@ async function saveTask() {
         const editingTaskId = AppState.get('editingTaskId');
         if (editingTaskId) {
             await updateTask(editingTaskId, taskData);
+            closeTaskModal();
         } else {
-            await createTask(taskData);
+            const created = await createTask(taskData);
+            // Only close the modal on successful creation or when a task was
+            // actually created. If a duplicate was detected, createTask will
+            // return null and open the duplicate-task modal instead.
+            if (created) {
+                closeTaskModal();
+            }
         }
         
-        closeTaskModal();
     } catch (error) {
         console.error('Error saving task:', error);
     } finally {

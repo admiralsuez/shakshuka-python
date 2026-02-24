@@ -15,7 +15,7 @@ const DailyResetOverlay = {
                 <div class="daily-reset-content">
                     <div class="daily-reset-spinner"></div>
                     <h2 class="daily-reset-title">Tasks are being reset...</h2>
-                    <p class="daily-reset-subtitle">Starting a fresh day</p>
+                    <p class="daily-reset-subtitle">Starting a fresh day. When this finishes, check the "Daily Reset" badge in the sidebar to see which tasks were refreshed.</p>
                 </div>
             `;
             document.body.appendChild(overlay);

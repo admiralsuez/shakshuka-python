@@ -359,13 +359,12 @@ def _handle_autostart_update(enable_autostart: bool):
 
 
 def _reschedule_daily_reset(new_time: str):
-    """Reschedule daily reset job"""
+    """Reschedule daily reset job using the central scheduler service"""
     try:
-        from src.services.daily_reset import setup_daily_reset
-        setup_daily_reset()
+        from src.services import scheduler as scheduler_service
+        scheduler_service.set_app_context(_get_app_context())
+        scheduler_service.set_data_manager_getter(lambda: _get_app_context().data_manager if _get_app_context() else None)
+        scheduler_service.setup_daily_reset()
         logger.info(f"Daily reset rescheduled to {new_time}")
-    except ImportError as e:
-        # Fallback to old method if service not available
-        logger.debug("Daily reset service not available, using fallback: %s", e)
     except Exception as e:
         logger.error(f"Failed to reschedule daily reset: {e}")

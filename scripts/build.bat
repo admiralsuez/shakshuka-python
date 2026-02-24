@@ -19,5 +19,5 @@ python scripts\build.py
 echo.
 echo Build process completed!
 echo.
-pause
-
+echo Press any key to close this window...
+pause >nul

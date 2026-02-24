@@ -86,24 +86,20 @@ def _require_mobile_token() -> Tuple[bool, Optional[Dict[str, Any]], str]:
     user_id = _get_user_id()
 
     try:
-        with dm._get_connection() as conn:  # pylint: disable=protected-access
-            cur = conn.execute(
-                "SELECT device_id, device_name FROM mobile_devices WHERE user_id = ? AND token_hash = ?",
-                (user_id, token_hash),
-            )
-            row = cur.fetchone()
-            if not row:
-                return False, None, "Invalid token"
-
-            device = {
-                "device_id": row[0],
-                "device_name": row[1],
-                "user_id": user_id,
-            }
-            return True, device, ""
+        record = dm.get_mobile_device_by_token_hash(user_id, token_hash)
     except Exception:  # noqa: broad-except
         logger.exception("Error validating mobile token")
         return False, None, "Token validation failed"
+
+    if not record:
+        return False, None, "Invalid token"
+
+    device = {
+        "device_id": record.get("device_id"),
+        "device_name": record.get("device_name"),
+        "user_id": user_id,
+    }
+    return True, device, ""
 
 
 @mobile_bp.route("/pairing", methods=["GET"])
@@ -218,32 +214,7 @@ def pair_device():
     now = datetime.now().isoformat()
 
     try:
-        with dm._get_connection() as conn:  # pylint: disable=protected-access
-            conn.execute(
-                "INSERT OR REPLACE INTO mobile_devices (user_id, device_id, device_name, token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM mobile_devices WHERE user_id = ? AND device_id = ?), ?), ?)",
-                (user_id, device_id, device_name, token_hash, user_id, device_id, now, now),
-            )
-
-            # Enforce a maximum of 4 paired devices per user by deleting the oldest.
-            try:
-                cur = conn.execute(
-                    "SELECT device_id FROM mobile_devices WHERE user_id = ? ORDER BY created_at ASC",
-                    (user_id,),
-                )
-                rows = cur.fetchall() or []
-                if len(rows) > 4:
-                    # Delete all but the 4 most-recently created devices
-                    to_delete = [r[0] for r in rows[:-4] if r and r[0]]
-                    if to_delete:
-                        conn.executemany(
-                            "DELETE FROM mobile_devices WHERE user_id = ? AND device_id = ?",
-                            [(user_id, d) for d in to_delete],
-                        )
-            except Exception:  # noqa: broad-except
-                # Best-effort cleanup; do not fail pairing if pruning fails.
-                logger.exception("Failed to prune excess mobile devices for user %s", user_id)
-
-            conn.commit()
+        dm.save_mobile_device(user_id, device_id, device_name, token_hash, now)
     except Exception:  # noqa: broad-except
         logger.exception("Failed to save paired device")
         return jsonify({"success": False, "error": "Failed to save device"}), 500
@@ -270,22 +241,8 @@ def list_devices():
     user_id = _get_user_id()
 
     try:
-        with dm._get_connection() as conn:  # pylint: disable=protected-access
-            cur = conn.execute(
-                "SELECT device_id, device_name, created_at, last_seen_at FROM mobile_devices WHERE user_id = ? ORDER BY last_seen_at DESC",
-                (user_id,),
-            )
-            rows = cur.fetchall()
-            devices = [
-                {
-                    "device_id": row[0],
-                    "device_name": row[1],
-                    "created_at": row[2],
-                    "last_seen_at": row[3],
-                }
-                for row in rows
-            ]
-            return jsonify({"success": True, "devices": devices})
+        devices = dm.list_mobile_devices(user_id)
+        return jsonify({"success": True, "devices": devices})
     except Exception:  # noqa: broad-except
         logger.exception("Failed to list devices")
         return jsonify({"success": False, "error": "Failed to list devices"}), 500
@@ -307,13 +264,10 @@ def unpair_device(device_id: str):
     user_id = _get_user_id()
 
     try:
-        with dm._get_connection() as conn:  # pylint: disable=protected-access
-            conn.execute(
-                "DELETE FROM mobile_devices WHERE user_id = ? AND device_id = ?",
-                (user_id, device_id),
-            )
-            conn.commit()
+        ok = dm.delete_mobile_device(user_id, device_id)
+        if ok:
             return jsonify({"success": True, "message": "Device unpaired"})
+        return jsonify({"success": False, "error": "Device not found"}), 404
     except Exception:  # noqa: broad-except
         logger.exception("Failed to unpair device")
         return jsonify({"success": False, "error": "Failed to unpair device"}), 500
@@ -357,16 +311,14 @@ def submit_inbox():
     now = datetime.now().isoformat()
 
     try:
-        with dm._get_connection() as conn:  # pylint: disable=protected-access
-            conn.execute(
-                "INSERT OR REPLACE INTO mobile_inbox (id, user_id, device_id, device_name, payload_json, status, created_at, processed_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, NULL)",
-                (submission_id, user_id, device.get("device_id"), device.get("device_name"), json.dumps(payload), now),
-            )
-            conn.execute(
-                "UPDATE mobile_devices SET last_seen_at = ? WHERE user_id = ? AND device_id = ?",
-                (now, user_id, device.get("device_id")),
-            )
-            conn.commit()
+        dm.save_mobile_inbox_submission(
+            user_id,
+            device.get("device_id"),
+            device.get("device_name"),
+            submission_id,
+            payload,
+            now,
+        )
     except Exception:  # noqa: broad-except
         logger.exception("Failed to save inbox submission")
         return jsonify({"success": False, "error": "Failed to save submission"}), 500
@@ -396,33 +348,10 @@ def get_pending_inbox():
     user_id = _get_user_id()
 
     try:
-        with dm._get_connection() as conn:  # pylint: disable=protected-access
-            cur = conn.execute(
-                "SELECT id, device_id, device_name, payload_json, created_at FROM mobile_inbox WHERE user_id = ? AND status = 'pending' ORDER BY created_at ASC LIMIT 1",
-                (user_id,),
-            )
-            row = cur.fetchone()
-            if not row:
-                return jsonify({"success": True, "pending": None})
-
-            payload = None
-            try:
-                payload = json.loads(row[3]) if row[3] else None
-            except Exception:  # noqa: broad-except
-                payload = None
-
-            return jsonify(
-                {
-                    "success": True,
-                    "pending": {
-                        "id": row[0],
-                        "device_id": row[1],
-                        "device_name": row[2],
-                        "payload": payload,
-                        "created_at": row[4],
-                    },
-                }
-            )
+        pending = dm.load_next_pending_mobile_inbox(user_id)
+        if not pending:
+            return jsonify({"success": True, "pending": None})
+        return jsonify({"success": True, "pending": pending})
     except Exception:  # noqa: broad-except
         logger.exception("Failed to load pending inbox")
         return jsonify({"success": False, "error": "Failed to load inbox"}), 500
@@ -497,22 +426,16 @@ def approve_inbox(submission_id: str):
     user_id = _get_user_id()
 
     try:
-        with dm._get_connection() as conn:  # pylint: disable=protected-access
-            cur = conn.execute(
-                "SELECT payload_json FROM mobile_inbox WHERE id = ? AND user_id = ? AND status = 'pending'",
-                (submission_id, user_id),
-            )
-            row = cur.fetchone()
-            if not row:
-                return jsonify({"success": False, "error": "Submission not found"}), 404
+        payload = dm.get_pending_mobile_inbox_payload(user_id, submission_id)
+        if payload is None:
+            return jsonify({"success": False, "error": "Submission not found"}), 404
 
-            payload = json.loads(row[0]) if row[0] else {}
-            tasks = payload.get("tasks") if isinstance(payload, dict) else None
-            notes = payload.get("notes") if isinstance(payload, dict) else None
-            if not isinstance(tasks, list):
-                tasks = []
-            if not isinstance(notes, list):
-                notes = []
+        tasks = payload.get("tasks") if isinstance(payload, dict) else None
+        notes = payload.get("notes") if isinstance(payload, dict) else None
+        if not isinstance(tasks, list):
+            tasks = []
+        if not isinstance(notes, list):
+            notes = []
 
         created_tasks = []
         created_notes = []
@@ -567,18 +490,17 @@ def approve_inbox(submission_id: str):
                 skipped.append({"client_note_id": client_note_id, "error": "Create failed"})
 
         now = datetime.now().isoformat()
-        result_json = json.dumps({
+        result = {
             "created_tasks": created_tasks_count,
             "created_notes": created_notes_count,
-            "skipped": skipped
-        })
+            "skipped": skipped,
+        }
 
-        with dm._get_connection() as conn:  # pylint: disable=protected-access
-            conn.execute(
-                "UPDATE mobile_inbox SET status = 'approved', processed_at = ?, result_json = ? WHERE id = ? AND user_id = ?",
-                (now, result_json, submission_id, user_id),
-            )
-            conn.commit()
+        try:
+            dm.mark_mobile_inbox_approved(user_id, submission_id, result, now)
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to mark inbox submission %s approved", submission_id)
+            return jsonify({"success": False, "error": "Failed to approve submission"}), 500
 
         return jsonify({
             "success": True,
@@ -608,33 +530,16 @@ def get_submission_status(submission_id: str):
     user_id = device.get("user_id")
 
     try:
-        with dm._get_connection() as conn:  # pylint: disable=protected-access
-            cur = conn.execute(
-                "SELECT status, processed_at, result_json FROM mobile_inbox WHERE id = ? AND user_id = ?",
-                (submission_id, user_id),
-            )
-            row = cur.fetchone()
-            if not row:
-                return jsonify({"success": False, "error": "Submission not found"}), 404
-
-            status = row[0]
-            processed_at = row[1]
-            result_json = row[2]
-            
-            result = None
-            if result_json:
-                try:
-                    result = json.loads(result_json)
-                except Exception:  # noqa: broad-except
-                    logger.exception("Failed to decode mobile inbox result_json")
-
-            return jsonify({
-                "success": True,
-                "submission_id": submission_id,
-                "status": status,
-                "processed_at": processed_at,
-                "result": result,
-            })
+        info = dm.get_mobile_inbox_status(user_id, submission_id)
+        if not info:
+            return jsonify({"success": False, "error": "Submission not found"}), 404
+        return jsonify({
+            "success": True,
+            "submission_id": submission_id,
+            "status": info.get("status"),
+            "processed_at": info.get("processed_at"),
+            "result": info.get("result"),
+        })
     except Exception:  # noqa: broad-except
         logger.exception("Failed to get submission status %s", submission_id)
         return jsonify({"success": False, "error": "Failed to get status"}), 500
@@ -656,12 +561,9 @@ def reject_inbox(submission_id: str):
     now = datetime.now().isoformat()
 
     try:
-        with dm._get_connection() as conn:  # pylint: disable=protected-access
-            conn.execute(
-                "UPDATE mobile_inbox SET status = 'rejected', processed_at = ? WHERE id = ? AND user_id = ? AND status = 'pending'",
-                (now, submission_id, user_id),
-            )
-            conn.commit()
+        ok = dm.mark_mobile_inbox_rejected(user_id, submission_id, now)
+        if not ok:
+            return jsonify({"success": False, "error": "Submission not found or already processed"}), 404
         return jsonify({"success": True})
     except Exception:  # noqa: broad-except
         logger.exception("Failed to reject inbox submission %s", submission_id)

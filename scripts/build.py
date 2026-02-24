@@ -52,32 +52,44 @@ def main():
     
     # Bump version and update changelog
     version, build = bump_version_two_part()
-    update_changelog(version)
+
+    notes = None
+    try:
+        notes_path = root / 'config' / 'release_notes.txt'
+        if notes_path.exists():
+            notes = notes_path.read_text(encoding='utf-8').strip() or None
+    except Exception:
+        print("Warning: could not read release_notes.txt; changelog entry may be skipped.")
+
+    update_changelog(version, notes)
     
+    # Determine output directory (scripts/dist under project root)
+    dist_dir = (root / 'scripts' / 'dist').resolve()
+
     # Build executable
-    if not build_executable():
+    if not build_executable(output_dir=dist_dir):
         print("\nBuild failed. Please check the error messages above.")
         generate_build_report(version, build, build_success=False)
         return
     
     # Build installer
-    if build_installer():
+    if build_installer(output_dir=dist_dir):
         print("\n" + "=" * 50)
         print("BUILD COMPLETED SUCCESSFULLY!")
         print("=" * 50)
-        print("\nFiles created in dist/:")
+        print(f"\nFiles created in scripts/dist/:")
         print("  1. Shakshuka.exe - Standalone executable")
         print(f"  2. Shakshuka-Setup-v{version}.exe - Windows installer")
         
         generate_build_report(version, build, build_success=True)
         
         print("\nNext steps:")
-        print("  1. Test: Run dist/Shakshuka.exe")
-        print("  2. Install: Run the installer from dist/")
+        print("  1. Test: Run scripts/dist/Shakshuka.exe")
+        print("  2. Install: Run the installer from scripts/dist/")
         print("  3. App opens at http://127.0.0.1:8989")
     else:
         print("\nInstaller build failed, but executable was created.")
-        print("You can still run dist/Shakshuka.exe directly.")
+        print("You can still run scripts/dist/Shakshuka.exe directly.")
         generate_build_report(version, build, build_success=False)
 
 

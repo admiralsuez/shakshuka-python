@@ -603,109 +603,6 @@ def initialize_data_manager():
         return False
 
 
-def auto_save_worker():
-    """Robust background thread for auto-saving with race condition prevention"""
-    logger.info("Auto-save worker started")
-    
-    while app_context.auto_save_enabled:
-        user_id = None
-        try:
-            # Get auto-save interval from settings
-            settings = {}
-            if app_context.data_manager:
-                try:
-                    user_id = get_user_id()
-                    settings = app_context.data_manager.load_settings(user_id) or {}
-                except DatabaseError:
-                    logger.exception("Failed to load settings for auto-save")
-                    settings = {}
-                except Exception:  # noqa: broad-except
-                    logger.exception("Failed to load settings for auto-save")
-                    settings = {}
-            
-            interval = settings.get('autosave_interval', 30)
-            
-            # Wait for interval or stop event
-            if app_context.wait_for_auto_save_stop(interval):
-                logger.info("Auto-save worker stopped by event")
-                break
-            
-            # Check if auto-save is still enabled
-            if not app_context.auto_save_enabled:
-                logger.info("Auto-save disabled, stopping worker")
-                break
-            
-            # Issue #4: Atomic check-and-set to prevent race conditions
-            with app_context._auto_save_lock:
-                if app_context._save_in_progress:
-                    logger.info("Save already in progress, skipping auto-save")
-                    continue
-                app_context._save_in_progress = True
-            
-            # Check if data manager is available
-            if not app_context.data_manager:
-                with app_context._auto_save_lock:
-                    app_context._save_in_progress = False
-                logger.warning("Data manager not available for auto-save")
-                continue
-            
-            try:
-                # Get current user ID
-                user_id = get_user_id()
-                if not user_id:
-                    logger.warning("No user ID available for auto-save")
-                    continue
-                
-                # Load current tasks
-                try:
-                    tasks = app_context.data_manager.load_tasks_for_user(user_id)
-                except DatabaseError:
-                    logger.exception("Auto-save skipped: database error loading tasks")
-                    continue
-                
-                # Only save if there are changes since last save
-                current_time = time.time()
-                last_save_time = app_context.get_last_save_time()
-                last_signature = app_context.get_last_saved_tasks_signature()
-
-                # Build deterministic snapshot signature
-                snapshot = json.dumps(tasks, sort_keys=True, separators=(",", ":"))
-                signature = hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
-
-                if last_signature == signature:
-                    logger.debug("No task changes detected since last auto-save; skipping save")
-                    app_context.set_last_save_time(current_time)
-                    continue
-
-                # Skip save if interval hasn't elapsed (fallback guard)
-                if last_save_time and current_time - last_save_time < max(5, interval * 0.25):
-                    logger.debug("Auto-save interval guard prevented redundant save")
-                    continue
-
-                # Save tasks with the robust save method
-                success = app_context.data_manager.save_tasks_for_user(user_id, tasks)
-                
-                if success:
-                    app_context.set_last_save_time(current_time)
-                    app_context.set_last_saved_tasks_signature(signature)
-                    logger.info(f"Auto-saved {len(tasks)} tasks for user {user_id}")
-                else:
-                    logger.error(f"Auto-save failed for user {user_id}")
-                
-            except Exception:  # noqa: broad-except
-                logger.exception("Auto-save error for user %s", user_id or 'unknown')
-            finally:
-                # Always clear the save in progress flag
-                app_context.set_save_in_progress(False)
-                
-        except Exception:  # noqa: broad-except
-            logger.exception("Auto-save worker error")
-            # Wait a bit before retrying to prevent rapid error loops
-            time.sleep(5)
-    
-    logger.info("Auto-save worker stopped")
-    app_context.set_auto_save_running(False)
-
 def start_auto_save():
     """Start the auto-save background thread with proper state management"""
     try:
@@ -727,215 +624,6 @@ def stop_auto_save():
         
     except Exception as e:
         logger.error(f"Error stopping auto-save: {e}")
-
-def scheduler_worker(stop_event: threading.Event):
-    """Robust background thread for scheduled tasks with timezone awareness"""
-    logger.info("Scheduler worker started")
-    last_missed_check = datetime.now()
-    
-    while not stop_event.is_set():
-        try:
-            # Run pending scheduled jobs
-            schedule.run_pending()
-            
-            # Periodically check for missed resets (every 15 minutes)
-            now = datetime.now()
-            if (now - last_missed_check).total_seconds() >= 900:  # 15 minutes
-                if app_context.data_manager:
-                    user_id = get_user_id()
-                    try:
-                        settings = app_context.data_manager.load_settings(user_id) or {}
-                    except DatabaseError:
-                        logger.exception("Database error loading settings for missed reset interval check")
-                        settings = {}
-                    reset_time = settings.get('daily_reset_time', '08:00')
-                    check_and_run_missed_reset(reset_time, verbose=False)  # Quiet mode for intervals
-                last_missed_check = now
-            
-            # Issue #5: TTL cache handles CSRF cleanup automatically, no need to call manually
-            
-            # Sleep for 60 seconds or until stop requested
-            stop_event.wait(timeout=60)
-            
-        except Exception:  # noqa: broad-except
-            logger.exception("Scheduler worker error")
-            # Wait a bit before retrying to prevent rapid error loops
-            stop_event.wait(timeout=30)
-def check_and_run_missed_reset(reset_time_str, verbose=True):
-    """Check if today's reset was missed and run it if needed (uses local time)."""
-    try:
-        # DEBUG: Log when checker runs
-        logger.info(f"[DEBUG] Startup missed reset checker running with reset_time: {reset_time_str}")
-        
-        # Validate and normalize reset time
-        reset_time_str = _validate_and_normalize_reset_time(reset_time_str)
-        reset_hour, reset_minute = map(int, reset_time_str.split(':'))
-        
-        # Use local time so it matches how the scheduler runs
-        now = datetime.now()
-        logger.info(f"[DEBUG] Current time: {now.strftime('%H:%M')}, Reset time: {reset_time_str}")
-        
-        # Create datetime for today's reset time (local)
-        today_reset_time = now.replace(hour=reset_hour, minute=reset_minute, second=0, microsecond=0)
-        
-        # If current time is past today's reset time and any task is still flagged struck_today, run reset
-        if now > today_reset_time:
-            logger.info(f"[DEBUG] Current time is past reset time, checking for struck tasks...")
-            user_id = get_user_id()
-            logger.info(f"[DEBUG] User ID: {user_id}")
-            logger.info(f"[DEBUG] Data manager available: {app_context.data_manager is not None}")
-            
-            if not user_id or not app_context.data_manager:
-                logger.warning(f"[DEBUG] Skipping missed reset - user_id: {user_id}, data_manager: {app_context.data_manager is not None}")
-                return
-            
-            try:
-                tasks = app_context.data_manager.load_tasks_for_user(user_id)
-            except DatabaseError:
-                logger.exception("[DEBUG] Skipping missed reset - database error loading tasks")
-                return
-            logger.info(f"[DEBUG] Loaded {len(tasks)} tasks")
-            if not tasks:
-                return
-            
-            needs_reset = any(task.get('struck_today') for task in tasks)
-            struck_count = sum(1 for task in tasks if task.get('struck_today'))
-            logger.info(f"[DEBUG] Tasks with struck_today=True: {struck_count}")
-            
-            if needs_reset:
-                logger.info(f" Missed reset detected! Current time {now.strftime('%H:%M')} is past reset time {reset_time_str}. Running reset now...")
-                reset_daily_strikes_job()
-            elif verbose:
-                logger.debug(" No tasks flagged for today; reset not needed")
-        elif verbose:
-            logger.info(f" Reset time {reset_time_str} is still upcoming today (current: {now.strftime('%H:%M')})")
-            
-    except Exception as e:
-        logger.error(f"Error checking for missed reset: {e}")
-
-def setup_daily_reset():
-    """Setup daily reset schedule with timezone awareness"""
-    try:
-        if not app_context.data_manager:
-            logger.warning("Data manager not available for daily reset setup")
-            return
-        
-        # Get user ID for proper settings loading
-        user_id = get_user_id()
-        try:
-            settings = app_context.data_manager.load_settings(user_id) or {}
-        except DatabaseError:
-            logger.exception("Database error loading settings for daily reset setup")
-            return
-        reset_time = settings.get('daily_reset_time', '08:00')
-        
-        # Validate and normalize reset time
-        reset_time = _validate_and_normalize_reset_time(reset_time)
-        
-        # Check if we've already passed today's reset time
-        check_and_run_missed_reset(reset_time)
-        
-        # Clear any existing daily reset jobs
-        schedule.clear('daily_reset')
-        
-        # Schedule the daily reset with proper timezone handling
-        schedule.every().day.at(reset_time).do(reset_daily_strikes_job).tag('daily_reset')
-        
-        logger.info(f" Daily reset scheduled for {reset_time} (user: {user_id})")
-        
-    except Exception as e:
-        logger.error(f"Error setting up daily reset: {e}")
-
-def reset_daily_strikes_job():
-    """Job to reset daily strikes and clean all scheduled tasks (local time).
-    
-    Behavior:
-    - Tasks struck TODAY: Clear strike flag AND all scheduling -> move to available tasks
-    - Tasks struck FOREVER (completed): Don't show in available tasks
-    - All other scheduled tasks: Clear scheduling to return to available pool
-    """
-    try:
-        logger.info("Starting daily strikes reset job")
-        
-        if not app_context.data_manager:
-            logger.error("Data manager not available for daily reset")
-            return
-        
-        # Use local time to align with user expectation and scheduler
-        now = datetime.now()
-        today_str_local = now.strftime('%Y-%m-%d')
-        
-        # Get user
-        user_id = get_user_id()
-        if not user_id:
-            logger.warning("No user ID available for daily reset")
-            return
-        
-        # Load tasks for the user
-        try:
-            tasks = app_context.data_manager.load_tasks_for_user(user_id)
-        except DatabaseError:
-            logger.exception("Daily reset skipped: database error loading tasks")
-            return
-        if not tasks:
-            logger.info("No tasks found for daily reset")
-            return
-        
-        # 1) Clear today's strike flags and ALL scheduling for struck-today tasks
-        reset_count = 0
-        reset_timestamp = datetime.now().isoformat()
-        
-        for task in tasks:
-            if task.get('struck_today'):
-                # Check if task was struck forever
-                is_struck_forever = task.get('struck_forever', False)
-                
-                # Clear the today's strike flag
-                task['struck_today'] = False
-                task['struck_date'] = None
-                task['strike_report'] = None
-                
-                # Mark task as refreshed with timestamp
-                task['refreshed_at'] = reset_timestamp
-                reset_count += 1
-                
-                # ALWAYS clear scheduling during reset - all tasks should return to pool
-                # (struck_forever tasks won't appear anyway, but clearing keeps data consistent)
-                task['scheduled_hour'] = None
-                task['scheduled_minute'] = None
-                task['scheduled_date'] = None
-                task['scheduled_duration'] = None
-                logger.debug(f"Task '{task.get('title', 'Unknown')}' unscheduled after today's strike reset")
-        
-        # 2) Clear ALL remaining scheduled tasks (from any day, not just previous days)
-        # This ensures the planner is clean at the start of each day
-        unscheduled = 0
-        for t in tasks:
-            # Unschedule all scheduled tasks except those struck forever (those are hidden anyway)
-            is_struck_forever = t.get('struck_forever', False)
-            has_schedule = t.get('scheduled_date') is not None
-            
-            if has_schedule and not is_struck_forever:
-                t['scheduled_hour'] = None
-                t['scheduled_minute'] = None
-                t['scheduled_date'] = None
-                t['scheduled_duration'] = None
-                unscheduled += 1
-                logger.debug(f"Task '{t.get('title', 'Unknown')}' unscheduled during daily reset")
-        
-        if reset_count > 0 or unscheduled > 0:
-            success = app_context.data_manager.save_tasks_for_user(user_id, tasks)
-            if success:
-                logger.info(f"Daily reset done: {reset_count} strikes cleared, {unscheduled} tasks unscheduled")
-            else:
-                logger.error("Failed to save tasks after daily reset")
-        else:
-            logger.info("Daily reset: no changes needed")
-            
-    except Exception as e:
-        logger.error(f"Error in daily reset job: {e}")
-        import traceback
-        logger.error(f"Daily reset traceback: {traceback.format_exc()}")
 
 def start_scheduler():
     """Start the scheduler background thread with proper error handling"""
@@ -960,32 +648,6 @@ def stop_scheduler(timeout: float = 10.0):
 
 # Removed: get_timezone_aware_time() - unused function.
 # App uses local time (datetime.now()) exclusively for consistency.
-
-def _validate_and_normalize_reset_time(reset_time_str):
-    """Validate and normalize reset time format - used centrally for all reset time operations"""
-    try:
-        # Parse the time string
-        hour, minute = map(int, reset_time_str.split(':'))
-        
-        # Validate hour and minute ranges
-        if not (0 <= hour <= 23):
-            logger.warning(f"Invalid hour in reset time: {hour}, using default")
-            return "08:00"
-        
-        if not (0 <= minute <= 59):
-            logger.warning(f"Invalid minute in reset time: {minute}, using default")
-            return "08:00"
-        
-        return f"{hour:02d}:{minute:02d}"
-        
-    except (ValueError, AttributeError) as e:
-        logger.warning(f"Invalid reset time format '{reset_time_str}': {e}, using default")
-        return "08:00"
-
-# Deprecated: kept for backward compatibility (all calls should use _validate_and_normalize_reset_time)
-def validate_reset_time(reset_time_str):
-    return _validate_and_normalize_reset_time(reset_time_str)
-
 def get_changelog():
     """Serve the changelog file"""
     try:
@@ -1789,12 +1451,26 @@ if __name__ == '__main__':
     try:
         print("Starting Shakshuka application...")
         
-        # Check for existing instance and kill it if found
-        import psutil
+        # In frozen/packaged mode we enforce a single running instance using
+        # process scanning + a mutex. In dev (non-frozen) mode this is
+        # disabled so "python src/app.py" can be used freely alongside an
+        # installed EXE for debugging.
         import time
+        import psutil
+        import sys as _sys_single
         
         def kill_existing_instances():
-            """Kill any existing Shakshuka instances with enhanced detection"""
+            """Kill any existing Shakshuka instances with enhanced detection.
+
+            NOTE: This is only active when running as a frozen executable. In
+            dev mode (python src/app.py) it is a no-op to avoid immediately
+            killing the dev process itself.
+            """
+            if not getattr(_sys_single, 'frozen', False):
+                # Dev mode: do not attempt aggressive single-instance killing.
+                print("Dev mode detected; skipping existing-instance termination.")
+                return
+
             killed_count = 0
             max_attempts = 3
             
@@ -1816,7 +1492,7 @@ if __name__ == '__main__':
                                 killed_count += 1
                         
                         # Check if executable path contains Shakshuka
-                        elif proc.info['exe'] and 'shakshuka' in proc.info['exe'].lower():
+                        elif proc.info.get('exe') and 'shakshuka' in proc.info['exe'].lower():
                             print(f"Found existing Shakshuka instance by path (PID: {proc.info['pid']}), terminating...")
                             proc.terminate()
                             killed_count += 1
@@ -1924,9 +1600,14 @@ if __name__ == '__main__':
                 print("Failed to acquire lock after 3 attempts. Another instance may be running.")
                 return False
         
-        # Check single instance with file lock
-        if not check_single_instance():
-            sys.exit(1)
+        # Check single instance with file/OS-level lock. Only enforce this in
+        # frozen/packaged mode; in dev (python src/app.py) we skip it so the
+        # app can run without pywin32 mutex support.
+        if getattr(sys, 'frozen', False):
+            if not check_single_instance():
+                sys.exit(1)
+        else:
+            print("Dev mode detected; skipping single-instance mutex check.")
         
         # Initialize data manager
         print("Initializing data manager...")

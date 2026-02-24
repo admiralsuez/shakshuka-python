@@ -475,7 +475,73 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.error(f"Migration 017 failed: {e}")
             raise
-    
+
+    def _migration_018_notes_folders(self, conn) -> List[Dict[str, Any]]:
+        """Migration 18: Add folder support to notes table for explorer-style UI."""
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            cursor = conn.execute("PRAGMA table_info(notes)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'folder' not in columns:
+                conn.execute('ALTER TABLE notes ADD COLUMN folder TEXT')
+                self.logger.info("Added folder column to notes table")
+                migrations_applied.append({
+                    'version': 18,
+                    'description': 'Added folder column to notes table',
+                    'sql': 'ALTER TABLE notes ADD COLUMN folder TEXT'
+                })
+
+            # Index to speed up folder-based queries in the upcoming notes dashboard
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_notes_user_folder ON notes (user_id, folder, updated_at)')
+            migrations_applied.append({
+                'version': 18,
+                'description': 'Created idx_notes_user_folder index',
+                'sql': 'CREATE INDEX IF NOT EXISTS idx_notes_user_folder ON notes (user_id, folder, updated_at)'
+            })
+
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 018 failed: {e}")
+            raise
+
+    def _migration_019_daily_reset_log(self, conn) -> List[Dict[str, Any]]:
+        """Migration 19: Create daily_reset_log table for daily reset summaries."""
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            # Create table if it does not exist. This is idempotent and safe on
+            # existing installs.
+            conn.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS daily_reset_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    reset_at TEXT NOT NULL,
+                    task_count INTEGER NOT NULL,
+                    tasks_json TEXT NOT NULL,
+                    seen INTEGER NOT NULL DEFAULT 0,
+                    reset_reason TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_daily_reset_log_user_seen_reset '
+                'ON daily_reset_log (user_id, seen, reset_at DESC)'
+            )
+
+            migrations_applied.append({
+                'version': 19,
+                'description': 'Created daily_reset_log table and user_seen_reset index',
+                'sql': 'CREATE TABLE IF NOT EXISTS daily_reset_log (...)',
+            })
+
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 019 failed: {e}")
+            raise
+        
     def _run_migrations(self):
         """Run database migrations with comprehensive error handling and rollback"""
         migration_version = None
@@ -564,6 +630,14 @@ class SQLiteDataManager:
                     
                     if migration_version < 17:
                         migrations_applied.extend(self._migration_017_daily_reset_count(conn))
+
+                    # Migration 18: Add folder support for notes (explorer-style dashboard)
+                    if migration_version < 18:
+                        migrations_applied.extend(self._migration_018_notes_folders(conn))
+
+                    # Migration 19: Create daily_reset_log table for daily reset summaries
+                    if migration_version < 19:
+                        migrations_applied.extend(self._migration_019_daily_reset_log(conn))
                     
                     # Update migration version
                     if migrations_applied:
@@ -1604,7 +1678,12 @@ class SQLiteDataManager:
         return False
     
     def create_task_for_user(self, user_id: str, task_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Create a single task for a user with transaction safety"""
+        """Create a single task for a user with transaction safety.
+
+        This method also enforces a per-user duplicate check on (title, project)
+        for active (non-completed) tasks, unless the caller explicitly passes
+        ignore_duplicate=True in the task_data payload.
+        """
         max_retries = 3
         retry_delay = 0.1
         
@@ -1615,6 +1694,12 @@ class SQLiteDataManager:
 
                     if task_data is None or not isinstance(task_data, dict):
                         return None
+
+                    # Optional flag used by the UI when the user chooses
+                    # "Add again" for a duplicate task. This flag is NOT
+                    # persisted to the database and only affects the duplicate
+                    # check logic below.
+                    ignore_duplicate = bool(task_data.pop('ignore_duplicate', False))
 
                     if 'id' not in task_data:
                         task_data['id'] = str(uuid.uuid4())
@@ -1629,6 +1714,38 @@ class SQLiteDataManager:
                         conn.execute('BEGIN IMMEDIATE TRANSACTION')
 
                         try:
+                            # Duplicate guard: if ignore_duplicate is False, check
+                            # for an existing active task with the same
+                            # case-insensitive title + project (treat NULL/empty
+                            # project as equivalent).
+                            if not ignore_duplicate:
+                                title = (task_data.get('title') or '').strip()
+                                project_raw = (task_data.get('project') or '').strip()
+                                project_key = project_raw.lower()
+
+                                if title:
+                                    cursor = conn.execute(
+                                        '''
+                                        SELECT id FROM tasks
+                                        WHERE user_id = ?
+                                          AND LOWER(title) = LOWER(?)
+                                          AND LOWER(COALESCE(project, '')) = ?
+                                          AND completed = 0
+                                        LIMIT 1
+                                        ''',
+                                        (user_id, title, project_key)
+                                    )
+                                    existing = cursor.fetchone()
+                                    if existing:
+                                        self.logger.info(
+                                            "Duplicate task detected for user %s (title=%r, project=%r), creation skipped",
+                                            user_id,
+                                            title,
+                                            project_raw,
+                                        )
+                                        conn.rollback()
+                                        return None
+
                             task_row = self._task_dict_to_row(task_data, user_id)
                             conn.execute('''
                                 INSERT INTO tasks (
@@ -2490,17 +2607,18 @@ class SQLiteDataManager:
             self._ensure_user_exists(user_id)
             with self.pooled_connection() as conn:
                 cursor = conn.execute(
-                    '''SELECT id, title, content, created_at, updated_at FROM notes
+                    '''SELECT id, title, content, folder, created_at, updated_at FROM notes
                        WHERE user_id = ? ORDER BY updated_at DESC''',
                     (user_id,)
                 )
                 rows = cursor.fetchall()
-                notes = []
+                notes: List[Dict[str, Any]] = []
                 for row in rows:
                     notes.append({
                         'id': row['id'],
                         'title': row['title'],
                         'content': row['content'] or '',
+                        'folder': row['folder'],
                         'created_at': row['created_at'],
                         'updated_at': row['updated_at'],
                     })
@@ -2517,19 +2635,24 @@ class SQLiteDataManager:
                 note_data['id'] = str(uuid.uuid4())
             title = (note_data.get('title') or '').strip() or 'Untitled'
             content = note_data.get('content', '')
+            folder_raw = note_data.get('folder')
+            folder = (folder_raw or '').strip() if isinstance(folder_raw, str) else None
+            if folder == '':
+                folder = None
             now = datetime.now().isoformat()
             with self._get_connection() as conn:
                 conn.execute('BEGIN IMMEDIATE TRANSACTION')
                 conn.execute(
-                    '''INSERT INTO notes (id, user_id, title, content, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?)''',
-                    (note_data['id'], user_id, title, content, now, now)
+                    '''INSERT INTO notes (id, user_id, title, content, folder, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                    (note_data['id'], user_id, title, content, folder, now, now)
                 )
                 conn.commit()
             return {
                 'id': note_data['id'],
                 'title': title,
                 'content': content,
+                'folder': folder,
                 'created_at': now,
                 'updated_at': now,
             }
@@ -2538,10 +2661,14 @@ class SQLiteDataManager:
             return None
 
     def update_note_for_user(self, user_id: str, note_id: str, note_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Update title/content of a note"""
+        """Update title/content/folder of a note"""
         try:
             title = (note_data.get('title') or '').strip() or 'Untitled'
             content = note_data.get('content', '')
+            folder_raw = note_data.get('folder')
+            folder = (folder_raw or '').strip() if isinstance(folder_raw, str) else None
+            if folder == '':
+                folder = None
             now = datetime.now().isoformat()
             with self._get_connection() as conn:
                 conn.execute('BEGIN IMMEDIATE TRANSACTION')
@@ -2554,15 +2681,16 @@ class SQLiteDataManager:
                     return None
                 conn.execute(
                     '''UPDATE notes
-                       SET title = ?, content = ?, updated_at = ?
+                       SET title = ?, content = ?, folder = ?, updated_at = ?
                        WHERE id = ? AND user_id = ?''',
-                    (title, content, now, note_id, user_id)
+                    (title, content, folder, now, note_id, user_id)
                 )
                 conn.commit()
             return {
                 'id': note_id,
                 'title': title,
                 'content': content,
+                'folder': folder,
                 'updated_at': now,
             }
         except Exception as e:
@@ -2619,6 +2747,272 @@ class SQLiteDataManager:
             raise TypeError("save_settings() takes 1 or 2 arguments")
         
         return self.save_settings_for_user(user_id, settings)
+    
+    # Mobile devices and inbox management methods
+    def get_mobile_device_by_token_hash(self, user_id: str, token_hash: str) -> Optional[Dict[str, Any]]:
+        """Look up a mobile device for a user by token hash."""
+        try:
+            self._ensure_user_exists(user_id)
+            with self._get_connection() as conn:
+                conn.execute('BEGIN')
+                cur = conn.execute(
+                    '''SELECT device_id, device_name, created_at, last_seen_at
+                       FROM mobile_devices
+                       WHERE user_id = ? AND token_hash = ?''',
+                    (user_id, token_hash),
+                )
+                row = cur.fetchone()
+                conn.commit()
+            if not row:
+                return None
+            return {
+                'device_id': row['device_id'],
+                'device_name': row['device_name'],
+                'created_at': row['created_at'],
+                'last_seen_at': row['last_seen_at'],
+            }
+        except Exception as e:
+            self.logger.exception("Error looking up mobile device for user %s", user_id)
+            raise DatabaseError(message="Error looking up mobile device", details={'user_id': user_id}, cause=e)
+    
+    def save_mobile_device(self, user_id: str, device_id: str, device_name: str, token_hash: str, now_iso: str) -> None:
+        """Insert or update a mobile device record and prune older devices."""
+        try:
+            self._ensure_user_exists(user_id)
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                conn.execute(
+                    '''
+                    INSERT OR REPLACE INTO mobile_devices (
+                        user_id, device_id, device_name, token_hash, created_at, last_seen_at
+                    ) VALUES (
+                        ?, ?, ?, ?,
+                        COALESCE((SELECT created_at FROM mobile_devices WHERE user_id = ? AND device_id = ?), ?),
+                        ?
+                    )
+                    ''',
+                    (user_id, device_id, device_name, token_hash, user_id, device_id, now_iso, now_iso),
+                )
+                # Enforce a maximum of 4 paired devices per user by deleting the oldest.
+                try:
+                    cur = conn.execute(
+                        "SELECT device_id FROM mobile_devices WHERE user_id = ? ORDER BY created_at ASC",
+                        (user_id,),
+                    )
+                    rows = cur.fetchall() or []
+                    if len(rows) > 4:
+                        to_delete = [row['device_id'] for row in rows[:-4] if row and row['device_id']]
+                        if to_delete:
+                            conn.executemany(
+                                "DELETE FROM mobile_devices WHERE user_id = ? AND device_id = ?",
+                                [(user_id, d) for d in to_delete],
+                            )
+                except Exception:
+                    # Best-effort cleanup; do not fail pairing if pruning fails.
+                    self.logger.exception("Failed to prune excess mobile devices for user %s", user_id)
+                conn.commit()
+        except Exception as e:
+            self.logger.exception("Error saving mobile device for user %s", user_id)
+            raise DatabaseError(message="Error saving mobile device", details={'user_id': user_id}, cause=e)
+    
+    def list_mobile_devices(self, user_id: str) -> List[Dict[str, Any]]:
+        """List all paired devices for a user."""
+        try:
+            self._ensure_user_exists(user_id)
+            with self._get_connection() as conn:
+                conn.execute('BEGIN')
+                cur = conn.execute(
+                    '''SELECT device_id, device_name, created_at, last_seen_at
+                       FROM mobile_devices
+                       WHERE user_id = ?
+                       ORDER BY last_seen_at DESC''',
+                    (user_id,),
+                )
+                rows = cur.fetchall() or []
+                conn.commit()
+            devices: List[Dict[str, Any]] = []
+            for row in rows:
+                devices.append({
+                    'device_id': row['device_id'],
+                    'device_name': row['device_name'],
+                    'created_at': row['created_at'],
+                    'last_seen_at': row['last_seen_at'],
+                })
+            return devices
+        except Exception as e:
+            self.logger.exception("Error listing mobile devices for user %s", user_id)
+            raise DatabaseError(message="Error listing mobile devices", details={'user_id': user_id}, cause=e)
+    
+    def delete_mobile_device(self, user_id: str, device_id: str) -> bool:
+        """Unpair a mobile device for a user."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                cur = conn.execute(
+                    "DELETE FROM mobile_devices WHERE user_id = ? AND device_id = ?",
+                    (user_id, device_id),
+                )
+                conn.commit()
+            return cur.rowcount > 0
+        except Exception as e:
+            self.logger.exception("Error deleting mobile device %s for user %s", device_id, user_id)
+            raise DatabaseError(message="Error deleting mobile device", details={'user_id': user_id, 'device_id': device_id}, cause=e)
+    
+    def save_mobile_inbox_submission(self, user_id: str, device_id: str, device_name: str, submission_id: str, payload: Dict[str, Any], created_at_iso: str) -> None:
+        """Persist a mobile inbox payload and update device last_seen_at."""
+        try:
+            self._ensure_user_exists(user_id)
+            payload_json = json.dumps(payload or {})
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                conn.execute(
+                    '''
+                    INSERT OR REPLACE INTO mobile_inbox (
+                        id, user_id, device_id, device_name, payload_json, status, created_at, processed_at
+                    ) VALUES (?, ?, ?, ?, ?, 'pending', ?, NULL)
+                    ''',
+                    (submission_id, user_id, device_id, device_name, payload_json, created_at_iso),
+                )
+                conn.execute(
+                    "UPDATE mobile_devices SET last_seen_at = ? WHERE user_id = ? AND device_id = ?",
+                    (created_at_iso, user_id, device_id),
+                )
+                conn.commit()
+        except Exception as e:
+            self.logger.exception("Error saving mobile inbox submission %s for user %s", submission_id, user_id)
+            raise DatabaseError(message="Error saving mobile inbox submission", details={'user_id': user_id, 'submission_id': submission_id}, cause=e)
+    
+    def load_next_pending_mobile_inbox(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Return the oldest pending inbox submission for a user, if any."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute('BEGIN')
+                cur = conn.execute(
+                    '''
+                    SELECT id, device_id, device_name, payload_json, created_at
+                    FROM mobile_inbox
+                    WHERE user_id = ? AND status = 'pending'
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    ''',
+                    (user_id,),
+                )
+                row = cur.fetchone()
+                conn.commit()
+            if not row:
+                return None
+            payload = None
+            try:
+                payload = json.loads(row['payload_json']) if row['payload_json'] else None
+            except Exception:
+                payload = None
+            return {
+                'id': row['id'],
+                'device_id': row['device_id'],
+                'device_name': row['device_name'],
+                'payload': payload,
+                'created_at': row['created_at'],
+            }
+        except Exception as e:
+            self.logger.exception("Error loading pending mobile inbox for user %s", user_id)
+            raise DatabaseError(message="Error loading mobile inbox", details={'user_id': user_id}, cause=e)
+    
+    def get_pending_mobile_inbox_payload(self, user_id: str, submission_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch payload_json for a pending submission; returns decoded JSON or None."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute('BEGIN')
+                cur = conn.execute(
+                    "SELECT payload_json FROM mobile_inbox WHERE id = ? AND user_id = ? AND status = 'pending'",
+                    (submission_id, user_id),
+                )
+                row = cur.fetchone()
+                conn.commit()
+            if not row:
+                return None
+            raw = row['payload_json'] if 'payload_json' in row.keys() else row[0]
+            if not raw:
+                return {}
+            try:
+                payload = json.loads(raw)
+            except Exception:
+                payload = {}
+            return payload if isinstance(payload, dict) else {}
+        except Exception as e:
+            self.logger.exception("Error loading mobile inbox payload for user %s submission %s", user_id, submission_id)
+            raise DatabaseError(message="Error loading mobile inbox payload", details={'user_id': user_id, 'submission_id': submission_id}, cause=e)
+    
+    def mark_mobile_inbox_approved(self, user_id: str, submission_id: str, result: Dict[str, Any], processed_at_iso: str) -> bool:
+        """Mark a submission as approved and store result_json."""
+        try:
+            result_json = json.dumps(result or {})
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                cur = conn.execute(
+                    """
+                    UPDATE mobile_inbox
+                    SET status = 'approved', processed_at = ?, result_json = ?
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (processed_at_iso, result_json, submission_id, user_id),
+                )
+                conn.commit()
+            return cur.rowcount > 0
+        except Exception as e:
+            self.logger.exception("Error marking mobile inbox %s approved for user %s", submission_id, user_id)
+            raise DatabaseError(message="Error marking mobile inbox approved", details={'user_id': user_id, 'submission_id': submission_id}, cause=e)
+    
+    def mark_mobile_inbox_rejected(self, user_id: str, submission_id: str, processed_at_iso: str) -> bool:
+        """Mark a pending submission as rejected."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                cur = conn.execute(
+                    """
+                    UPDATE mobile_inbox
+                    SET status = 'rejected', processed_at = ?
+                    WHERE id = ? AND user_id = ? AND status = 'pending'
+                    """,
+                    (processed_at_iso, submission_id, user_id),
+                )
+                conn.commit()
+            return cur.rowcount > 0
+        except Exception as e:
+            self.logger.exception("Error rejecting mobile inbox %s for user %s", submission_id, user_id)
+            raise DatabaseError(message="Error rejecting mobile inbox", details={'user_id': user_id, 'submission_id': submission_id}, cause=e)
+    
+    def get_mobile_inbox_status(self, user_id: str, submission_id: str) -> Optional[Dict[str, Any]]:
+        """Return status, processed_at and decoded result for a submission, or None."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute('BEGIN')
+                cur = conn.execute(
+                    """
+                    SELECT status, processed_at, result_json
+                    FROM mobile_inbox
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (submission_id, user_id),
+                )
+                row = cur.fetchone()
+                conn.commit()
+            if not row:
+                return None
+            result = None
+            raw = row['result_json'] if 'result_json' in row.keys() else row[2]
+            if raw:
+                try:
+                    result = json.loads(raw)
+                except Exception:
+                    result = None
+            return {
+                'status': row['status'],
+                'processed_at': row['processed_at'],
+                'result': result,
+            }
+        except Exception as e:
+            self.logger.exception("Error loading mobile inbox status for user %s submission %s", user_id, submission_id)
+            raise DatabaseError(message="Error loading mobile inbox status", details={'user_id': user_id, 'submission_id': submission_id}, cause=e)
     
     # User Management Methods
     def create_user(self, user_id: str, username: str = None, password_hash: str = None) -> bool:
@@ -3097,7 +3491,6 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.exception("Error loading strike contributions for month %s", month)
             raise DatabaseError(message="Error loading strike contributions", details={'user_id': user_id, 'month': month}, cause=e)
-
     def list_strike_contribution_months(self, user_id: str, limit: int = 24) -> List[str]:
         try:
             self._ensure_user_exists(user_id)
@@ -3115,7 +3508,8 @@ class SQLiteDataManager:
                     GROUP BY m
                     ORDER BY m DESC
                     LIMIT ?
-                    ''',
+                    '''
+                    ,
                     (user_id, limit)
                 )
                 rows = cursor.fetchall()
@@ -3123,6 +3517,159 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.exception("Error listing strike contribution months")
             raise DatabaseError(message="Error listing strike contribution months", details={'user_id': user_id, 'limit': limit}, cause=e)
+
+    def save_daily_reset_log(self, user_id: str, reset_at_iso: str, tasks: List[Dict[str, Any]], reset_reason: str = 'scheduled') -> bool:
+        """Persist a compact summary of tasks affected by a daily reset."""
+        try:
+            self._ensure_user_exists(user_id)
+            if not tasks:
+                return False
+
+            # Sanitize task summaries to avoid unbounded log growth.
+            summaries: List[Dict[str, Any]] = []
+            for t in tasks[:500]:
+                if not isinstance(t, dict):
+                    continue
+                summaries.append({
+                    'id': str(t.get('id') or '').strip(),
+                    'title': (t.get('title') or '').strip(),
+                    'project': (t.get('project') or '').strip(),
+                    'due_date': t.get('due_date'),
+                    'scheduled_date': t.get('scheduled_date'),
+                    'strike_count': int(t.get('strike_count') or 0),
+                    'completed': bool(t.get('completed', False)),
+                    'struck_forever': bool(t.get('struck_forever', False)),
+                })
+
+            if not summaries:
+                return False
+
+            payload = json.dumps(summaries)
+            created_at = datetime.now().isoformat()
+            reset_at_value = reset_at_iso or created_at
+
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                conn.execute(
+                    '''
+                    INSERT INTO daily_reset_log (
+                        user_id, reset_at, task_count, tasks_json, seen, reset_reason, created_at
+                    ) VALUES (?, ?, ?, ?, 0, ?, ?)
+                    ''',
+                    (user_id, reset_at_value, len(summaries), payload, reset_reason or None, created_at),
+                )
+                # Keep only the most recent 30 reset logs per user.
+                conn.execute(
+                    '''
+                    DELETE FROM daily_reset_log
+                    WHERE user_id = ?
+                      AND id NOT IN (
+                        SELECT id FROM daily_reset_log
+                        WHERE user_id = ?
+                        ORDER BY reset_at DESC, id DESC
+                        LIMIT 30
+                      )
+                    ''',
+                    (user_id, user_id),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            self.logger.exception("Error saving daily reset log for user %s", user_id)
+            raise DatabaseError(
+                message="Error saving daily reset log",
+                details={'user_id': user_id},
+                cause=e,
+            )
+
+    def get_latest_daily_reset_log(self, user_id: str, include_seen: bool = False) -> Optional[Dict[str, Any]]:
+        """Return the latest daily reset log for a user, optionally including seen entries."""
+        try:
+            self._ensure_user_exists(user_id)
+            with self._get_connection() as conn:
+                conn.execute('BEGIN')
+                if include_seen:
+                    cur = conn.execute(
+                        '''
+                        SELECT id, reset_at, task_count, tasks_json, seen, reset_reason
+                        FROM daily_reset_log
+                        WHERE user_id = ?
+                        ORDER BY reset_at DESC, id DESC
+                        LIMIT 1
+                        ''',
+                        (user_id,),
+                    )
+                else:
+                    cur = conn.execute(
+                        '''
+                        SELECT id, reset_at, task_count, tasks_json, seen, reset_reason
+                        FROM daily_reset_log
+                        WHERE user_id = ? AND seen = 0
+                        ORDER BY reset_at DESC, id DESC
+                        LIMIT 1
+                        ''',
+                        (user_id,),
+                    )
+                row = cur.fetchone()
+                conn.commit()
+            if not row:
+                return None
+            raw_json = row['tasks_json'] if 'tasks_json' in row.keys() else row[3]
+            try:
+                tasks = json.loads(raw_json) if raw_json else []
+            except Exception:
+                tasks = []
+            if not isinstance(tasks, list):
+                tasks = []
+            return {
+                'id': row['id'],
+                'reset_at': row['reset_at'],
+                'task_count': row['task_count'],
+                'tasks': tasks,
+                'seen': bool(row['seen']),
+                'reset_reason': row['reset_reason'],
+            }
+        except Exception as e:
+            self.logger.exception("Error loading latest daily reset log for user %s", user_id)
+            raise DatabaseError(
+                message="Error loading daily reset log",
+                details={'user_id': user_id, 'include_seen': include_seen},
+                cause=e,
+            )
+
+    def mark_daily_reset_log_seen(self, user_id: str, log_id: Optional[int] = None) -> bool:
+        """Mark a daily reset log (or all logs) as seen for a user."""
+        try:
+            self._ensure_user_exists(user_id)
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                if log_id is None:
+                    cur = conn.execute(
+                        '''
+                        UPDATE daily_reset_log
+                        SET seen = 1
+                        WHERE user_id = ? AND seen = 0
+                        ''',
+                        (user_id,),
+                    )
+                else:
+                    cur = conn.execute(
+                        '''
+                        UPDATE daily_reset_log
+                        SET seen = 1
+                        WHERE user_id = ? AND id = ?
+                        ''',
+                        (user_id, int(log_id)),
+                    )
+                conn.commit()
+            return cur.rowcount > 0
+        except Exception as e:
+            self.logger.exception("Error marking daily reset log seen for user %s", user_id)
+            raise DatabaseError(
+                message="Error marking daily reset log seen",
+                details={'user_id': user_id, 'log_id': log_id},
+                cause=e,
+            )
 
     def was_recap_seen(self, user_id: str, recap_day: str) -> bool:
         try:

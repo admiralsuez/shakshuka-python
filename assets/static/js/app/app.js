@@ -388,6 +388,9 @@ async function resetDailyStrikes() {
             
             // Update stats immediately
             try { if (typeof updateDashboardStats === 'function') updateDashboardStats(); } catch(e) {}
+            // Refresh daily reset log indicator/modal state so the user can review
+            // which tasks were refreshed by this manual reset.
+            try { if (window.DailyResetLog && typeof window.DailyResetLog.refresh === 'function') { window.DailyResetLog.refresh(); } } catch(e) {}
             // Clean up overdue (previous-day) scheduled tasks at reset time
             try {
                 await apiCall('/api/planner-v2/cleanup-overdue', { method: 'POST' });

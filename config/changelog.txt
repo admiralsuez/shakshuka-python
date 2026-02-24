@@ -1,97 +1,139 @@
-## Version 21.5 - Release
-Release Date: 2026-01-23T03:48:08.688959
+## Version 23.3 - Release
+Release Date: 2026-02-22T19:38:45.632503
+
+Highlights
+
+- Windows build workflow: clarified that running `scripts\\build.bat` from an existing terminal keeps the console open after completion, while double-clicking the .bat closes the transient window once the script finishes.
+- Changelog generation: builds now only add a changelog entry when real release notes are provided, avoiding empty "Highlights" sections.
+- Daily reset: added a sidebar "Daily Reset" badge and summary modal listing tasks refreshed by each daily reset, including their project, due date, and scheduled date.
+
+---
+## Version 23.2 - Release
+Release Date: 2026-02-22T15:51:02.375530
 
 Highlights
 
 ---
-## Version 21.4 - Release
-Release Date: 2026-01-23T03:26:29.811407
+## Version 23.1 - Release
+Release Date: 2026-02-22T15:49:47.553635
 
 Highlights
 
 ---
-## Version 21.3 - Release
-Release Date: 2026-01-23T02:12:22.139542
+## Version 23.0 - Release
+Release Date: 2026-02-22T15:43:00.791618
 
 Highlights
 
 ---
-## Version 21.2 - Release
-Release Date: 2026-01-23T01:22:20.518706
+## Version 22.9 - Release
+Release Date: 2026-02-22T15:36:27.372694
 
 Highlights
 
 ---
-## Version 21.1 - Release
-Release Date: 2026-01-22T01:21:19.494971
+## Version 22.8 - Release
+Release Date: 2026-02-22T15:36:09.240641
 
 Highlights
 
 ---
-## Version 21.0 - Release
-Release Date: 2026-01-22T01:04:02.979183
+## Version 22.7 - Release
+Release Date: 2026-02-22T15:35:58.781097
 
 Highlights
 
 ---
-## Version 20.9 - Release
-Release Date: 2026-01-21T21:25:50.138357
+## Version 22.6 - Release
+Release Date: 2026-02-21T22:06:27.323940
 
 Highlights
 
 ---
-## Version 20.8 - Release
-Release Date: 2026-01-21T19:35:04.550100
+## Version 22.5 - Release
+Release Date: 2026-02-21T22:06:17.235441
 
 Highlights
 
 ---
-## Version 20.7 - Release
-Release Date: 2026-01-21T18:03:47.050537
+## Version 22.4 - Release
+Release Date: 2026-02-21T22:06:00.400864
 
 Highlights
 
 ---
-## Version 20.6 - Release
-Release Date: 2026-01-21T15:00:07.641791
+## Version 22.3 - Release
+Release Date: 2026-02-19T14:52:25.745670
 
 Highlights
 
 ---
-## Version 20.5 - Release
-Release Date: 2026-01-20T23:16:22.575888
+## Version 22.2 - Release
+Release Date: 2026-02-19T14:31:47.680711
 
 Highlights
 
 ---
-## Version 20.4 - Release
-Release Date: 2026-01-20T16:49:03.449196
+## Version 22.1 - Release
+Release Date: 2026-02-19T02:08:22.746814
 
 Highlights
 
 ---
-## Version 20.3 - Release
-Release Date: 2026-01-20T16:08:52.494966
+## Version 22.0 - Release
+Release Date: 2026-02-19T01:52:49.194953
 
 Highlights
 
 ---
-## Version 20.2 - Release
-Release Date: 2026-01-20T16:02:11.758510
+## Version 21.9 - Release
+Release Date: 2026-02-19T01:43:52.156311
 
 Highlights
 
 ---
-## Version 20.1 - Release
-Release Date: 2026-01-20T15:08:47.172600
+## Version 21.8 - Release
+Release Date: 2026-02-19T01:22:37.258536
 
 Highlights
 
 ---
-## Version 20.0 - Release
-Release Date: 2026-01-20T14:25:52.780515
+## Version 21.7 - Release
+Release Date: 2026-02-19T01:21:30.031126
 
 Highlights
+
+---
+## Version 21.6 - Notes Explorer Dashboard & OCR Import
+Release Date: 2026-02-19T00:46:43.214067
+
+Highlights
+
+- **Notes Explorer Dashboard**: Replaced the old View Notes modal with an Explorer-style dashboard featuring folders in a sidebar, sortable/searchable note list, and active-note highlighting.
+- **Folders & Organization**: Notes can now live in named folders or "Unsorted"; drag-and-drop between folders and right-click context menus make it easy to move, rename, and delete folders without losing notes.
+- **Quick Add & Keyboard Shortcuts**: Added a Quick Add Note button plus keyboard shortcuts (Ctrl/Cmd+N for new note, Ctrl/Cmd+Shift+N for new folder) to streamline note capture.
+- **Slash Command Menu Polish**: Improved bullet and numbered list behavior so typing `-` + space or `1.` + space produces clean lists without duplicate markers.
+- **Import Note from Image (OCR)**: New "Import from image" button uses OCR to extract text from screenshots/photos, normalizes bullets and numbered lists, then creates a new note in the current folder.
+- **Duplicate Task Protection**: Creating a task with the same title and project now shows a modal with "Add again" or "Rename & add" options instead of silently duplicating.
+- **Performance & Theme Tweaks**: Perf Max toggle centralizes performance options and a new yellow theme adds another high-contrast appearance choice; existing dark blue theme was retired from the selector.
+
+---
+## Versions 21.0 – 21.5 - Internal Release Iterations
+Release Period: 2026-01-22T01:04:02.979183 – 2026-01-23T03:48:08.688959
+
+Highlights
+
+- Internal build iterations leading up to the Notes Explorer dashboard, OCR import flow, duplicate-task checker, and Perf Max/theme refinements.
+- No separate user-facing features beyond what is captured in Version 21.6.
+
+---
+## Versions 20.0 – 20.9 - Release
+Release Period: 2026-01-20T14:25:52.780515 – 2026-01-21T21:25:50.138357
+
+Highlights
+
+- Internal release iterations and packaging updates between major feature releases.
+- No standalone user-facing changes beyond what is documented in nearby major versions.
 
 ---
 ## Version 19.9 - Release

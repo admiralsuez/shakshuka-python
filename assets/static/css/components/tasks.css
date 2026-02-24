@@ -540,6 +540,16 @@
     padding: calc(1rem * var(--dpi-scale)) calc(1.25rem * var(--dpi-scale)) calc(1.5rem * var(--dpi-scale));
 }
 
+/* Duplicate task modal */
+.duplicate-task-preview {
+    margin-bottom: calc(0.75rem * var(--dpi-scale));
+    padding: calc(0.6rem * var(--dpi-scale)) calc(0.9rem * var(--dpi-scale));
+    border-radius: calc(8px * var(--dpi-scale));
+    background: var(--surface-hover, #f8f9fa);
+    color: var(--text-secondary);
+    font-size: calc(0.9rem * var(--dpi-scale));
+}
+
 .task-details-meta {
     display: flex;
     flex-wrap: wrap;

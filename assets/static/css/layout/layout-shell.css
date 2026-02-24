@@ -97,10 +97,11 @@
     flex: 1;
     margin-left: calc(240px * var(--dpi-scale));
     padding: calc(1.5rem * var(--dpi-scale));
-    height: 100vh; /* constrain to viewport */
+    height: 100vh;              /* viewport-sized main area */
     display: flex;
     flex-direction: column;
-    overflow: hidden; /* inner sections manage their own scroll */
+    overflow-y: auto;           /* main-content owns the scrollbar */
+    overflow-x: hidden;
 }
 
 /* Tasks page layout to enable inner scrolling */
