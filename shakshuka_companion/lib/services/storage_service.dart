@@ -24,6 +24,17 @@ class StorageService {
     };
   }
 
+  // Theme preference (mirrors desktop theme names where possible)
+  Future<String> getTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('app_theme') ?? 'orange';
+  }
+
+  Future<void> setTheme(String theme) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('app_theme', theme);
+  }
+
   Future<void> incrementTasksSent(int count) async {
     final prefs = await SharedPreferences.getInstance();
     final current = prefs.getInt('total_tasks_sent') ?? 0;

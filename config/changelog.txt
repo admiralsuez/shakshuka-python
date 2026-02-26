@@ -73,8 +73,6 @@ Highlights
 ## Version 19.7 - Major Mobile & Analytics Update
 Release Date: 2026-01-18
 
-Highlights
-
 - **Unified Mobile Inbox**: Send both tasks and notes from Android to desktop for approval in a single flow with selection dialog.
 - **Selection Dialog**: Choose which tasks and notes to send with checkboxes, showing previews of each item.
 - **Local Notes Storage**: Notes are now saved locally on Android first, then sent to PC for approval (like tasks).

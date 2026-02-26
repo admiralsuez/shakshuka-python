@@ -12,7 +12,8 @@ import 'desktop_tasks_screen.dart';
 import 'notes_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final void Function(String theme)? onThemeChanged;
+  const HomeScreen({super.key, this.onThemeChanged});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -29,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isConnected = false;
   int _totalTasksSent = 0;
   bool _notPairedBarDismissed = false;
+  String _appTheme = 'orange';
 
   @override
   void initState() {
@@ -36,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadTasks();
     _checkConnection();
     _loadStats();
+    _loadTheme();
   }
 
   @override
@@ -55,6 +58,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final stats = await _storage.getStats();
     setState(() {
       _totalTasksSent = stats['totalSent'] ?? 0;
+    });
+  }
+
+  Future<void> _loadTheme() async {
+    final theme = await _storage.getTheme();
+    setState(() {
+      _appTheme = theme;
     });
   }
 
@@ -582,6 +592,14 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(16),
             children: const [
               _ChangelogEntry(
+                version: '1.4.0',
+                date: '2026-02-26',
+                changes: [
+                  'Added theme selector for the companion app (Orange, Dark/Blue, Self-Esteem/Mint, Anxiety/Sky, Yellow/Sunny) to mirror desktop appearance.',
+                  'Theme preference is saved on device and applied across all screens.',
+                ],
+              ),
+              _ChangelogEntry(
                 version: '1.3.0',
                 date: '2026-01-16',
                 changes: [
@@ -643,6 +661,71 @@ class _HomeScreenState extends State<HomeScreen> {
           totalTasksSent: _totalTasksSent,
         ),
       ),
+    );
+  }
+
+  Future<String?> _showThemeDialog() async {
+    String current = _appTheme;
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF16213E),
+              title: const Text('Choose Theme'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RadioListTile<String>(
+                    value: 'orange',
+                    groupValue: current,
+                    title: const Text('Orange (Default)'),
+                    onChanged: (v) => setState(() => current = v!),
+                  ),
+                  RadioListTile<String>(
+                    value: 'dark',
+                    groupValue: current,
+                    title: const Text('Dark (Blue)'),
+                    onChanged: (v) => setState(() => current = v!),
+                  ),
+                  RadioListTile<String>(
+                    value: 'self-esteem',
+                    groupValue: current,
+                    title: const Text('Self-Esteem (Mint Green)'),
+                    onChanged: (v) => setState(() => current = v!),
+                  ),
+                  RadioListTile<String>(
+                    value: 'anxiety',
+                    groupValue: current,
+                    title: const Text('Anxiety (Sky Blue)'),
+                    onChanged: (v) => setState(() => current = v!),
+                  ),
+                  RadioListTile<String>(
+                    value: 'yellow',
+                    groupValue: current,
+                    title: const Text('Yellow (Sunny)'),
+                    onChanged: (v) => setState(() => current = v!),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, current),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE85D04),
+                  ),
+                  child: const Text('Apply'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -797,6 +880,38 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
               const Divider(color: Colors.grey),
+              ListTile(
+                leading: Icon(
+                  Icons.color_lens,
+                  color: Colors.grey[400],
+                ),
+                title: const Text('Theme'),
+                subtitle: Text(
+                  _appTheme == 'dark'
+                      ? 'Dark (Blue)'
+                      : _appTheme == 'self-esteem'
+                          ? 'Self-Esteem (Mint Green)'
+                          : _appTheme == 'anxiety'
+                              ? 'Anxiety (Sky Blue)'
+                              : _appTheme == 'yellow'
+                                  ? 'Yellow (Sunny)'
+                                  : 'Orange (Default)',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                ),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final newTheme = await _showThemeDialog();
+                  if (newTheme != null && newTheme != _appTheme) {
+                    await _storage.setTheme(newTheme);
+                    setState(() {
+                      _appTheme = newTheme;
+                    });
+                    if (widget.onThemeChanged != null) {
+                      widget.onThemeChanged!(newTheme);
+                    }
+                  }
+                },
+              ),
               ListTile(
                 leading: Icon(
                   Icons.bar_chart,
@@ -1381,6 +1496,8 @@ class _StatsPageState extends State<_StatsPage> {
   List<Map<String, dynamic>> _history = [];
   bool _isLoading = true;
 
+  final ApiService _api = ApiService();
+
   @override
   void initState() {
     super.initState();
@@ -1389,16 +1506,36 @@ class _StatsPageState extends State<_StatsPage> {
 
   Future<void> _loadAndRefreshStatus() async {
     setState(() => _isLoading = true);
-    
-    // First check for status updates from server
-    await widget.notifications.checkTaskStatusUpdates();
-    
-    // Then load the history
+
+    // First refresh status for any pending submissions directly from the
+    // desktop API so the history view is always up to date even if background
+    // notifications are disabled.
     final history = await widget.storage.getSentTasksHistory();
-    
+    for (final entry in history) {
+      if (entry['status'] != 'pending') {
+        continue;
+      }
+      final submissionId = entry['submission_id'] as String?;
+      if (submissionId == null || submissionId.isEmpty) {
+        continue;
+      }
+      final statusResult = await _api.checkSubmissionStatus(submissionId);
+      if (statusResult['success'] == true &&
+          statusResult['status'] is String &&
+          statusResult['status'] != 'pending') {
+        await widget.storage.updateHistoryStatus(
+          submissionId,
+          statusResult['status'] as String,
+        );
+      }
+    }
+
+    // Then load the (possibly updated) history
+    final refreshed = await widget.storage.getSentTasksHistory();
+
     if (mounted) {
       setState(() {
-        _history = history;
+        _history = refreshed;
         _isLoading = false;
       });
     }
@@ -1582,6 +1719,65 @@ class _StatsPageState extends State<_StatsPage> {
                                       color: statusColor,
                                     ),
                                   ),
+                                  onTap: () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (context) {
+                                        return AlertDialog(
+                                          backgroundColor: const Color(0xFF16213E),
+                                          title: Text(
+                                            'Sync details (${statusText.toLowerCase()})',
+                                            style: const TextStyle(fontSize: 16),
+                                          ),
+                                          content: SizedBox(
+                                            width: double.maxFinite,
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                if (timestamp != null)
+                                                  Padding(
+                                                    padding: const EdgeInsets.only(bottom: 8),
+                                                    child: Text(
+                                                      'Time: ${timestamp.day}/${timestamp.month}/${timestamp.year} ${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}',
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: Colors.grey[400],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                Text(
+                                                  'Tasks:',
+                                                  style: TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.grey[200],
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                ...tasks.map((t) => Padding(
+                                                      padding: const EdgeInsets.only(bottom: 4),
+                                                      child: Text(
+                                                        '- ${t['title'] ?? 'Untitled'}',
+                                                        style: TextStyle(
+                                                          fontSize: 13,
+                                                          color: Colors.grey[300],
+                                                        ),
+                                                      ),
+                                                    )),
+                                              ],
+                                            ),
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(context),
+                                              child: const Text('Close'),
+                                            ),
+                                          ],
+                                        );
+                                      },
+                                    );
+                                  },
                                 ),
                               );
                             },
