@@ -734,6 +734,16 @@ class _HomeScreenState extends State<HomeScreen> {
     final bool isPaired = _storage.isPaired;
     final bool needRepair = isPaired && !_isConnected;
 
+    // Derive colors from active theme so quick-add and bottom bar react to
+    // the selected desktop-mirrored palette (orange, dark/blue, mint, sky, yellow).
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final cardColor = theme.cardTheme.color ?? const Color(0xFF16213E);
+    final surfaceVariant = theme.colorScheme.surfaceVariant;
+    final primaryColor = colorScheme.primary;
+    final onPrimary = colorScheme.onPrimary;
+    final disabledColor = theme.disabledColor;
+
     return Scaffold(
       appBar: AppBar(
         leading: Builder(
@@ -1118,7 +1128,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // Quick add input
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            color: const Color(0xFF16213E),
+            color: cardColor,
             child: Row(
               children: [
                 Expanded(
@@ -1130,7 +1140,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       hintText: 'Quick add task...',
                       hintStyle: TextStyle(color: Colors.grey[500]),
                       filled: true,
-                      fillColor: const Color(0xFF1A1A2E),
+                      fillColor: surfaceVariant,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 12,
@@ -1140,7 +1150,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         borderSide: BorderSide.none,
                       ),
                       suffixIcon: IconButton(
-                        icon: const Icon(Icons.add, color: Color(0xFFE85D04)),
+                        icon: Icon(Icons.add, color: primaryColor),
                         onPressed: () =>
                             _quickAddTask(_quickAddController.text),
                       ),
@@ -1156,7 +1166,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: RefreshIndicator(
               onRefresh: _refreshData,
-              color: const Color(0xFFE85D04),
+              color: primaryColor,
               child: _tasks.isEmpty
                 ? ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
@@ -1313,7 +1323,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Container(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               decoration: BoxDecoration(
-                color: const Color(0xFF16213E),
+                color: cardColor,
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.3),
@@ -1339,11 +1349,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         } else if (isEmpty) {
                           buttonText = 'No items';
                         } else if (_tasks.isEmpty) {
-                          buttonText = 'Send $noteCount note${noteCount > 1 ? 's' : ''}';
+                          buttonText = 'Add $noteCount note${noteCount > 1 ? 's' : ''}';
                         } else if (noteCount == 0) {
-                          buttonText = 'Send ${_tasks.length} task${_tasks.length > 1 ? 's' : ''}';
+                          buttonText = 'Add ${_tasks.length} task${_tasks.length > 1 ? 's' : ''}';
                         } else {
-                          buttonText = 'Send $totalCount items';
+                          buttonText = 'Add $totalCount items';
                         }
                         
                         return ElevatedButton.icon(
@@ -1364,9 +1374,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: isEmpty
-                                ? Colors.grey[700]
-                                : const Color(0xFFE85D04),
-                            foregroundColor: Colors.white,
+                                ? disabledColor
+                                : primaryColor,
+                            foregroundColor: onPrimary,
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
@@ -1384,8 +1394,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: ElevatedButton(
                       onPressed: _addTask,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE85D04),
-                        foregroundColor: Colors.white,
+                        backgroundColor: primaryColor,
+                        foregroundColor: onPrimary,
                         padding: EdgeInsets.zero,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),

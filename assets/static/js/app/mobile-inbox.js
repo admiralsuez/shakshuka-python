@@ -492,8 +492,10 @@
             close('mobile-inbox-modal');
             currentPendingSubmissionId = null;
 
-            const tasksCreated = data.tasks_created != null ? data.tasks_created : 0;
-            const notesCreated = data.notes_created != null ? data.notes_created : 0;
+            // Backend returns created_tasks / created_notes; fall back to old
+            // names if needed for safety.
+            const tasksCreated = (data.created_tasks != null ? data.created_tasks : data.tasks_created) || 0;
+            const notesCreated = (data.created_notes != null ? data.created_notes : data.notes_created) || 0;
             const items = [];
             if (tasksCreated > 0) items.push(`${tasksCreated} task${tasksCreated > 1 ? 's' : ''}`);
             if (notesCreated > 0) items.push(`${notesCreated} note${notesCreated > 1 ? 's' : ''}`);

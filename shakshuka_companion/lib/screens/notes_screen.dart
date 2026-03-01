@@ -435,7 +435,9 @@ class _NotesScreenState extends State<NotesScreen> {
 }
 
 class _CreateNoteDialog extends StatefulWidget {
-  const _CreateNoteDialog();
+  final List<String> availableFolders;
+
+  const _CreateNoteDialog({this.availableFolders = const []});
 
   @override
   State<_CreateNoteDialog> createState() => _CreateNoteDialogState();
@@ -444,16 +446,21 @@ class _CreateNoteDialog extends StatefulWidget {
 class _CreateNoteDialogState extends State<_CreateNoteDialog> {
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
+  String? _selectedFolder;
+  final TextEditingController _folderController = TextEditingController();
 
   @override
   void dispose() {
     _titleController.dispose();
     _contentController.dispose();
+    _folderController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final folders = widget.availableFolders;
+
     return AlertDialog(
       backgroundColor: const Color(0xFF16213E),
       title: const Text('New Note'),
@@ -475,6 +482,64 @@ class _CreateNoteDialogState extends State<_CreateNoteDialog> {
                 ),
               ),
               autofocus: true,
+            ),
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Folder (optional)',
+                style: TextStyle(color: Colors.grey[300], fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 4),
+            if (folders.isNotEmpty)
+              DropdownButtonFormField<String?>(
+                value: _selectedFolder,
+                dropdownColor: const Color(0xFF1A1A2E),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: const Color(0xFF1A1A2E),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                hint: Text('Select folder',
+                    style: TextStyle(color: Colors.grey[500])),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('No folder'),
+                  ),
+                  ...folders.map((f) => DropdownMenuItem<String?>(
+                        value: f,
+                        child: Text(f),
+                      )),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    _selectedFolder = value;
+                  });
+                },
+              ),
+            if (folders.isNotEmpty) const SizedBox(height: 8),
+            TextField(
+              controller: _folderController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: folders.isNotEmpty
+                    ? 'Or type a new folder name'
+                    : 'Folder name',
+                hintStyle: TextStyle(color: Colors.grey[500]),
+                filled: true,
+                fillColor: const Color(0xFF1A1A2E),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+              ),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -504,12 +569,17 @@ class _CreateNoteDialogState extends State<_CreateNoteDialog> {
           onPressed: () {
             final title = _titleController.text.trim();
             final content = _contentController.text.trim();
+            final typedFolder = _folderController.text.trim();
+            final folder = typedFolder.isNotEmpty
+                ? typedFolder
+                : (_selectedFolder != null ? _selectedFolder!.trim() : '');
             if (title.isEmpty && content.isEmpty) {
               return;
             }
             Navigator.pop(context, {
               'title': title.isEmpty ? 'Untitled' : title,
               'content': content,
+              'folder': folder,
             });
           },
           style: ElevatedButton.styleFrom(

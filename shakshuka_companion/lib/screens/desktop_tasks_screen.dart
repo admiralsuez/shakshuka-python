@@ -78,8 +78,12 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
     }
   }
 
-  Color _getDueDateColor(String? dueDate) {
-    if (dueDate == null || dueDate.isEmpty) return Colors.grey;
+  Color _getDueDateColor(BuildContext context, String? dueDate) {
+    final theme = Theme.of(context);
+    final danger = Colors.red;
+    final warning = theme.colorScheme.primary;
+    final muted = Colors.grey;
+    if (dueDate == null || dueDate.isEmpty) return muted;
     try {
       final date = DateTime.parse(dueDate);
       final now = DateTime.now();
@@ -87,13 +91,13 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
       final taskDate = DateTime(date.year, date.month, date.day);
       
       if (taskDate.isBefore(today)) {
-        return Colors.red;
+        return danger;
       } else if (taskDate == today) {
-        return const Color(0xFFE85D04);
+        return warning;
       } else if (taskDate == today.add(const Duration(days: 1))) {
-        return Colors.orange;
+        return warning.withOpacity(0.8);
       }
-      return Colors.grey;
+      return muted;
     }
     catch (e) {
       return Colors.grey;
@@ -130,7 +134,7 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(color: Color(0xFFE85D04)),
+        child: CircularProgressIndicator(),
       );
     }
 
@@ -160,9 +164,6 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
                 onPressed: _loadTasks,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Retry'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE85D04),
-                ),
               ),
             ],
           ),
@@ -173,7 +174,6 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
     if (_tasks.isEmpty) {
       return RefreshIndicator(
         onRefresh: _loadTasks,
-        color: const Color(0xFFE85D04),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
@@ -213,7 +213,6 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
 
     return RefreshIndicator(
       onRefresh: _loadTasks,
-      color: const Color(0xFFE85D04),
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: _tasks.length,
@@ -227,11 +226,13 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
           final completed = task['completed'] == true;
           final strikeCount = task['strike_count'] ?? 0;
 
+          final theme = Theme.of(context);
+          final baseCard = theme.cardTheme.color ?? const Color(0xFF16213E);
+          final successBg = Colors.green.withOpacity(0.2);
+
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
-            color: struckToday || completed
-                ? const Color(0xFF1A3A1A)
-                : const Color(0xFF16213E),
+            color: struckToday || completed ? successBg : baseCard,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -248,7 +249,7 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
                             fontWeight: FontWeight.w600,
                             color: struckToday || completed
                                 ? Colors.grey[400]
-                                : Colors.white,
+                                : theme.colorScheme.onSurface,
                             decoration: struckToday || completed
                                 ? TextDecoration.lineThrough
                                 : null,
@@ -256,9 +257,9 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
                         ),
                       ),
                       if (struckToday || completed)
-                        const Icon(
+                        Icon(
                           Icons.check_circle,
-                          color: Colors.green,
+                          color: Colors.green.shade400,
                           size: 20,
                         ),
                     ],
@@ -287,14 +288,14 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFE85D04).withOpacity(0.2),
+                            color: theme.colorScheme.primary.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
                             project,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: Color(0xFFE85D04),
+                              color: theme.colorScheme.primary,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -306,7 +307,7 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: _getDueDateColor(dueDate).withOpacity(0.2),
+                            color: _getDueDateColor(context, dueDate).withOpacity(0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
@@ -315,14 +316,14 @@ class _DesktopTasksScreenState extends State<DesktopTasksScreen> {
                               Icon(
                                 Icons.calendar_today,
                                 size: 12,
-                                color: _getDueDateColor(dueDate),
+                                color: _getDueDateColor(context, dueDate),
                               ),
                               const SizedBox(width: 4),
                               Text(
                                 _formatDueDate(dueDate),
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: _getDueDateColor(dueDate),
+                                  color: _getDueDateColor(context, dueDate),
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
