@@ -19,11 +19,16 @@ class LocalNote extends HiveObject {
   @HiveField(3)
   DateTime createdAt;
 
+  /// Optional folder name, mirroring desktop Notes Explorer folders.
+  @HiveField(4)
+  String? folder;
+
   LocalNote({
     String? id,
     required this.title,
     required this.content,
     DateTime? createdAt,
+    this.folder,
   })  : id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
 
@@ -33,5 +38,6 @@ class LocalNote extends HiveObject {
         'title': title,
         'content': content,
         'created_at': createdAt.toIso8601String(),
+        'folder': folder,
       };
 }

@@ -64,18 +64,39 @@ class _NotesScreenState extends State<NotesScreen> {
   }
 
   Future<void> _createNote() async {
+    // Build folder list from both PC notes (including cached offline) and
+    // local notes so the dropdown mirrors desktop's Notes Explorer.
+    final Set<String> folderSet = {};
+    for (final dynamic raw in _pcNotes) {
+      try {
+        final map = Map<String, dynamic>.from(raw as Map);
+        final f = (map['folder'] ?? '').toString().trim();
+        if (f.isNotEmpty) folderSet.add(f);
+      } catch (_) {}
+    }
+    for (final LocalNote note in _localNotes) {
+      final f = note.folder?.trim();
+      if (f != null && f.isNotEmpty) folderSet.add(f);
+    }
+    final folders = folderSet.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
     final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (context) => const _CreateNoteDialog(),
+      builder: (context) => _CreateNoteDialog(availableFolders: folders),
     );
 
     if (result != null && mounted) {
+      final folderRaw = (result['folder'] ?? '').trim();
+      final folder = folderRaw.isEmpty ? null : folderRaw;
+
       // Save note locally instead of creating directly on PC
       final note = LocalNote(
         id: _uuid.v4(),
         title: result['title'] ?? 'Untitled',
         content: result['content'] ?? '',
         createdAt: DateTime.now(),
+        folder: folder,
       );
 
       await _storage.addNote(note);

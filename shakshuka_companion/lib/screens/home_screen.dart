@@ -25,6 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final NotificationService _notifications = NotificationService();
   final TextEditingController _quickAddController = TextEditingController();
   final FocusNode _quickAddFocus = FocusNode();
+  bool _hasQuickDraft = false;
   List<LocalTask> _tasks = [];
   bool _isUploading = false;
   bool _isConnected = false;
@@ -39,13 +40,24 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkConnection();
     _loadStats();
     _loadTheme();
+    _quickAddController.addListener(_handleQuickAddChanged);
   }
 
   @override
   void dispose() {
+    _quickAddController.removeListener(_handleQuickAddChanged);
     _quickAddController.dispose();
     _quickAddFocus.dispose();
     super.dispose();
+  }
+
+  void _handleQuickAddChanged() {
+    final hasDraft = _quickAddController.text.trim().isNotEmpty;
+    if (hasDraft != _hasQuickDraft) {
+      setState(() {
+        _hasQuickDraft = hasDraft;
+      });
+    }
   }
 
   void _loadTasks() {
@@ -596,7 +608,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 date: '2026-02-26',
                 changes: [
                   'Added theme selector for the companion app (Orange, Dark/Blue, Self-Esteem/Mint, Anxiety/Sky, Yellow/Sunny) to mirror desktop appearance.',
-                  'Theme preference is saved on device and applied across all screens.',
+                  'Theme preference is saved on device and applied across all screens, including quick-add, bottom Add bar, and Desktop Tasks view.',
+                  'Notes screen now supports folders mirrored from desktop; the New Note dialog lets you pick an existing folder or type a new one, even when offline using cached folder names.',
+                  'Stats page now refreshes pending submissions on open and lets you tap a sync entry to see the list of tasks that were sent.',
                 ],
               ),
               _ChangelogEntry(
@@ -1342,26 +1356,48 @@ class _HomeScreenState extends State<HomeScreen> {
                         final noteCount = snapshot.data ?? 0;
                         final totalCount = _tasks.length + noteCount;
                         final isEmpty = _tasks.isEmpty && noteCount == 0;
-                        
+                        final composing = _hasQuickDraft;
+
                         String buttonText;
+                        VoidCallback? onPressed;
+                        Widget iconWidget;
+
                         if (_isUploading) {
                           buttonText = 'Sending...';
+                          onPressed = null;
+                          iconWidget = const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          );
+                        } else if (composing) {
+                          // While user is typing a quick-add task, repurpose the
+                          // bottom button to save that task locally instead of
+                          // sending items to the PC.
+                          buttonText = 'Save task';
+                          onPressed = () => _quickAddTask(_quickAddController.text);
+                          iconWidget = const Icon(Icons.save, size: 20);
                         } else if (isEmpty) {
                           buttonText = 'No items';
+                          onPressed = null;
+                          iconWidget = const Icon(Icons.cloud_upload, size: 20);
                         } else if (_tasks.isEmpty) {
-                          buttonText = 'Add $noteCount note${noteCount > 1 ? 's' : ''}';
+                          buttonText = 'Send $noteCount note${noteCount > 1 ? 's' : ''} to PC';
+                          onPressed = _uploadTasks;
+                          iconWidget = const Icon(Icons.cloud_upload, size: 20);
                         } else if (noteCount == 0) {
-                          buttonText = 'Add ${_tasks.length} task${_tasks.length > 1 ? 's' : ''}';
+                          buttonText = 'Send ${_tasks.length} task${_tasks.length > 1 ? 's' : ''} to PC';
+                          onPressed = _uploadTasks;
+                          iconWidget = const Icon(Icons.cloud_upload, size: 20);
                         } else {
-                          buttonText = 'Add $totalCount items';
+                          buttonText = 'Send $totalCount items to PC';
+                          onPressed = _uploadTasks;
+                          iconWidget = const Icon(Icons.cloud_upload, size: 20);
                         }
                         
                         return ElevatedButton.icon(
-                          onPressed: isEmpty || _isUploading
-                              ? null
-                              : _uploadTasks,
-                          icon: _isUploading
-                              ? const SizedBox(
+                          onPressed: onPressed,
+                          icon: iconWidget,
                                   width: 18,
                                   height: 18,
                                   child:

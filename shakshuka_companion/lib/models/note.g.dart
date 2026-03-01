@@ -21,13 +21,14 @@ class LocalNoteAdapter extends TypeAdapter<LocalNote> {
       title: fields[1] as String,
       content: fields[2] as String,
       createdAt: fields[3] as DateTime?,
+      folder: fields[4] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, LocalNote obj) {
     writer
-      ..writeByte(4)
+      ..writeByte(5)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -35,7 +36,9 @@ class LocalNoteAdapter extends TypeAdapter<LocalNote> {
       ..writeByte(2)
       ..write(obj.content)
       ..writeByte(3)
-      ..write(obj.createdAt);
+      ..write(obj.createdAt)
+      ..writeByte(4)
+      ..write(obj.folder);
   }
 
   @override

@@ -1,3 +1,13 @@
+## Version 23.4 - Mobile Inbox & Companion Notes Folders
+Release Date: 2026-03-01T20:44:36.000000
+
+- **Mobile inbox counts fixed**: Desktop Mobile Inbox approval flow now reports accurate "Imported X tasks and Y notes" counts when using **Add Selected**, even if some tasks/notes are deselected before approval.
+- **Companion stats accuracy**: Android Stats page now actively refreshes pending submissions against the desktop `/api/mobile/inbox/<id>/status` endpoint so history entries reliably move from Pending to Accepted/Rejected instead of getting stuck.
+- **Stats drill-down**: Tapping a sync in the Android Stats history opens a details dialog listing all task titles that were sent in that batch, making it easy to confirm what actually reached the desktop.
+- **Notes folders end-to-end**: Desktop notes API and SQLite notes table now carry a `folder` field for notes created from the Android companion; the mobile "New note" dialog lets you pick an existing folder or type a new one, and folder names are cached so they stay available when offline.
+- **Android theming parity**: Quick add task bar, bottom "Add items" / `+` bar, and the Desktop Tasks view in the companion now respect the selected theme colors (Orange, Dark/Blue, Self-Esteem/Mint, Anxiety/Sky, Yellow) instead of being hard-coded to orange.
+
+---
 ## Version 23.3 - Daily Reset Log & Build Pipeline Fixes
 Release Date: 2026-02-22T19:38:45.632503
 
