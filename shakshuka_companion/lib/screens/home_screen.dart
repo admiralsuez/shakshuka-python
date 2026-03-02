@@ -1398,12 +1398,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         return ElevatedButton.icon(
                           onPressed: onPressed,
                           icon: iconWidget,
-                                  width: 18,
-                                  height: 18,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.cloud_upload, size: 20),
                           label: Text(
                             buttonText,
                             style: const TextStyle(fontSize: 14),
