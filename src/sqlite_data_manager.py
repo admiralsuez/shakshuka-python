@@ -2269,7 +2269,7 @@ class SQLiteDataManager:
         # Note: this list must stay in sync with frontend theme selector and CSS
         valid_themes = [
             'orange', 'blue', 'green', 'purple', 'dark', 'light',
-            'self-esteem', 'anxiety', 'depression', 'focus', 'yellow', 'auto'
+            'self-esteem', 'anxiety', 'depression', 'focus', 'yellow', 'speedy', 'auto'
         ]
         if not isinstance(theme, str) or theme not in valid_themes:
             theme = 'orange'

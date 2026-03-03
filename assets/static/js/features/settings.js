@@ -512,7 +512,8 @@ const Settings = {
     applyThemeAndDPI() {
         const settings = this._getCurrentSettings();
         const theme = settings.theme || 'light';
-        const finish = settings.finish || 'glossy';
+        // Speedy theme always renders as matte to minimize heavy visual effects.
+        const finish = theme === 'speedy' ? 'matte' : (settings.finish || 'glossy');
         const intensity = settings.intensity || '5';
         const dpiScale = settings.dpi_scale || 100;
         
@@ -596,7 +597,7 @@ const Settings = {
                 'shadow-color': 'rgba(116, 185, 255, 0.1)',
                 'accent-color': '#74B9FF'
             },
-            'yellow': {
+'yellow': {
                 'primary-gradient': 'linear-gradient(135deg, #FFE066, #FFC107)',
                 'secondary-gradient': 'linear-gradient(135deg, #FFFDE7 0%, #FFF3CD 100%)',
                 'background-color': '#FFFDE7',
@@ -606,6 +607,17 @@ const Settings = {
                 'border-color': 'rgba(255, 193, 7, 0.3)',
                 'shadow-color': 'rgba(255, 193, 7, 0.1)',
                 'accent-color': '#FFC107'
+            },
+            'speedy': {
+                'primary-gradient': 'linear-gradient(135deg, #1F2933, #1B1F2A)',
+                'secondary-gradient': 'linear-gradient(135deg, #111827 0%, #111827 100%)',
+                'background-color': '#0B1120',
+                'surface-color': 'rgba(15, 23, 42, 0.98)',
+                'text-color': '#E5E7EB',
+                'text-secondary': '#9CA3AF',
+                'border-color': 'rgba(148, 163, 184, 0.35)',
+                'shadow-color': 'rgba(15, 23, 42, 0.4)',
+                'accent-color': '#22C55E'
             }
         };
         
@@ -778,9 +790,24 @@ const Settings = {
         const prev = (this._getCurrentSettings().theme || 'light');
         
         try {
-            const updated = await this._putSettings({ theme: theme });
-            this._setCurrentSettings(updated);
+            let patch = { theme };
+            // Speedy theme: apply performance-friendly defaults together with theme.
+            if (theme === 'speedy') {
+                patch = {
+                    theme: 'speedy',
+                    finish: 'matte',
+                    intensity: '4',
+                    perf_disable_blur: true,
+                    perf_disable_shadows: true,
+                    perf_disable_animations: true,
+                    perf_disable_glow: true,
+                };
+            }
+            const serverSettings = await this._putSettings(patch);
+            const merged         = Settings._mergeSettings(serverSettings, patch);
+            this._setCurrentSettings(merged);
             this.applyThemeAndDPI();
+            try { this.updatePerfMaxButtonLabel(); } catch (e) { /* no-op */ }
             if (typeof showNotification === 'function') {
                 showNotification('Theme updated', 'success');
             }

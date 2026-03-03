@@ -245,7 +245,7 @@ def _validate_and_merge_updates(settings_data: dict, current_settings: dict) -> 
     # Theme validation
     if 'theme' in settings_data:
         theme = settings_data['theme']
-        valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'yellow', 'auto']
+        valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'yellow', 'speedy', 'auto']
         if isinstance(theme, str) and theme in valid_themes:
             validated_updates['theme'] = theme
     

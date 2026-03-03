@@ -134,6 +134,19 @@ body[data-theme="yellow"] {
     --accent-color: #FFC107;
 }
 
+/* Speedy Theme - performance-focused, low visual noise */
+body[data-theme="speedy"] {
+    --primary-gradient: linear-gradient(135deg, #1f2933, #1b1f2a);
+    --secondary-gradient: linear-gradient(135deg, #111827 0%, #111827 100%);
+    --background-color: #0b1120;
+    --surface-color: rgba(15, 23, 42, 0.98);
+    --text-color: #e5e7eb;
+    --text-secondary: #9ca3af;
+    --border-color: rgba(148, 163, 184, 0.35);
+    --shadow-color: rgba(15, 23, 42, 0.4);
+    --accent-color: #22c55e;
+}
+
 /* Finish Variables - Glossy (Default) */
 body[data-finish="glossy"] {
     --surface-finish: rgba(255, 255, 255, 0.85);
