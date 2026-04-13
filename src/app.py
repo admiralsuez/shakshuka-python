@@ -361,7 +361,12 @@ def require_csrf(f):
     return decorated_function
 
 def rate_limit(f):
-    """Enhanced decorator to implement rate limiting with monitoring"""
+    """Enhanced decorator to implement rate limiting with monitoring.
+
+    On unexpected errors this returns a JSON payload with a stable
+    `error_code` to make debugging easier in logs and on the frontend
+    without leaking internal details.
+    """
     def decorated_function(*args, **kwargs):
         start_time = time.time()
         client_ip = request.remote_addr or 'unknown'
@@ -369,7 +374,7 @@ def rate_limit(f):
         try:
             if not security_manager.check_rate_limit(client_ip):
                 monitor.record_error('rate_limit_exceeded', f'Rate limit exceeded for IP: {client_ip}')
-                return jsonify({'error': 'Rate limit exceeded. Please try again later.'}), 429
+                return jsonify({'error': 'Rate limit exceeded. Please try again later.', 'error_code': 'RATE_LIMIT_EXCEEDED'}), 429
             
             # Execute the function
             result = f(*args, **kwargs)
@@ -407,7 +412,7 @@ def rate_limit(f):
             })
             
             logger.error(f"Error in rate-limited endpoint {request.endpoint}: {e}")
-            return jsonify({'error': 'Internal server error'}), 500
+            return jsonify({'error': 'Internal server error', 'error_code': 'UNEXPECTED_ENDPOINT_ERROR'}), 500
     
     decorated_function.__name__ = f.__name__
     return decorated_function
@@ -464,7 +469,7 @@ init_core_routes(
     root_dir=root_dir,
     config=config,
     get_app_version_func=_get_app_version,
-    setup_daily_reset_func=lambda: setup_daily_reset(),
+    setup_daily_reset_func=lambda: scheduler_service.setup_daily_reset(),
     stop_system_tray_func=lambda: stop_system_tray(),
 )
 app.register_blueprint(core_bp)
@@ -1163,7 +1168,13 @@ def update_settings():
         # Theme validation
         if 'theme' in settings_data:
             theme = settings_data['theme']
-            valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'auto']
+            # Keep in sync with the main settings handler in core_routes and the
+            # theme selector in assets/static/js/features/settings.js.
+            valid_themes = [
+                'orange', 'blue', 'green', 'purple',
+                'dark', 'light', 'self-esteem', 'anxiety',
+                'yellow', 'speedy', 'auto',
+            ]
             if isinstance(theme, str) and theme in valid_themes:
                 validated_updates['theme'] = theme
         
@@ -1311,7 +1322,7 @@ def update_settings():
             # If daily reset time was changed, reschedule the reset job
             if daily_reset_time_changed:
                 try:
-                    setup_daily_reset()
+                    scheduler_service.setup_daily_reset()
                     logger.info(f"Daily reset rescheduled to {validated_updates.get('daily_reset_time')}")
                 except Exception as e:
                     logger.error(f"Failed to reschedule daily reset: {e}")

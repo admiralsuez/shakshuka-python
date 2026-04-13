@@ -593,6 +593,226 @@ async function undoCompleteTask(taskId) {
     } catch (e) { /* no-op */ }
 }
 
+// ── Subtasks Modal ──
+function openSubtasksModal(taskId) {
+    if (!taskId) return;
+    const tasks = AppState.getTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    let modal = document.getElementById('subtasks-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'subtasks-modal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width:550px;">
+                <div class="modal-header">
+                    <h2 id="subtasks-modal-title">Subtasks</h2>
+                    <button class="modal-close" type="button" id="subtasks-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="subtasks-list" style="display:flex;flex-direction:column;gap:0.4rem;max-height:50vh;overflow-y:auto;"></div>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+                        <input type="text" id="subtask-new-input" class="form-input" placeholder="Add subtask..." style="flex:1;padding:0.5rem 0.8rem;">
+                        <button type="button" id="subtask-add-btn" class="btn-primary" style="padding:0.5rem 1rem;">Add</button>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+        document.getElementById('subtasks-modal-close').addEventListener('click', closeSubtasksModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeSubtasksModal(); });
+        document.getElementById('subtask-add-btn').addEventListener('click', () => addSubtaskFromInput(taskId));
+        document.getElementById('subtask-new-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); addSubtaskFromInput(taskId); }
+        });
+    }
+
+    document.getElementById('subtasks-modal-title').textContent = 'Subtasks: ' + (task.title || 'Untitled');
+    // Re-bind the add button for the current task
+    const addBtn = document.getElementById('subtask-add-btn');
+    const newAddBtn = addBtn.cloneNode(true);
+    addBtn.parentNode.replaceChild(newAddBtn, addBtn);
+    newAddBtn.addEventListener('click', () => addSubtaskFromInput(taskId));
+    const inputEl = document.getElementById('subtask-new-input');
+    const newInput = inputEl.cloneNode(true);
+    inputEl.parentNode.replaceChild(newInput, inputEl);
+    newInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); addSubtaskFromInput(taskId); }
+    });
+
+    renderSubtasksList(taskId);
+    modal.style.display = 'flex'; modal.classList.add('active');
+    newInput.value = ''; newInput.focus();
+}
+
+function closeSubtasksModal() {
+    const modal = document.getElementById('subtasks-modal');
+    if (modal) { modal.classList.remove('active'); modal.style.display = 'none'; }
+}
+
+function renderSubtasksList(taskId) {
+    const listEl = document.getElementById('subtasks-list');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    const tasks = AppState.getTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const subtasks = Array.isArray(task.subtasks) ? task.subtasks : [];
+    if (!subtasks.length) {
+        listEl.innerHTML = '<div style="color:var(--text-secondary);font-size:0.85rem;padding:0.5rem;">No subtasks yet</div>';
+        return;
+    }
+    subtasks.forEach((st, idx) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.5rem;border-radius:6px;border:1px solid var(--border-color);';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!st.done;
+        cb.style.cssText = 'width:18px;height:18px;accent-color:var(--accent-color);cursor:pointer;flex-shrink:0;';
+        cb.addEventListener('change', () => toggleSubtask(taskId, idx));
+        const label = document.createElement('span');
+        label.textContent = st.title || '';
+        label.style.cssText = 'flex:1;' + (st.done ? 'text-decoration:line-through;opacity:0.6;' : '');
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.textContent = '\u00d7';
+        delBtn.style.cssText = 'background:none;border:none;color:#dc3545;font-size:1.1rem;cursor:pointer;padding:0 0.3rem;';
+        delBtn.addEventListener('click', () => removeSubtask(taskId, idx));
+        row.appendChild(cb); row.appendChild(label); row.appendChild(delBtn);
+        listEl.appendChild(row);
+    });
+}
+
+async function addSubtaskFromInput(taskId) {
+    const input = document.getElementById('subtask-new-input');
+    const title = (input && input.value || '').trim();
+    if (!title) return;
+    const tasks = AppState.getTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const subtasks = Array.isArray(task.subtasks) ? [...task.subtasks] : [];
+    subtasks.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title, done: false });
+    await updateTask(taskId, { subtasks });
+    if (input) { input.value = ''; input.focus(); }
+    renderSubtasksList(taskId);
+}
+
+async function toggleSubtask(taskId, idx) {
+    const tasks = AppState.getTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const subtasks = Array.isArray(task.subtasks) ? [...task.subtasks] : [];
+    if (idx >= 0 && idx < subtasks.length) {
+        subtasks[idx] = { ...subtasks[idx], done: !subtasks[idx].done };
+        await updateTask(taskId, { subtasks });
+        renderSubtasksList(taskId);
+    }
+}
+
+async function removeSubtask(taskId, idx) {
+    const tasks = AppState.getTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const subtasks = Array.isArray(task.subtasks) ? [...task.subtasks] : [];
+    if (idx >= 0 && idx < subtasks.length) {
+        subtasks.splice(idx, 1);
+        await updateTask(taskId, { subtasks });
+        renderSubtasksList(taskId);
+    }
+}
+
+// Expose subtasks modal
+window.openSubtasksModal = openSubtasksModal;
+
+// ── Undo toast for strike actions ──
+let _pendingStrikeUndo = null;
+
+function strikeTaskWithUndo(taskId, strikeAction) {
+    // strikeAction is a function that performs the actual API call
+    const tasks = AppState.getTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const taskTitle = task.title || 'Untitled';
+    _pendingStrikeUndo = { taskId, timer: null };
+
+    _pendingStrikeUndo.timer = setTimeout(() => {
+        _pendingStrikeUndo = null;
+        strikeAction();
+    }, 5000);
+
+    if (window.showNotification) {
+        window.showNotification(`"${taskTitle}" will be struck. Click to undo.`, 'info', {
+            durationMs: 5000,
+            onClick: () => {
+                if (_pendingStrikeUndo && _pendingStrikeUndo.taskId === taskId) {
+                    clearTimeout(_pendingStrikeUndo.timer);
+                    _pendingStrikeUndo = null;
+                    if (window.showNotification) window.showNotification('Strike cancelled', 'success');
+                }
+            }
+        });
+    }
+}
+window.strikeTaskWithUndo = strikeTaskWithUndo;
+
+// ── Snooze UI ──
+function openSnoozeMenu(taskId, anchorEl) {
+    if (!taskId) return;
+    // Remove existing snooze menu
+    const existing = document.getElementById('snooze-popup-menu');
+    if (existing) existing.remove();
+
+    const menu = document.createElement('div');
+    menu.id = 'snooze-popup-menu';
+    menu.style.cssText = 'position:fixed;z-index:5000;background:var(--surface-color);border:1px solid var(--border-color);border-radius:10px;padding:6px;box-shadow:0 8px 20px var(--shadow-color);display:flex;flex-direction:column;gap:2px;min-width:140px;';
+
+    const options = [
+        { label: 'Tomorrow', days: 1 },
+        { label: 'In 3 days', days: 3 },
+        { label: 'Next week', days: 7 },
+        { label: 'In 2 weeks', days: 14 },
+    ];
+
+    options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = opt.label;
+        btn.style.cssText = 'border:none;background:transparent;padding:5px 10px;border-radius:6px;font-size:0.8rem;text-align:left;cursor:pointer;color:var(--text-secondary);';
+        btn.addEventListener('mouseenter', () => { btn.style.background = 'var(--border-color)'; btn.style.color = 'var(--text-color)'; });
+        btn.addEventListener('mouseleave', () => { btn.style.background = 'transparent'; btn.style.color = 'var(--text-secondary)'; });
+        btn.addEventListener('click', async () => {
+            menu.remove();
+            const now = new Date();
+            const target = new Date(now.getFullYear(), now.getMonth(), now.getDate() + opt.days);
+            const yyyy = target.getFullYear();
+            const mm = String(target.getMonth() + 1).padStart(2, '0');
+            const dd = String(target.getDate()).padStart(2, '0');
+            const snoozedUntil = `${yyyy}-${mm}-${dd}`;
+            await updateTask(taskId, { snoozed_until: snoozedUntil });
+            _safeNotify(`Task snoozed until ${snoozedUntil}`, 'success');
+        });
+        menu.appendChild(btn);
+    });
+
+    document.body.appendChild(menu);
+    // Position near anchor
+    if (anchorEl) {
+        const rect = anchorEl.getBoundingClientRect();
+        menu.style.top = (rect.bottom + 4) + 'px';
+        menu.style.left = rect.left + 'px';
+    } else {
+        menu.style.top = '50%'; menu.style.left = '50%';
+    }
+    // Close on outside click
+    const closeHandler = (e) => {
+        if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', closeHandler); }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler), 0);
+}
+window.openSnoozeMenu = openSnoozeMenu;
+
 // Form Submissions
 async function saveTask() {
     // Prevent duplicate task creation

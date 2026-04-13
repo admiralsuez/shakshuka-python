@@ -255,6 +255,15 @@ class SQLiteDataManager:
                         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
                     )
                 ''')
+                
+                # Create user_heartbeat table for tracking active users
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS user_heartbeat (
+                        user_id TEXT PRIMARY KEY,
+                        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                    )
+                ''')
 
                 conn.execute(
                     '''
@@ -277,6 +286,7 @@ class SQLiteDataManager:
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes (user_id, updated_at DESC)')
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id)')
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at)')
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_user_heartbeat_last_seen ON user_heartbeat (last_seen_at)')
                 
                 conn.commit()
                 self.logger.info(f"Database initialized successfully: {self.db_path}")
@@ -541,6 +551,175 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.error(f"Migration 019 failed: {e}")
             raise
+
+    def _migration_020_tasks_recurrence_snooze(self, conn) -> List[Dict[str, Any]]:
+        """Migration 20: Add recurrence/snooze fields to tasks table.
+
+        Columns (all nullable, backward compatible):
+        - recurrence_type TEXT
+        - recurrence_param INTEGER
+        - snoozed_until TEXT (YYYY-MM-DD)
+        """
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            cursor = conn.execute("PRAGMA table_info(tasks)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'recurrence_type' not in columns:
+                conn.execute('ALTER TABLE tasks ADD COLUMN recurrence_type TEXT')
+            if 'recurrence_param' not in columns:
+                conn.execute('ALTER TABLE tasks ADD COLUMN recurrence_param INTEGER')
+            if 'snoozed_until' not in columns:
+                conn.execute('ALTER TABLE tasks ADD COLUMN snoozed_until TEXT')
+
+            migrations_applied.append({
+                'version': 20,
+                'description': 'Added recurrence_type, recurrence_param, snoozed_until columns to tasks',
+                'sql': 'ALTER TABLE tasks ADD COLUMN recurrence_type/recurrence_param/snoozed_until',
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 020 failed: {e}")
+            raise
+
+    def _migration_021_notes_pin_archive(self, conn) -> List[Dict[str, Any]]:
+        """Migration 21: Add pinned/archived flags to notes table."""
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            cursor = conn.execute("PRAGMA table_info(notes)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'pinned' not in columns:
+                conn.execute('ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0')
+            if 'archived' not in columns:
+                conn.execute('ALTER TABLE notes ADD COLUMN archived INTEGER DEFAULT 0')
+
+            migrations_applied.append({
+                'version': 21,
+                'description': 'Added pinned/archived columns to notes',
+                'sql': 'ALTER TABLE notes ADD COLUMN pinned/archived',
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 021 failed: {e}")
+            raise
+
+    def _migration_022_daily_recap_feedback(self, conn) -> List[Dict[str, Any]]:
+        """Migration 22: Create daily_recap_feedback table for recap questions."""
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            conn.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS daily_recap_feedback (
+                    user_id TEXT NOT NULL,
+                    recap_day TEXT NOT NULL,
+                    question_key TEXT NOT NULL,
+                    answer TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, recap_day, question_key),
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_daily_recap_feedback_user_day '
+                'ON daily_recap_feedback (user_id, recap_day)'
+            )
+            migrations_applied.append({
+                'version': 22,
+                'description': 'Created daily_recap_feedback table',
+                'sql': 'CREATE TABLE daily_recap_feedback',
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 022 failed: {e}")
+            raise
+
+    def _migration_023_compact_mode_setting(self, conn) -> List[Dict[str, Any]]:
+        """Migration 23: Add compact_mode flag to user_preferences/settings.
+
+        This is defensive; save_settings_for_user also ensures the column exists
+        at runtime, but having a migration keeps the schema consistent.
+        """
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            cursor = conn.execute("PRAGMA table_info(user_preferences)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'compact_mode' not in columns:
+                conn.execute("ALTER TABLE user_preferences ADD COLUMN compact_mode INTEGER DEFAULT 0")
+
+            cursor = conn.execute("PRAGMA table_info(settings)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'compact_mode' not in columns:
+                conn.execute("ALTER TABLE settings ADD COLUMN compact_mode INTEGER DEFAULT 0")
+
+            migrations_applied.append({
+                'version': 23,
+                'description': 'Added compact_mode column to user_preferences/settings',
+                'sql': 'ALTER TABLE user_preferences/settings ADD COLUMN compact_mode',
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 023 failed: {e}")
+            raise
+
+    def _migration_024_notes_trash_versions_subtasks(self, conn) -> List[Dict[str, Any]]:
+        """Migration 24: Notes trash (deleted_at), note version history, task subtasks.
+
+        Schema additions:
+        - notes.deleted_at TEXT  (soft-delete timestamp, NULL = not deleted)
+        - note_versions table   (snapshot previous content on each update)
+        - tasks.subtasks TEXT    (JSON array of sub-task objects)
+        """
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            # 1) notes.deleted_at for soft-delete / trash
+            cursor = conn.execute("PRAGMA table_info(notes)")
+            notes_cols = [row[1] for row in cursor.fetchall()]
+            if 'deleted_at' not in notes_cols:
+                conn.execute('ALTER TABLE notes ADD COLUMN deleted_at TEXT')
+                self.logger.info("Added deleted_at column to notes table")
+
+            conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_notes_user_deleted '
+                'ON notes (user_id, deleted_at)'
+            )
+
+            # 2) note_versions table
+            conn.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS note_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    note_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    title TEXT,
+                    content TEXT,
+                    saved_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_note_versions_note_saved '
+                'ON note_versions (note_id, saved_at DESC)'
+            )
+
+            # 3) tasks.subtasks JSON column
+            cursor = conn.execute("PRAGMA table_info(tasks)")
+            tasks_cols = [row[1] for row in cursor.fetchall()]
+            if 'subtasks' not in tasks_cols:
+                conn.execute('ALTER TABLE tasks ADD COLUMN subtasks TEXT')
+                self.logger.info("Added subtasks column to tasks table")
+
+            migrations_applied.append({
+                'version': 24,
+                'description': 'Added notes.deleted_at, note_versions table, tasks.subtasks column',
+                'sql': 'Migration 024: notes trash + versions + subtasks',
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 024 failed: {e}")
+            raise
         
     def _run_migrations(self):
         """Run database migrations with comprehensive error handling and rollback"""
@@ -638,6 +817,26 @@ class SQLiteDataManager:
                     # Migration 19: Create daily_reset_log table for daily reset summaries
                     if migration_version < 19:
                         migrations_applied.extend(self._migration_019_daily_reset_log(conn))
+
+                    # Migration 20: Add recurrence/snooze fields to tasks
+                    if migration_version < 20:
+                        migrations_applied.extend(self._migration_020_tasks_recurrence_snooze(conn))
+
+                    # Migration 21: Add pinned/archived flags to notes
+                    if migration_version < 21:
+                        migrations_applied.extend(self._migration_021_notes_pin_archive(conn))
+
+                    # Migration 22: Add daily_recap_feedback table
+                    if migration_version < 22:
+                        migrations_applied.extend(self._migration_022_daily_recap_feedback(conn))
+
+                    # Migration 23: Add compact_mode setting
+                    if migration_version < 23:
+                        migrations_applied.extend(self._migration_023_compact_mode_setting(conn))
+
+                    # Migration 24: Notes trash, version history, task subtasks
+                    if migration_version < 24:
+                        migrations_applied.extend(self._migration_024_notes_trash_versions_subtasks(conn))
                     
                     # Update migration version
                     if migrations_applied:
@@ -757,6 +956,48 @@ class SQLiteDataManager:
             daily_strikes = {}
         normalized['daily_strikes'] = daily_strikes
 
+        # Recurrence fields (optional):
+        # - recurrence_type: '', 'daily', 'weekly', 'every_n_days'
+        # - recurrence_param: integer parameter (e.g. weekday index or N days)
+        # - snoozed_until: YYYY-MM-DD date string used for "hide until" / snooze
+        raw_recur_type = normalized.get('recurrence_type', '')
+        if isinstance(raw_recur_type, str):
+            recur_type = self._sanitize_text(raw_recur_type.lower(), 32)
+        else:
+            recur_type = ''
+        if recur_type not in ('', 'daily', 'weekly', 'every_n_days'):
+            recur_type = ''
+        normalized['recurrence_type'] = recur_type
+
+        raw_param = normalized.get('recurrence_param')
+        if raw_param is None or raw_param == '':
+            normalized['recurrence_param'] = None
+        else:
+            try:
+                normalized['recurrence_param'] = int(raw_param)
+            except Exception:  # noqa: broad-except - Data layer defensive exception handling
+                normalized['recurrence_param'] = None
+
+        raw_snoozed = normalized.get('snoozed_until')
+        if isinstance(raw_snoozed, str):
+            # Store a simple YYYY-MM-DD string; scheduler/routes enforce semantics.
+            normalized['snoozed_until'] = raw_snoozed.strip() or None
+        else:
+            normalized['snoozed_until'] = None
+
+        # Subtasks: JSON array of sub-task objects
+        raw_subtasks = normalized.get('subtasks')
+        if isinstance(raw_subtasks, list):
+            normalized['subtasks'] = raw_subtasks
+        elif isinstance(raw_subtasks, str):
+            try:
+                parsed = json.loads(raw_subtasks)
+                normalized['subtasks'] = parsed if isinstance(parsed, list) else []
+            except Exception:  # noqa: broad-except
+                normalized['subtasks'] = []
+        else:
+            normalized['subtasks'] = normalized.get('subtasks') or []
+
         now_iso = datetime.now().isoformat()
         normalized['created_at'] = normalized.get('created_at') or now_iso
         normalized['updated_at'] = normalized.get('updated_at') or now_iso
@@ -806,8 +1047,8 @@ class SQLiteDataManager:
                         id, user_id, title, description, project, priority, status,
                         completed, completed_at, due_date, estimated_duration, scheduled_hour,
                         scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                        daily_strikes, refreshed_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''',
                     task_row
                 )
@@ -1481,7 +1722,12 @@ class SQLiteDataManager:
         return True
     
     def _task_dict_to_row(self, task: Dict[str, Any], user_id: str) -> tuple:
-        """Convert task dictionary to database row"""
+        """Convert task dictionary to database row.
+
+        NOTE: The column order here must match all INSERT column lists that
+        reference it. New columns should be appended here and in those
+        statements in lock-step.
+        """
         task = self._normalize_task_dict(task)
         return (
             task['id'],
@@ -1506,8 +1752,12 @@ class SQLiteDataManager:
             task.get('strike_count', 0),
             json.dumps(task.get('daily_strikes', {})),
             task.get('refreshed_at'),
+            task.get('recurrence_type') or None,
+            task.get('recurrence_param'),
+            task.get('snoozed_until'),
+            json.dumps(task.get('subtasks') or []),
             task.get('created_at', datetime.now().isoformat()),
-            task.get('updated_at', datetime.now().isoformat())
+            task.get('updated_at', datetime.now().isoformat()),
         )
     
     def _row_to_task_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
@@ -1520,7 +1770,24 @@ class SQLiteDataManager:
                 daily_strikes = json.loads(raw)
         except Exception:  # noqa: broad-except - Data layer defensive exception handling
             daily_strikes = {}
-        
+
+        # Optional recurrence/snooze fields may not exist on very old schemas.
+        keys = row.keys()
+        recurrence_type = row['recurrence_type'] if 'recurrence_type' in keys else None
+        recurrence_param = row['recurrence_param'] if 'recurrence_param' in keys else None
+        snoozed_until = row['snoozed_until'] if 'snoozed_until' in keys else None
+
+        # Subtasks (JSON array)
+        subtasks = []
+        try:
+            raw_sub = row['subtasks'] if 'subtasks' in keys else None
+            if raw_sub:
+                subtasks = json.loads(raw_sub)
+                if not isinstance(subtasks, list):
+                    subtasks = []
+        except Exception:  # noqa: broad-except
+            subtasks = []
+
         return {
             'id': row['id'],
             'title': row['title'],
@@ -1533,18 +1800,22 @@ class SQLiteDataManager:
             'due_date': row['due_date'],
             'estimated_duration': row['estimated_duration'] or 60,
             'scheduled_hour': row['scheduled_hour'],
-            'scheduled_minute': row['scheduled_minute'] if 'scheduled_minute' in row.keys() else None,
-            'scheduled_date': row['scheduled_date'] if 'scheduled_date' in row.keys() else None,
+            'scheduled_minute': row['scheduled_minute'] if 'scheduled_minute' in keys else None,
+            'scheduled_date': row['scheduled_date'] if 'scheduled_date' in keys else None,
             'scheduled_duration': row['scheduled_duration'],
-            'struck_forever': bool(row['struck_forever'] if 'struck_forever' in row.keys() else False),
-            'struck_today': bool(row['struck_today'] if 'struck_today' in row.keys() else False),
-            'struck_date': row['struck_date'] if 'struck_date' in row.keys() else None,
-            'strike_report': row['strike_report'] if 'strike_report' in row.keys() else None,
-            'strike_count': row['strike_count'] if 'strike_count' in row.keys() else 0,
+            'struck_forever': bool(row['struck_forever'] if 'struck_forever' in keys else False),
+            'struck_today': bool(row['struck_today'] if 'struck_today' in keys else False),
+            'struck_date': row['struck_date'] if 'struck_date' in keys else None,
+            'strike_report': row['strike_report'] if 'strike_report' in keys else None,
+            'strike_count': row['strike_count'] if 'strike_count' in keys else 0,
             'daily_strikes': daily_strikes,
-            'refreshed_at': row['refreshed_at'] if 'refreshed_at' in row.keys() else None,
+            'refreshed_at': row['refreshed_at'] if 'refreshed_at' in keys else None,
+            'recurrence_type': recurrence_type,
+            'recurrence_param': recurrence_param,
+            'snoozed_until': snoozed_until,
+            'subtasks': subtasks,
             'created_at': row['created_at'],
-            'updated_at': row['updated_at']
+            'updated_at': row['updated_at'],
         }
     
     # Task Management Methods
@@ -1628,8 +1899,8 @@ class SQLiteDataManager:
                                     id, user_id, title, description, project, priority, status,
                                     completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                     scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                                    daily_strikes, refreshed_at, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_rows)
 
                             count_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ?', (user_id,))
@@ -1752,8 +2023,8 @@ class SQLiteDataManager:
                                     id, user_id, title, description, project, priority, status,
                                     completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                     scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                                    daily_strikes, refreshed_at, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_row)
 
                             conn.commit()
@@ -1827,8 +2098,8 @@ class SQLiteDataManager:
                             id, user_id, title, description, project, priority, status,
                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
                             scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today,
-                            struck_date, strike_report, strike_count, daily_strikes, refreshed_at, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            struck_date, strike_report, strike_count, daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', task_rows)
 
                     conn.commit()
@@ -1887,7 +2158,8 @@ class SQLiteDataManager:
                                     status = ?, completed = ?, completed_at = ?, due_date = ?, estimated_duration = ?,
                                     scheduled_hour = ?, scheduled_minute = ?, scheduled_date = ?, scheduled_duration = ?,
                                     struck_forever = ?, struck_today = ?, struck_date = ?,
-                                    strike_report = ?, strike_count = ?, daily_strikes = ?, refreshed_at = ?, updated_at = ?
+                                    strike_report = ?, strike_count = ?, daily_strikes = ?, refreshed_at = ?,
+                                    recurrence_type = ?, recurrence_param = ?, snoozed_until = ?, subtasks = ?, updated_at = ?
                                 WHERE id = ? AND user_id = ?
                                 ''',
                                 (
@@ -1911,6 +2183,10 @@ class SQLiteDataManager:
                                     merged_task.get('strike_count', 0),
                                     json.dumps(merged_task.get('daily_strikes', {})),
                                     merged_task.get('refreshed_at'),
+                                    merged_task.get('recurrence_type') or None,
+                                    merged_task.get('recurrence_param'),
+                                    merged_task.get('snoozed_until'),
+                                    json.dumps(merged_task.get('subtasks') or []),
                                     datetime.now().isoformat(),
                                     task_id,
                                     user_id,
@@ -1943,9 +2219,9 @@ class SQLiteDataManager:
                                         INSERT INTO tasks (
                                             id, user_id, title, description, project, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
-                                            scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
-                                            daily_strikes, created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
+                                            daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                         ''',
                                         backup_row_tuple,
                                     )
@@ -2017,9 +2293,9 @@ class SQLiteDataManager:
                                         INSERT INTO tasks (
                                             id, user_id, title, description, project, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
-                                            scheduled_minute, scheduled_date, scheduled_duration, struck_today, struck_date, strike_report, strike_count,
-                                            created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
+                                            daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                         ''',
                                         backup_row_tuple,
                                     )
@@ -2081,6 +2357,7 @@ class SQLiteDataManager:
                                 has_perf_disable_shadows = 'perf_disable_shadows' in cols
                                 has_perf_disable_animations = 'perf_disable_animations' in cols
                                 has_perf_disable_glow = 'perf_disable_glow' in cols
+                                has_compact_mode = 'compact_mode' in cols
 
                                 select_cols = [
                                     'theme',
@@ -2116,9 +2393,6 @@ class SQLiteDataManager:
                                     select_cols.append('perf_disable_shadows')
                                 if has_perf_disable_animations:
                                     select_cols.append('perf_disable_animations')
-                                if has_perf_disable_glow:
-                                    select_cols.append('perf_disable_glow')
-                                select_cols.extend(['created_at', 'updated_at'])
 
                                 cursor = conn.execute(
                                     f"SELECT {', '.join(select_cols)} FROM user_preferences WHERE user_id = ?",
@@ -2253,6 +2527,17 @@ class SQLiteDataManager:
             'quick_project_from_title': False,
             # When true, show human-friendly relative dates ("today", "in 2 days", "this weekend").
             'casual_dates': False,
+            # Compact layout flag for tighter UI (5.20). Off by default for backwards
+            # compatibility.
+            'compact_mode': False,
+            # Default task duration in minutes (5-480)
+            'default_task_duration': 60,
+            # Start page on app launch
+            'start_page': 'tasks',
+            # Play notification sounds
+            'notification_sound': False,
+            # Week start day (0=Sunday, 1=Monday)
+            'week_start_day': 1,
             # Performance-related UI flags (Chrome / low FPS helpers)
             'perf_disable_blur': False,
             'perf_disable_shadows': False,
@@ -2349,6 +2634,44 @@ class SQLiteDataManager:
         if not isinstance(casual, bool):
             casual = False
         validated['casual_dates'] = casual
+
+        # Compact mode flag
+        compact_mode = settings.get('compact_mode', False)
+        if not isinstance(compact_mode, bool):
+            compact_mode = False
+        validated['compact_mode'] = compact_mode
+
+        # Default task duration (minutes)
+        dtd = settings.get('default_task_duration', 60)
+        try:
+            dtd = int(dtd)
+        except Exception:  # noqa: broad-except
+            dtd = 60
+        if dtd < 5 or dtd > 480:
+            dtd = 60
+        validated['default_task_duration'] = dtd
+
+        # Start page
+        sp = settings.get('start_page', 'tasks')
+        if not isinstance(sp, str) or sp not in ('tasks', 'planner', 'notes', 'analytics'):
+            sp = 'tasks'
+        validated['start_page'] = sp
+
+        # Notification sound
+        ns = settings.get('notification_sound', False)
+        if not isinstance(ns, bool):
+            ns = False
+        validated['notification_sound'] = ns
+
+        # Week start day (0=Sunday, 1=Monday)
+        wsd = settings.get('week_start_day', 1)
+        try:
+            wsd = int(wsd)
+        except Exception:  # noqa: broad-except
+            wsd = 1
+        if wsd not in (0, 1):
+            wsd = 1
+        validated['week_start_day'] = wsd
         
         # Streak settings flags
         streak_skip_weekends = settings.get('streak_skip_weekends', False)
@@ -2498,6 +2821,8 @@ class SQLiteDataManager:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN perf_disable_animations INTEGER DEFAULT 0")
                                     if 'perf_disable_glow' not in cols:
                                         conn.execute("ALTER TABLE user_preferences ADD COLUMN perf_disable_glow INTEGER DEFAULT 0")
+                                    if 'compact_mode' not in cols:
+                                        conn.execute("ALTER TABLE user_preferences ADD COLUMN compact_mode INTEGER DEFAULT 0")
                                 except Exception as schema_e:
                                     # Log but do not fail save if ALTER fails; feature will just fall back to default
                                     self.logger.warning(f"Could not ensure settings columns on user_preferences: {schema_e}")
@@ -2512,8 +2837,9 @@ class SQLiteDataManager:
                                         streak_skip_weekends, streak_count_new_tasks, streak_count_settings,
                                         finish, intensity,
                                         perf_disable_blur, perf_disable_shadows, perf_disable_animations, perf_disable_glow,
+                                        compact_mode,
                                         updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ''', (
                                     user_id,
                                     validated_settings['theme'],
@@ -2537,6 +2863,7 @@ class SQLiteDataManager:
                                     1 if validated_settings.get('perf_disable_shadows', False) else 0,
                                     1 if validated_settings.get('perf_disable_animations', False) else 0,
                                     1 if validated_settings.get('perf_disable_glow', False) else 0,
+                                    1 if validated_settings.get('compact_mode', False) else 0,
                                     datetime.now().isoformat()
                                 ))
                             else:
@@ -2601,34 +2928,60 @@ class SQLiteDataManager:
         return self.load_tasks_for_user(user_id)
 
     # Notes Management Methods
+    def _row_to_note_dict(self, row) -> Dict[str, Any]:
+        """Convert a notes row to a dict, tolerating missing columns."""
+        keys = row.keys()
+        return {
+            'id': row['id'],
+            'title': row['title'],
+            'content': row['content'] or '',
+            'folder': row['folder'] if 'folder' in keys else None,
+            'pinned': bool(row['pinned']) if 'pinned' in keys else False,
+            'archived': bool(row['archived']) if 'archived' in keys else False,
+            'deleted_at': row['deleted_at'] if 'deleted_at' in keys else None,
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+        }
+
     def load_notes_for_user(self, user_id: str) -> List[Dict[str, Any]]:
-        """Load notes for a specific user from database"""
+        """Load non-trashed notes for a specific user from database."""
         try:
             self._ensure_user_exists(user_id)
             with self.pooled_connection() as conn:
                 cursor = conn.execute(
-                    '''SELECT id, title, content, folder, created_at, updated_at FROM notes
-                       WHERE user_id = ? ORDER BY updated_at DESC''',
+                    '''SELECT * FROM notes
+                       WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')
+                       ORDER BY updated_at DESC''',
                     (user_id,)
                 )
                 rows = cursor.fetchall()
-                notes: List[Dict[str, Any]] = []
-                for row in rows:
-                    notes.append({
-                        'id': row['id'],
-                        'title': row['title'],
-                        'content': row['content'] or '',
-                        'folder': row['folder'],
-                        'created_at': row['created_at'],
-                        'updated_at': row['updated_at'],
-                    })
-                return notes
+                return [self._row_to_note_dict(row) for row in rows]
         except Exception as e:
             self.logger.exception("Error loading notes for user %s", user_id)
             raise DatabaseError(message=f"Error loading notes for user {user_id}", cause=e)
 
+    def load_trashed_notes_for_user(self, user_id: str) -> List[Dict[str, Any]]:
+        """Load soft-deleted (trashed) notes for a user."""
+        try:
+            self._ensure_user_exists(user_id)
+            with self.pooled_connection() as conn:
+                cursor = conn.execute(
+                    '''SELECT * FROM notes
+                       WHERE user_id = ? AND deleted_at IS NOT NULL AND deleted_at != ''
+                       ORDER BY deleted_at DESC''',
+                    (user_id,)
+                )
+                return [self._row_to_note_dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            self.logger.exception("Error loading trashed notes for user %s", user_id)
+            raise DatabaseError(message=f"Error loading trashed notes for user {user_id}", cause=e)
+
     def create_note_for_user(self, user_id: str, note_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Create a single note for a user"""
+        """Create a single note for a user.
+
+        Supports optional pinned/archived flags (5.2/5.26). These are stored as
+        INTEGER 0/1 in SQLite but exposed as booleans in the returned dict.
+        """
         try:
             self._ensure_user_exists(user_id)
             if 'id' not in note_data:
@@ -2639,20 +2992,34 @@ class SQLiteDataManager:
             folder = (folder_raw or '').strip() if isinstance(folder_raw, str) else None
             if folder == '':
                 folder = None
+            pinned_flag = 1 if bool(note_data.get('pinned')) else 0
+            archived_flag = 1 if bool(note_data.get('archived')) else 0
             now = datetime.now().isoformat()
             with self._get_connection() as conn:
                 conn.execute('BEGIN IMMEDIATE TRANSACTION')
-                conn.execute(
-                    '''INSERT INTO notes (id, user_id, title, content, folder, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                    (note_data['id'], user_id, title, content, folder, now, now)
-                )
+                try:
+                    # Newer schema with pinned/archived columns.
+                    conn.execute(
+                        '''INSERT INTO notes (id, user_id, title, content, folder, pinned, archived, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        (note_data['id'], user_id, title, content, folder, pinned_flag, archived_flag, now, now),
+                    )
+                except sqlite3.OperationalError:
+                    # Backward-compatible fallback for older schemas without
+                    # pinned/archived; flags will simply not be stored.
+                    conn.execute(
+                        '''INSERT INTO notes (id, user_id, title, content, folder, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                        (note_data['id'], user_id, title, content, folder, now, now),
+                    )
                 conn.commit()
             return {
                 'id': note_data['id'],
                 'title': title,
                 'content': content,
                 'folder': folder,
+                'pinned': bool(pinned_flag),
+                'archived': bool(archived_flag),
                 'created_at': now,
                 'updated_at': now,
             }
@@ -2661,7 +3028,10 @@ class SQLiteDataManager:
             return None
 
     def update_note_for_user(self, user_id: str, note_id: str, note_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Update title/content/folder of a note"""
+        """Update title/content/folder/pin/archive state of a note.
+
+        Also snapshots the previous version into note_versions for history.
+        """
         try:
             title = (note_data.get('title') or '').strip() or 'Untitled'
             content = note_data.get('content', '')
@@ -2673,24 +3043,66 @@ class SQLiteDataManager:
             with self._get_connection() as conn:
                 conn.execute('BEGIN IMMEDIATE TRANSACTION')
                 cursor = conn.execute(
-                    'SELECT id FROM notes WHERE id = ? AND user_id = ?',
-                    (note_id, user_id)
+                    'SELECT * FROM notes WHERE id = ? AND user_id = ?',
+                    (note_id, user_id),
                 )
-                if not cursor.fetchone():
+                existing = cursor.fetchone()
+                if not existing:
                     conn.rollback()
                     return None
-                conn.execute(
-                    '''UPDATE notes
-                       SET title = ?, content = ?, folder = ?, updated_at = ?
-                       WHERE id = ? AND user_id = ?''',
-                    (title, content, folder, now, note_id, user_id)
-                )
+
+                keys = existing.keys()
+                current_pinned = existing['pinned'] if 'pinned' in keys else 0
+                current_archived = existing['archived'] if 'archived' in keys else 0
+                pinned_flag = 1 if bool(note_data.get('pinned', bool(current_pinned))) else 0
+                archived_flag = 1 if bool(note_data.get('archived', bool(current_archived))) else 0
+
+                # Snapshot previous version for history (best-effort)
+                try:
+                    old_content = existing['content'] or ''
+                    old_title = existing['title'] or ''
+                    if old_content.strip() or old_title.strip():
+                        conn.execute(
+                            '''INSERT INTO note_versions (note_id, user_id, title, content, saved_at)
+                               VALUES (?, ?, ?, ?, ?)''',
+                            (note_id, user_id, old_title, old_content, now),
+                        )
+                        # Cap versions at 50 per note
+                        conn.execute(
+                            '''DELETE FROM note_versions WHERE id IN (
+                                SELECT id FROM note_versions
+                                WHERE note_id = ? AND user_id = ?
+                                ORDER BY saved_at DESC
+                                LIMIT -1 OFFSET 50
+                            )''',
+                            (note_id, user_id),
+                        )
+                except Exception:  # noqa: broad-except
+                    self.logger.exception("Failed to snapshot note version for note %s", note_id)
+
+                try:
+                    conn.execute(
+                        '''UPDATE notes
+                           SET title = ?, content = ?, folder = ?, pinned = ?, archived = ?, updated_at = ?
+                           WHERE id = ? AND user_id = ?''',
+                        (title, content, folder, pinned_flag, archived_flag, now, note_id, user_id),
+                    )
+                except sqlite3.OperationalError:
+                    # Fallback for schemas without pinned/archived.
+                    conn.execute(
+                        '''UPDATE notes
+                           SET title = ?, content = ?, folder = ?, updated_at = ?
+                           WHERE id = ? AND user_id = ?''',
+                        (title, content, folder, now, note_id, user_id),
+                    )
                 conn.commit()
             return {
                 'id': note_id,
                 'title': title,
                 'content': content,
                 'folder': folder,
+                'pinned': bool(pinned_flag),
+                'archived': bool(archived_flag),
                 'updated_at': now,
             }
         except Exception as e:
@@ -2698,19 +3110,165 @@ class SQLiteDataManager:
             return None
 
     def delete_note_for_user(self, user_id: str, note_id: str) -> bool:
-        """Delete a note for a user"""
+        """Soft-delete a note (move to trash) by setting deleted_at."""
+        try:
+            now = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                try:
+                    cursor = conn.execute(
+                        '''UPDATE notes SET deleted_at = ? WHERE id = ? AND user_id = ?
+                           AND (deleted_at IS NULL OR deleted_at = '')''',
+                        (now, note_id, user_id),
+                    )
+                    conn.commit()
+                    return cursor.rowcount > 0
+                except sqlite3.OperationalError:
+                    # Fallback: schema may not have deleted_at yet; hard delete
+                    conn.rollback()
+                    conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                    cursor = conn.execute(
+                        'DELETE FROM notes WHERE id = ? AND user_id = ?',
+                        (note_id, user_id),
+                    )
+                    conn.commit()
+                    return cursor.rowcount > 0
+        except Exception as e:
+            self.logger.error("Error soft-deleting note %s for user %s: %s", note_id, user_id, e)
+            return False
+
+    def restore_note_for_user(self, user_id: str, note_id: str) -> bool:
+        """Restore a trashed note by clearing deleted_at."""
         try:
             with self._get_connection() as conn:
                 conn.execute('BEGIN IMMEDIATE TRANSACTION')
                 cursor = conn.execute(
-                    'DELETE FROM notes WHERE id = ? AND user_id = ?',
-                    (note_id, user_id)
+                    '''UPDATE notes SET deleted_at = NULL WHERE id = ? AND user_id = ?
+                       AND deleted_at IS NOT NULL AND deleted_at != '' ''',
+                    (note_id, user_id),
                 )
                 conn.commit()
-            return cursor.rowcount > 0
+                return cursor.rowcount > 0
         except Exception as e:
-            self.logger.error("Error deleting note %s for user %s: %s", note_id, user_id, e)
+            self.logger.error("Error restoring note %s for user %s: %s", note_id, user_id, e)
             return False
+
+    def hard_delete_note_for_user(self, user_id: str, note_id: str) -> bool:
+        """Permanently delete a note and its version history."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                try:
+                    conn.execute(
+                        'DELETE FROM note_versions WHERE note_id = ? AND user_id = ?',
+                        (note_id, user_id),
+                    )
+                except sqlite3.OperationalError:
+                    pass  # note_versions table may not exist on very old schemas
+                cursor = conn.execute(
+                    'DELETE FROM notes WHERE id = ? AND user_id = ?',
+                    (note_id, user_id),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            self.logger.error("Error hard-deleting note %s for user %s: %s", note_id, user_id, e)
+            return False
+
+    def load_note_versions(self, user_id: str, note_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Load version history for a note, newest first."""
+        try:
+            with self.pooled_connection() as conn:
+                cursor = conn.execute(
+                    '''SELECT id, title, content, saved_at FROM note_versions
+                       WHERE note_id = ? AND user_id = ?
+                       ORDER BY saved_at DESC LIMIT ?''',
+                    (note_id, user_id, int(limit)),
+                )
+                return [
+                    {
+                        'id': row['id'],
+                        'title': row['title'] or '',
+                        'content': row['content'] or '',
+                        'saved_at': row['saved_at'],
+                    }
+                    for row in cursor.fetchall()
+                ]
+        except Exception as e:
+            self.logger.exception("Error loading note versions for note %s", note_id)
+            raise DatabaseError(message="Error loading note versions", cause=e)
+
+    def restore_note_version(self, user_id: str, note_id: str, version_id: int) -> Optional[Dict[str, Any]]:
+        """Restore a note to a previous version. Returns updated note dict or None."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                ver_cur = conn.execute(
+                    'SELECT title, content FROM note_versions WHERE id = ? AND note_id = ? AND user_id = ?',
+                    (version_id, note_id, user_id),
+                )
+                ver_row = ver_cur.fetchone()
+                if not ver_row:
+                    conn.rollback()
+                    return None
+
+                # Snapshot current state before restoring
+                cur_cur = conn.execute(
+                    'SELECT title, content FROM notes WHERE id = ? AND user_id = ?',
+                    (note_id, user_id),
+                )
+                cur_row = cur_cur.fetchone()
+                now = datetime.now().isoformat()
+                if cur_row:
+                    conn.execute(
+                        '''INSERT INTO note_versions (note_id, user_id, title, content, saved_at)
+                           VALUES (?, ?, ?, ?, ?)''',
+                        (note_id, user_id, cur_row['title'] or '', cur_row['content'] or '', now),
+                    )
+
+                conn.execute(
+                    '''UPDATE notes SET title = ?, content = ?, updated_at = ?
+                       WHERE id = ? AND user_id = ?''',
+                    (ver_row['title'], ver_row['content'], now, note_id, user_id),
+                )
+                conn.commit()
+            return {
+                'id': note_id,
+                'title': ver_row['title'] or '',
+                'content': ver_row['content'] or '',
+                'updated_at': now,
+            }
+        except Exception as e:
+            self.logger.error("Error restoring note version %s for note %s: %s", version_id, note_id, e)
+            return None
+
+    def duplicate_note_for_user(self, user_id: str, note_id: str) -> Optional[Dict[str, Any]]:
+        """Duplicate an existing note with a new ID and '(Copy)' title suffix."""
+        try:
+            self._ensure_user_exists(user_id)
+            with self.pooled_connection() as conn:
+                cursor = conn.execute(
+                    'SELECT * FROM notes WHERE id = ? AND user_id = ?',
+                    (note_id, user_id),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
+
+            keys = row.keys()
+            original_title = row['title'] or 'Untitled'
+            new_title = original_title + ' (Copy)'
+            new_data = {
+                'title': new_title,
+                'content': row['content'] or '',
+                'folder': row['folder'] if 'folder' in keys else None,
+                'pinned': False,
+                'archived': False,
+            }
+            return self.create_note_for_user(user_id, new_data)
+        except Exception as e:
+            self.logger.error("Error duplicating note %s for user %s: %s", note_id, user_id, e)
+            return None
 
     def load_notes(self, user_id: str = None):
         """Backward-compatible wrapper for loading notes"""
@@ -3442,6 +4000,65 @@ class SQLiteDataManager:
             self.logger.exception("Error adding settings change event for user %s", user_id)
             raise DatabaseError(message="Error adding settings change event", details={'user_id': user_id}, cause=e)
 
+    def record_user_heartbeat(self, user_id: str) -> bool:
+        """Record user activity heartbeat for active users tracking."""
+        try:
+            self._ensure_user_exists(user_id)
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                now = datetime.now().isoformat()
+                
+                # Insert or update the heartbeat timestamp
+                conn.execute(
+                    '''
+                    INSERT OR REPLACE INTO user_heartbeat (user_id, last_seen_at)
+                    VALUES (?, ?)
+                    ''',
+                    (user_id, now)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.exception("Error recording heartbeat for user %s", user_id)
+            raise DatabaseError(message="Error recording heartbeat", details={'user_id': user_id}, cause=e)
+
+    def count_active_users(self, minutes: int = 2) -> int:
+        """Count users active in the last N minutes."""
+        try:
+            with self._get_connection() as conn:
+                # Calculate the timestamp for N minutes ago
+                cutoff_time = (datetime.now() - timedelta(minutes=minutes)).isoformat()
+                
+                cursor = conn.execute(
+                    '''
+                    SELECT COUNT(*) as active_count
+                    FROM user_heartbeat
+                    WHERE last_seen_at > ?
+                    ''',
+                    (cutoff_time,)
+                )
+                result = cursor.fetchone()
+                return result['active_count'] if result else 0
+        except Exception as e:
+            self.logger.exception("Error counting active users")
+            raise DatabaseError(message="Error counting active users", cause=e)
+
+    def count_installed_users(self) -> int:
+        """Count total number of unique users who have installed/accessed the app."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    '''
+                    SELECT COUNT(DISTINCT user_id) as installed_count
+                    FROM users
+                    '''
+                )
+                result = cursor.fetchone()
+                return result['installed_count'] if result else 0
+        except Exception as e:
+            self.logger.exception("Error counting installed users")
+            raise DatabaseError(message="Error counting installed users", cause=e)
+
     def get_strike_contributions_for_month(self, user_id: str, month: str) -> Dict[str, Any]:
         try:
             self._ensure_user_exists(user_id)
@@ -3671,6 +4288,53 @@ class SQLiteDataManager:
                 cause=e,
             )
 
+    def get_latest_notes_cleaner_status(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Return a compact status object for the most recent notes-cleaner run.
+
+        This is persisted in the daily_reset_log table using a synthetic
+        reset_reason of 'notes_cleaner' and a small payload summarizing the run
+        in tasks_json.
+        """
+        try:
+            self._ensure_user_exists(user_id)
+            with self._get_connection() as conn:
+                conn.execute('BEGIN')
+                cur = conn.execute(
+                    '''
+                    SELECT reset_at, task_count, tasks_json
+                    FROM daily_reset_log
+                    WHERE user_id = ? AND reset_reason = 'notes_cleaner'
+                    ORDER BY reset_at DESC, id DESC
+                    LIMIT 1
+                    ''',
+                    (user_id,),
+                )
+                row = cur.fetchone()
+                conn.commit()
+            if not row:
+                return None
+
+            raw_json = row['tasks_json'] if 'tasks_json' in row.keys() else row[2]
+            cleaned_count = 0
+            try:
+                payload = json.loads(raw_json) if raw_json else {}
+                if isinstance(payload, dict) and 'cleaned_count' in payload:
+                    cleaned_count = int(payload.get('cleaned_count') or 0)
+            except Exception:
+                cleaned_count = 0
+
+            return {
+                'ran_at': row['reset_at'],
+                'cleaned_count': cleaned_count,
+            }
+        except Exception as e:
+            self.logger.exception("Error loading latest notes cleaner status for user %s", user_id)
+            raise DatabaseError(
+                message="Error loading notes cleaner status",
+                details={'user_id': user_id},
+                cause=e,
+            )
+
     def was_recap_seen(self, user_id: str, recap_day: str) -> bool:
         try:
             self._ensure_user_exists(user_id)
@@ -3763,6 +4427,73 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.exception("Error building daily recap for %s", day)
             raise DatabaseError(message="Error building daily recap", details={'user_id': user_id, 'day': day}, cause=e)
+
+    def save_recap_feedback(self, user_id: str, recap_day: str, answers: Dict[str, Any]) -> bool:
+        """Persist feedback answers for a given recap day.
+
+        ``answers`` is a dict of {question_key: answer_string} e.g.:
+            {'went_well': '...', 'improve_tomorrow': '...', 'mood_rating': '4'}
+
+        Each key/value pair is upserted individually so partial saves are safe.
+        Silently ignores empty-string keys or non-string values.
+        """
+        try:
+            self._ensure_user_exists(user_id)
+            if not recap_day or not isinstance(answers, dict) or not answers:
+                return False
+            now = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                for key, value in answers.items():
+                    key = str(key or '').strip()
+                    if not key:
+                        continue
+                    answer_str = str(value) if value is not None else ''
+                    conn.execute(
+                        '''
+                        INSERT OR REPLACE INTO daily_recap_feedback
+                            (user_id, recap_day, question_key, answer, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        ''',
+                        (user_id, recap_day, key, answer_str, now),
+                    )
+                conn.commit()
+            return True
+        except Exception as e:
+            self.logger.exception("Error saving recap feedback for user %s day %s", user_id, recap_day)
+            raise DatabaseError(
+                message="Error saving recap feedback",
+                details={'user_id': user_id, 'recap_day': recap_day},
+                cause=e,
+            )
+
+    def load_recap_feedback(self, user_id: str, recap_day: str) -> Dict[str, str]:
+        """Return previously saved feedback answers for a given recap day.
+
+        Returns a dict ``{question_key: answer}``; empty dict if nothing saved.
+        """
+        try:
+            self._ensure_user_exists(user_id)
+            if not recap_day:
+                return {}
+            with self._get_connection() as conn:
+                cur = conn.execute(
+                    '''
+                    SELECT question_key, answer
+                    FROM daily_recap_feedback
+                    WHERE user_id = ? AND recap_day = ?
+                    ''',
+                    (user_id, recap_day),
+                )
+                rows = cur.fetchall()
+            return {row['question_key']: (row['answer'] or '') for row in rows}
+        except Exception as e:
+            self.logger.exception("Error loading recap feedback for user %s day %s", user_id, recap_day)
+            raise DatabaseError(
+                message="Error loading recap feedback",
+                details={'user_id': user_id, 'recap_day': recap_day},
+                cause=e,
+            )
 
     def _calculate_streak_days_from_tasks(self, conn, user_id: str, up_to_day: str) -> int:
         cur = conn.execute(

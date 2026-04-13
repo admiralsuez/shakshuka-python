@@ -587,12 +587,8 @@ function setupEventListeners() {
     safeAddEventListener('export-data-btn', 'click', exportData);
     safeAddEventListener('clear-data-btn', 'click', clearAllData);
     
-    // Developer logs
-    safeAddEventListener('view-logs-btn', 'click', openLogsModal);
-    safeAddEventListener('close-logs-modal', 'click', closeLogsModal);
-    safeAddEventListener('close-logs-btn', 'click', closeLogsModal);
-    safeAddEventListener('clear-logs-btn', 'click', clearLogs);
-    safeAddEventListener('refresh-logs-btn', 'click', displayLogs);
+    // Developer logs: open logs folder instead of modal
+    safeAddEventListener('view-logs-btn', 'click', openLogsFolder);
     
     // Strike modal
     safeAddEventListener('close-strike-modal', 'click', closeStrikeModal);
@@ -1145,6 +1141,7 @@ function _renderTasksNow(filter, projectFilterArg) {
                             <div class="task-meta-bottom-right">
                                 ${task.due_date ? `<span class="task-due-pill${isDueToday(task.due_date) ? ' task-due-today' : ''}">${sanitizeHTML(formatDueDateLabel(task.due_date))}</span>` : ''}
                                 <span class="task-duration-badge">${task.estimated_duration || task.duration || 60} min</span>
+                                ${Array.isArray(task.subtasks) && task.subtasks.length > 0 ? `<span class="task-subtasks-chip" onclick="event.stopPropagation(); if(typeof openSubtasksModal==='function') openSubtasksModal('${task.id}');" title="Subtasks" style="cursor:pointer;background:var(--accent-color);color:#fff;border-radius:999px;padding:2px 8px;font-size:0.7rem;font-weight:700;">${task.subtasks.filter(s => s && s.done).length}/${task.subtasks.length}</span>` : ''}
                             </div>
                         </div>
                     `;
@@ -1211,6 +1208,7 @@ function _renderTasksNow(filter, projectFilterArg) {
                 <button class="task-action" onclick="deleteTask('${task.id}')" title="Delete">
                     <i class="fas fa-trash"></i>
                 </button>
+                ${Array.isArray(task.subtasks) && task.subtasks.length > 0 ? `<span class="task-subtasks-chip" onclick="event.stopPropagation(); if(typeof openSubtasksModal==='function') openSubtasksModal('${task.id}');" title="Subtasks" style="cursor:pointer;background:var(--accent-color);color:#fff;border-radius:999px;padding:2px 8px;font-size:0.7rem;font-weight:700;">${task.subtasks.filter(s => s && s.done).length}/${task.subtasks.length}</span>` : ''}
             </div>
         </div>
     `;

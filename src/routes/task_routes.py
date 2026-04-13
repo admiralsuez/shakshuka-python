@@ -11,7 +11,7 @@ This module handles:
 from flask import Blueprint, request, jsonify, current_app
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 import re
 
@@ -546,6 +546,36 @@ def strike_task(task_id):
                 tasks[i]['struck_date'] = today
                 tasks[i]['strike_report'] = report
                 tasks[i]['strike_count'] = tasks[i].get('strike_count', 0) + 1
+
+                # Compute recurrence snooze: hide task until its next occurrence.
+                try:
+                    recurrence_type = (task.get('recurrence_type') or '').strip().lower()
+                    recurrence_param = task.get('recurrence_param')
+                    next_date = None
+                    if recurrence_type == 'every_n_days':
+                        try:
+                            n = int(recurrence_param or 0)
+                        except Exception:  # noqa: broad-except
+                            n = 0
+                        if n and n > 1:
+                            base_dt = datetime.strptime(today, '%Y-%m-%d')
+                            next_date = base_dt + timedelta(days=n)
+                    elif recurrence_type == 'weekly':
+                        try:
+                            target_wd = int(recurrence_param)
+                        except Exception:  # noqa: broad-except
+                            target_wd = None
+                        if target_wd is not None and 0 <= target_wd <= 6:
+                            base_dt = datetime.strptime(today, '%Y-%m-%d')
+                            days_ahead = (target_wd - base_dt.weekday()) % 7
+                            if days_ahead == 0:
+                                days_ahead = 7
+                            next_date = base_dt + timedelta(days=days_ahead)
+                    # 'daily' / empty: clears naturally after daily reset; no snooze needed.
+                    if next_date is not None:
+                        tasks[i]['snoozed_until'] = next_date.strftime('%Y-%m-%d')
+                except Exception:  # noqa: broad-except
+                    logger.exception("Failed to compute recurrence snooze for task %s at strike time", task_id)
 
                 try:
                     data_manager.add_strike_today_report_event(

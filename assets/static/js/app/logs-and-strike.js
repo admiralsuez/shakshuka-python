@@ -11,23 +11,9 @@ function escapeHtml(value) {
 }
 
 function displayLogs() {
-    const logsContent = document.getElementById('logs-content');
-    if (!logsContent) return;
-
-    const logs = AppState.get('developerLogs');
-    if (logs.length === 0) {
-        logsContent.textContent = 'No logs available';
-        return;
-    }
-
-    const logsHtml = logs.map(log => {
-        return `<div class="log-entry ${log.level}">
-            <div class="log-timestamp">[${log.timestamp}]</div>
-            <div class="log-message">${log.message}</div>
-        </div>`;
-    }).join('');
-
-    logsContent.innerHTML = logsHtml;
+    // Deprecated: developer logs are no longer shown in a modal. This
+    // function is kept as a no-op for backward compatibility with any
+    // lingering calls.
 }
 
 function closeStrikeReportHistoryModal() {
@@ -118,14 +104,29 @@ async function openStrikeReportHistoryModal(taskId) {
     }
 }
 
-function openLogsModal() {
-    document.getElementById('logs-modal').classList.add('active');
-    displayLogs();
-    addLog('info', 'Developer logs modal opened');
-}
+async function openLogsFolder() {
+    try {
+        const resp = await fetch('/api/logs/open-folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+        });
+        const data = await resp.json().catch(() => null);
 
-function closeLogsModal() {
-    document.getElementById('logs-modal').classList.remove('active');
+        if (!resp.ok || !data || data.success !== true) {
+            const message = data && data.error ? data.error : 'Failed to open logs folder';
+            throw new Error(message);
+        }
+
+        if (typeof showNotification === 'function') {
+            showNotification('Opened logs folder', 'success');
+        }
+    } catch (e) {
+        console.error('openLogsFolder failed:', e);
+        if (typeof showNotification === 'function') {
+            showNotification('Could not open logs folder. See console for details.', 'error');
+        }
+    }
 }
 
 function canStrikeTask(task) {

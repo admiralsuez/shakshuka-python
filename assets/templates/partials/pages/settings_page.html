@@ -122,6 +122,58 @@
                                 </label>
                             </label>
                         </div>
+                        <div class="setting-item">
+                            <label>
+                                Default task duration:
+                                <select id="default-task-duration" onchange="Settings._putSettings({ default_task_duration: parseInt(this.value) }).then(s => Settings._setCurrentSettings(Settings._mergeSettings(s, { default_task_duration: parseInt(this.value) }))).catch(() => {})">
+                                    <option value="15">15 min</option>
+                                    <option value="30">30 min</option>
+                                    <option value="60" selected>1 hour</option>
+                                    <option value="90">1.5 hours</option>
+                                    <option value="120">2 hours</option>
+                                    <option value="180">3 hours</option>
+                                    <option value="240">4 hours</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Start page:
+                                <select id="start-page-select" onchange="Settings._putSettings({ start_page: this.value }).then(s => Settings._setCurrentSettings(Settings._mergeSettings(s, { start_page: this.value }))).catch(() => {})">
+                                    <option value="tasks" selected>My Tasks</option>
+                                    <option value="planner">Daily Planner</option>
+                                    <option value="notes">Notes</option>
+                                    <option value="analytics">Analytics</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Notification sound</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="notification-sound-toggle" onchange="Settings._putSettings({ notification_sound: this.checked }).then(s => Settings._setCurrentSettings(Settings._mergeSettings(s, { notification_sound: this.checked }))).catch(() => {})">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Week starts on:
+                                <select id="week-start-day-select" onchange="Settings._putSettings({ week_start_day: parseInt(this.value) }).then(s => Settings._setCurrentSettings(Settings._mergeSettings(s, { week_start_day: parseInt(this.value) }))).catch(() => {})">
+                                    <option value="1" selected>Monday</option>
+                                    <option value="0">Sunday</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Auto-sync tasks from companion phone app</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="companion-auto-sync-toggle" onchange="updateCompanionAutoSync()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
                     </div>
 
                     <div class="settings-section">
@@ -175,6 +227,15 @@
                                     <option value="125">125% (Large)</option>
                                     <option value="150">150% (Extra Large)</option>
                                 </select>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <span>Compact mode (denser layout)</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="compact-mode-toggle" onchange="updateCompactMode()">
+                                    <span class="toggle-slider"></span>
+                                </label>
                             </label>
                         </div>
                         <div class="setting-item">
@@ -287,7 +348,32 @@
                     </div>
                     
                     <div class="settings-section">
-                        <h3>Logs & Changelog</h3>
+                        <h3>Triggers</h3>
+                        <p class="settings-section-desc">Manually fire background jobs and UI actions.</p>
+                        <div class="setting-item">
+                            <div class="action-buttons-row">
+                                <button class="btn-secondary" id="show-recap-btn" title="Show yesterday&#39;s daily recap modal">
+                                    <i class="fas fa-moon"></i>
+                                    Show Recap
+                                </button>
+                                <button class="btn-secondary" id="trigger-daily-reset-btn" title="Run the daily reset job now (clears today&#39;s strikes, unschedules tasks)">
+                                    <i class="fas fa-redo"></i>
+                                    Daily Reset
+                                </button>
+                                <button class="btn-secondary" id="trigger-planner-cleanup-btn" title="Unschedule tasks that were scheduled for past days">
+                                    <i class="fas fa-calendar-times"></i>
+                                    Planner Cleanup
+                                </button>
+                                <button class="btn-secondary" id="trigger-save-settings-btn" title="Re-persist current settings to the database">
+                                    <i class="fas fa-save"></i>
+                                    Save Settings
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Logs &amp; Changelog</h3>
                         <div class="setting-item">
                             <div class="action-buttons-row">
                                 <button class="btn-secondary" id="view-logs-btn">
@@ -297,10 +383,6 @@
                                 <button class="btn-secondary" id="view-changelog-btn">
                                     <i class="fas fa-history"></i>
                                     View Changelog
-                                </button>
-                                <button class="btn-secondary" id="show-recap-btn">
-                                    <i class="fas fa-moon"></i>
-                                    Show recap
                                 </button>
                                 <button class="btn-secondary" id="view-whats-new-btn">
                                     <i class="fas fa-star"></i>

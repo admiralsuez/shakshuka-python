@@ -129,6 +129,7 @@ const Settings = {
             const perfDisableShadows = document.getElementById('perf-disable-shadows');
             const perfDisableAnimations = document.getElementById('perf-disable-animations');
             const perfDisableGlow = document.getElementById('perf-disable-glow');
+            const compactModeToggle = document.getElementById('compact-mode-toggle');
             
             // Backend returns autostart_enabled; keep legacy "autostart" fallback just in case
             if (autostartToggle) {
@@ -152,6 +153,29 @@ const Settings = {
             if (perfDisableShadows) perfDisableShadows.checked = !!settings.perf_disable_shadows;
             if (perfDisableAnimations) perfDisableAnimations.checked = !!settings.perf_disable_animations;
             if (perfDisableGlow) perfDisableGlow.checked = !!settings.perf_disable_glow;
+            if (compactModeToggle) compactModeToggle.checked = !!settings.compact_mode;
+
+            // New settings (v25.3)
+            const defaultTaskDuration = document.getElementById('default-task-duration');
+            const startPageSelect = document.getElementById('start-page-select');
+            const notificationSoundToggle = document.getElementById('notification-sound-toggle');
+            const weekStartDaySelect = document.getElementById('week-start-day-select');
+            if (defaultTaskDuration) defaultTaskDuration.value = settings.default_task_duration || 60;
+            if (startPageSelect) startPageSelect.value = settings.start_page || 'tasks';
+            if (notificationSoundToggle) notificationSoundToggle.checked = !!settings.notification_sound;
+            if (weekStartDaySelect) weekStartDaySelect.value = String(settings.week_start_day ?? 1);
+
+            // Apply start page on initial load (navigate to the configured start page)
+            try {
+                const sp = settings.start_page || 'tasks';
+                if (sp !== 'tasks' && typeof window.navigateTo === 'function') {
+                    window.navigateTo(sp);
+                } else if (sp !== 'tasks') {
+                    // Fallback: click the nav item
+                    const navItem = document.querySelector(`.nav-item[data-page="${sp}"]`);
+                    if (navItem) navItem.click();
+                }
+            } catch (e) { /* no-op */ }
 
             // Sync Perf Max button label with current state
             try { this.updatePerfMaxButtonLabel(); } catch (e) { /* no-op */ }
@@ -483,6 +507,51 @@ const Settings = {
     },
 
     /**
+     * Update compact mode layout setting
+     */
+    async updateCompactMode() {
+        const toggle = document.getElementById('compact-mode-toggle');
+        const enabled = !!toggle?.checked;
+        const prev = !!this._getCurrentSettings().compact_mode;
+
+        try {
+            const patch = { compact_mode: enabled };
+            const serverSettings = await this._putSettings(patch);
+            const merged = Settings._mergeSettings(serverSettings, patch);
+            this._setCurrentSettings(merged);
+            this.applyThemeAndDPI();
+
+            // Best-effort persistence checker: re-fetch settings and ensure compact_mode matches.
+            try {
+                if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+                    const verify = await window.Utils.apiRequestJson('/api/settings', {}, { expectObject: true, retries: 1, retryDelayMs: 500 });
+                    if (verify && typeof verify.compact_mode !== 'undefined' && !!verify.compact_mode !== enabled) {
+                        // Log a soft warning so issues surface in dev tools without breaking UX.
+                        console.warn('[Settings] compact_mode persistence mismatch', {
+                            expected: enabled,
+                            server: verify.compact_mode,
+                        });
+                    }
+                }
+            } catch (e) {
+                // Non-fatal: just log to console.
+                console.warn('[Settings] compact_mode persistence check failed', e);
+            }
+
+            if (typeof showNotification === 'function') {
+                showNotification(enabled ? 'Compact mode enabled' : 'Compact mode disabled', 'success');
+            }
+            window.incrementSettingsChangeCount?.();
+        } catch (error) {
+            Utils.Logger.error('Error updating compact mode:', error);
+            if (toggle) toggle.checked = prev;
+            if (typeof showNotification === 'function') {
+                showNotification('Error updating compact mode', 'error');
+            }
+        }
+    },
+
+    /**
      * Update autosave interval setting
      */
     async updateAutosaveInterval() {
@@ -516,6 +585,7 @@ const Settings = {
         const finish = theme === 'speedy' ? 'matte' : (settings.finish || 'glossy');
         const intensity = settings.intensity || '5';
         const dpiScale = settings.dpi_scale || 100;
+        const compactMode = !!settings.compact_mode;
         
         // Apply theme
         document.body.setAttribute('data-theme', theme);
@@ -525,6 +595,13 @@ const Settings = {
         
         // Apply intensity
         document.body.setAttribute('data-intensity', intensity);
+        
+        // Apply compact layout flag for CSS
+        if (compactMode) {
+            document.body.setAttribute('data-compact', 'on');
+        } else {
+            document.body.removeAttribute('data-compact');
+        }
         
         // Apply DPI scaling (convert percentage to decimal)
         document.documentElement.style.setProperty('--dpi-scale', (dpiScale / 100));
@@ -1343,6 +1420,7 @@ window.updateTheme = () => Settings.updateTheme();
 window.updateFinish = () => Settings.updateFinish();
 window.updateIntensity = () => Settings.updateIntensity();
 window.updateDPI = () => Settings.updateDPI();
+window.updateCompactMode = () => Settings.updateCompactMode();
 window.updateResetTime = () => Settings.updateResetTime();
 window.updatePerfDisableBlur = () => Settings.updatePerfDisableBlur();
 window.updatePerfDisableShadows = () => Settings.updatePerfDisableShadows();
@@ -1469,6 +1547,84 @@ window.applyPerfMaxPreset = () => Settings.applyPerfMaxPreset();
         }, { once: true });
     }
 })();
+
+// ─── Triggers section ────────────────────────────────────────────────────────
+
+/**
+ * Generic helper: run a trigger button click, showing feedback on the button.
+ * @param {string} btnId  - element id
+ * @param {Function} action - async function to call
+ */
+async function _runTrigger(btnId, action) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    const original = btn.innerHTML;
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running…';
+        await action();
+        btn.innerHTML = '<i class="fas fa-check"></i> Done!';
+        setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 2000);
+    } catch (e) {
+        btn.innerHTML = '<i class="fas fa-times"></i> Error';
+        setTimeout(() => { btn.innerHTML = original; btn.disabled = false; }, 2500);
+        console.error('[Triggers]', btnId, e);
+    }
+}
+
+window.bindTriggerButtons = function bindTriggerButtons() {
+    // Daily Reset
+    const resetBtn = document.getElementById('trigger-daily-reset-btn');
+    if (resetBtn && !resetBtn._triggerBound) {
+        resetBtn._triggerBound = true;
+        resetBtn.addEventListener('click', () => _runTrigger('trigger-daily-reset-btn', async () => {
+            const caller = (typeof window.apiCall === 'function') ? window.apiCall
+                : (url, opts) => fetch(url, Object.assign({ credentials: 'include' }, opts));
+            const resp = await caller('/api/tasks/reset-daily-strikes', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                window.Utils.safeShowNotification('Daily reset triggered', 'success');
+            }
+        }));
+    }
+
+    // Planner Cleanup
+    const cleanupBtn = document.getElementById('trigger-planner-cleanup-btn');
+    if (cleanupBtn && !cleanupBtn._triggerBound) {
+        cleanupBtn._triggerBound = true;
+        cleanupBtn.addEventListener('click', () => _runTrigger('trigger-planner-cleanup-btn', async () => {
+            const caller = (typeof window.apiCall === 'function') ? window.apiCall
+                : (url, opts) => fetch(url, Object.assign({ credentials: 'include' }, opts));
+            const resp = await caller('/api/planner-v2/cleanup-overdue', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json().catch(() => ({}));
+            const n = data.unscheduled || 0;
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                window.Utils.safeShowNotification(`Planner cleanup done — ${n} task${n !== 1 ? 's' : ''} unscheduled`, 'success');
+            }
+        }));
+    }
+
+    // Save Settings
+    const saveSettingsBtn = document.getElementById('trigger-save-settings-btn');
+    if (saveSettingsBtn && !saveSettingsBtn._triggerBound) {
+        saveSettingsBtn._triggerBound = true;
+        saveSettingsBtn.addEventListener('click', () => _runTrigger('trigger-save-settings-btn', async () => {
+            if (window.Settings && typeof window.Settings._getCurrentSettings === 'function' && typeof window.Settings._putSettings === 'function') {
+                await window.Settings._putSettings(window.Settings._getCurrentSettings());
+            } else {
+                throw new Error('Settings not ready');
+            }
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                window.Utils.safeShowNotification('Settings saved', 'success');
+            }
+        }));
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    try { window.bindTriggerButtons(); } catch (e) {}
+});
 
 // Daily recap manual trigger from Settings
 window.bindShowRecapButton = function bindShowRecapButton() {

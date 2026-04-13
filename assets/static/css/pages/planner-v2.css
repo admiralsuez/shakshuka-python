@@ -49,13 +49,13 @@
 }
 
 .hours-section {
-    background: white;
+    background: var(--surface-color, white);
     border-radius: calc(16px * var(--dpi-scale));
     padding: calc(1rem * var(--dpi-scale));
-    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) rgba(0, 0, 0, 0.08);
+    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) var(--shadow-color, rgba(0, 0, 0, 0.08));
     overflow-y: auto;
     overflow-x: hidden;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -63,7 +63,7 @@
 
 .hours-section h3 {
     margin: 0 0 calc(1rem * var(--dpi-scale)) 0;
-    color: #1f2937;
+    color: var(--text-color, #1f2937);
     font-size: calc(1.5rem * var(--dpi-scale));
     font-weight: 700;
     letter-spacing: -0.02em;
@@ -84,8 +84,8 @@
     display: flex;
     align-items: stretch;
     padding: 0;
-    background: #fafafa;
-    border: 1px solid #e5e7eb;
+    background: var(--surface-color, #fafafa);
+    border: 1px solid var(--border-color, #e5e7eb);
     border-radius: calc(10px * var(--dpi-scale));
     transition: all 0.2s ease;
     min-height: calc(60px * var(--dpi-scale));
@@ -95,15 +95,15 @@
 }
 
 .hour-slot:hover {
-    background: #ffffff;
-    border-color: #ff8c42;
+    background: var(--surface-color, #ffffff);
+    border-color: var(--accent-color, #ff8c42);
     box-shadow: 0 0 0 2px rgba(255, 140, 66, 0.1);
 }
 
 .hour-slot.current-hour {
-    background: linear-gradient(135deg, #ff8c42 0%, #ff6b6b 100%);
+    background: var(--primary-gradient, linear-gradient(135deg, #ff8c42 0%, #ff6b6b 100%));
     color: white;
-    border-color: #ff8c42;
+    border-color: var(--accent-color, #ff8c42);
     box-shadow: 0 calc(4px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) rgba(255, 140, 66, 0.4);
 }
 
@@ -113,7 +113,7 @@
 
 .hour-slot.past-hour {
     opacity: 0.5;
-    background: #f5f5f5;
+    background: var(--border-color, #f5f5f5);
 }
 
 .hour-time {
@@ -121,9 +121,9 @@
     font-size: calc(0.95rem * var(--dpi-scale));
     min-width: calc(90px * var(--dpi-scale));
     padding: calc(0.5rem * var(--dpi-scale)) calc(0.75rem * var(--dpi-scale));
-    color: #374151;
-    background: #f9fafb;
-    border-right: 2px solid #e5e7eb;
+    color: var(--text-color, #374151);
+    background: var(--border-color, #f9fafb);
+    border-right: 2px solid var(--border-color, #e5e7eb);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -142,18 +142,18 @@
     transition: all 0.25s ease;
     cursor: pointer;
     align-items: stretch;
-    background: white;
+    background: var(--surface-color, white);
 }
 
 .hour-content:hover {
-    border-color: #cbd5e1;
-    background: #f8fafc;
+    border-color: var(--border-color, #cbd5e1);
+    background: var(--surface-hover, #f8fafc);
 }
 
 .hour-content.drag-over {
-    border-color: #ff8c42 !important;
-    background: #fff7ed !important;
-    box-shadow: inset 0 0 0 2px #ff8c42;
+    border-color: var(--accent-color, #ff8c42) !important;
+    background: rgba(255, 140, 66, 0.08) !important;
+    box-shadow: inset 0 0 0 2px var(--accent-color, #ff8c42);
 }
 
 .scheduled-task-v2 {
@@ -181,13 +181,13 @@
 }
 
 .available-tasks-section {
-    background: white;
+    background: var(--surface-color, white);
     border-radius: calc(16px * var(--dpi-scale));
     padding: calc(1rem * var(--dpi-scale));
-    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) rgba(0, 0, 0, 0.08);
+    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) var(--shadow-color, rgba(0, 0, 0, 0.08));
     overflow-y: auto;
     overflow-x: hidden;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -195,7 +195,7 @@
 
 .available-tasks-section h3 {
     margin: 0 0 calc(1rem * var(--dpi-scale)) 0;
-    color: #1f2937;
+    color: var(--text-color, #1f2937);
     font-size: calc(1.3rem * var(--dpi-scale));
     font-weight: 700;
     letter-spacing: -0.02em;
@@ -329,40 +329,40 @@
 
 /* Styles for draggable-task class used in planner v2 */
 .draggable-task {
-    background: #ffffff;
-    border: 2px solid #e5e7eb;
+    background: var(--surface-color, #ffffff);
+    border: 2px solid var(--border-color, #e5e7eb);
     border-radius: calc(12px * var(--dpi-scale));
     padding: calc(1rem * var(--dpi-scale));
     margin-bottom: calc(0.75rem * var(--dpi-scale));
     cursor: move;
     transition: all 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 3px var(--shadow-color, rgba(0, 0, 0, 0.05));
 }
 
 .draggable-task:hover {
-    border-color: #ff8c42;
+    border-color: var(--accent-color, #ff8c42);
     transform: translateY(-3px);
     box-shadow: 0 8px 20px rgba(255, 140, 66, 0.15);
-    background: #fff7ed;
+    background: rgba(255, 140, 66, 0.06);
 }
 
 .draggable-task.dragging {
     opacity: 0.6;
     transform: rotate(3deg) scale(1.02);
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
-    border-color: #ff8c42;
+    border-color: var(--accent-color, #ff8c42);
 }
 
 .draggable-task h4 {
     font-weight: 700;
-    color: #1f2937;
+    color: var(--text-color, #1f2937);
     margin: 0 0 calc(0.35rem * var(--dpi-scale)) 0;
     font-size: calc(1rem * var(--dpi-scale));
     letter-spacing: -0.01em;
 }
 
 .draggable-task p {
-    color: #6b7280;
+    color: var(--text-secondary, #6b7280);
     font-size: calc(0.875rem * var(--dpi-scale));
     margin: 0;
     line-height: 1.5;

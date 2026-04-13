@@ -131,11 +131,18 @@
 
     // Track drag state for explorer drag-and-drop
     let draggedNoteId = null;
+    let draggedFolderId = null; // Folder name being dragged for reordering
 
     // Virtual folders allow empty folders (with 0 notes) to appear in the
     // explorer and persist across reloads even before any note is moved into
     // them.
     let virtualFolders = new Set();
+    
+    // Custom folder order: array of folder names in user-specified order
+    let folderOrder = [];
+    
+    // Archived folders: set of folder names that have been archived
+    let archivedFolders = new Set();
 
     function loadVirtualFolders() {
         try {
@@ -161,6 +168,60 @@
             if (!window.localStorage) return;
             const arr = Array.from(virtualFolders);
             window.localStorage.setItem('shakshuka_notes_folders_v1', JSON.stringify(arr));
+        } catch (e) {
+            // best-effort only
+        }
+    }
+
+    function loadFolderOrder() {
+        try {
+            if (!window.localStorage) return;
+            const raw = window.localStorage.getItem('shakshuka_notes_folder_order_v1');
+            if (!raw) return;
+            const arr = JSON.parse(raw);
+            if (Array.isArray(arr)) {
+                folderOrder = arr
+                    .filter(name => typeof name === 'string')
+                    .map(name => name.trim())
+                    .filter(name => name.length > 0);
+            }
+        } catch (e) {
+            // best-effort only
+        }
+    }
+
+    function saveFolderOrder() {
+        try {
+            if (!window.localStorage) return;
+            window.localStorage.setItem('shakshuka_notes_folder_order_v1', JSON.stringify(folderOrder));
+        } catch (e) {
+            // best-effort only
+        }
+    }
+
+    function loadArchivedFolders() {
+        try {
+            if (!window.localStorage) return;
+            const raw = window.localStorage.getItem('shakshuka_notes_archived_folders_v1');
+            if (!raw) return;
+            const arr = JSON.parse(raw);
+            if (Array.isArray(arr)) {
+                archivedFolders = new Set(
+                    arr
+                        .filter(name => typeof name === 'string')
+                        .map(name => name.trim())
+                        .filter(name => name.length > 0)
+                );
+            }
+        } catch (e) {
+            // best-effort only
+        }
+    }
+
+    function saveArchivedFolders() {
+        try {
+            if (!window.localStorage) return;
+            window.localStorage.setItem('shakshuka_notes_archived_folders_v1', JSON.stringify(Array.from(archivedFolders)));
         } catch (e) {
             // best-effort only
         }
@@ -221,9 +282,13 @@
             notes = parsed.notes;
             notes.forEach(ensureNoteHasSplitFields);
             notes.forEach(note => {
-                if (note && note.__saving) {
+                if (!note || typeof note !== 'object') return;
+                if (note.__saving) {
                     delete note.__saving;
                 }
+                // Normalize pin/archive flags from cache
+                note.pinned = !!note.pinned;
+                note.archived = !!note.archived;
             });
             
             // Migration: if openNoteIds contains ALL notes, reset to just the active/first note
@@ -381,6 +446,11 @@
                 notes = serverNotes;
 
                 notes.forEach(ensureNoteHasSplitFields);
+                notes.forEach(note => {
+                    if (!note || typeof note !== 'object') return;
+                    note.pinned = !!note.pinned;
+                    note.archived = !!note.archived;
+                });
 
                 // Defensive: if we ever end up with duplicate IDs (bad cache/older builds),
                 // fix them so two distinct notes cannot overwrite each other.
@@ -512,6 +582,8 @@
                 title: note.title,
                 content: getEncodedNoteContent(note),
                 folder: (note.folder && typeof note.folder === 'string') ? note.folder : undefined,
+                pinned: !!note.pinned,
+                archived: !!note.archived,
             };
             const oldId = note.id;
 
@@ -623,7 +695,7 @@
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ title, content, folder })
+                        body: JSON.stringify({ title, content, folder, pinned: false, archived: false })
                     },
                     { expectObject: true, retries: 0 }
                 );
@@ -631,7 +703,7 @@
                 const response = await fetch('/api/notes', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ title, content, folder }),
+                    body: JSON.stringify({ title, content, folder, pinned: false, archived: false }),
                     credentials: 'include'
                 });
                 if (!response.ok) {
@@ -686,6 +758,8 @@
             content: '',
             content_secondary: '',
             folder: folderClean || null,
+            pinned: false,
+            archived: false,
             created_at: now,
             updated_at: now
         };
@@ -695,6 +769,7 @@
         const summary = new Map();
         for (const note of notes) {
             if (!note || typeof note !== 'object') continue;
+            if (note.archived) continue; // archived notes are counted separately
             const folder = (note.folder && typeof note.folder === 'string') ? note.folder : '';
             const key = folder || '';
             const prev = summary.get(key) || 0;
@@ -969,6 +1044,13 @@
             titleSpan.textContent = note.title || 'Untitled';
             btn.appendChild(titleSpan);
 
+            if (note.pinned) {
+                const tabPinIcon = document.createElement('i');
+                tabPinIcon.className = 'fas fa-thumbtack notes-tab-pin-icon';
+                tabPinIcon.title = 'Pinned';
+                btn.insertBefore(tabPinIcon, titleSpan);
+            }
+
             // Allow renaming via double-click on the title text
             titleSpan.addEventListener('dblclick', function (ev) {
                 ev.stopPropagation();
@@ -1029,13 +1111,21 @@
         const primaryNote = getActiveNote();
         if (!primary || !secondary || !primaryNote) return;
 
+        // Safety: if the note content still contains the raw split-encoded blob,
+        // decode it now before rendering. This handles edge cases where
+        // ensureNoteHasSplitFields wasn't called (e.g. version restore, server reload).
+        if (typeof primaryNote.content === 'string' &&
+            (primaryNote.content.startsWith(SPLIT_CONTENT_PREFIX_B64) || primaryNote.content.startsWith(SPLIT_CONTENT_PREFIX))) {
+            ensureNoteHasSplitFields(primaryNote);
+        }
+
         // Primary editor always shows the active note.
         primary.value = primaryNote.content || '';
         // Bind the current note ID to the editor so input events always update
         // the note that was actually visible when the user typed, even if
         // activeNoteId changes slightly later (e.g. when clicking the + tab).
         primary.dataset.noteId = primaryNote.id;
-        primary.title = primaryNote.title || 'Untitled';
+        primary.removeAttribute('title'); // Don't show tooltip on hover
         primary.setAttribute('aria-label', 'Notes editor (primary): ' + (primaryNote.title || 'Untitled'));
 
         let secondaryNote = null;
@@ -1046,12 +1136,12 @@
         if (secondaryNote) {
             secondary.value = secondaryNote.content || '';
             secondary.dataset.noteId = secondaryNote.id;
-            secondary.title = secondaryNote.title || 'Untitled';
+            secondary.removeAttribute('title');
             secondary.setAttribute('aria-label', 'Notes editor (secondary): ' + (secondaryNote.title || 'Untitled'));
         } else {
             secondary.value = primaryNote.content_secondary || '';
             secondary.dataset.noteId = primaryNote.id;
-            secondary.title = primaryNote.title || 'Untitled';
+            secondary.removeAttribute('title');
             secondary.setAttribute('aria-label', 'Notes editor (secondary): ' + (primaryNote.title || 'Untitled'));
         }
 
@@ -1061,16 +1151,30 @@
     function showNotesDashboard() {
         const dash = document.getElementById('notes-dashboard-view');
         const editorView = document.getElementById('notes-editor-view');
+        const splitBtn = document.getElementById('notes-split-toggle-btn');
         if (dash) dash.style.display = '';
         if (editorView) editorView.style.display = 'none';
+        if (splitBtn) splitBtn.style.display = 'none';
     }
 
     function showNoteEditorView() {
         const dash = document.getElementById('notes-dashboard-view');
         const editorView = document.getElementById('notes-editor-view');
+        const splitBtn = document.getElementById('notes-split-toggle-btn');
         if (dash) dash.style.display = 'none';
         if (editorView) editorView.style.display = '';
+        if (splitBtn) splitBtn.style.display = '';
         scrollEditorsIntoView();
+    }
+
+    function getFolderColorSlot(folderName) {
+        if (!folderName || typeof folderName !== 'string') return null;
+        let hash = 0;
+        for (let i = 0; i < folderName.length; i += 1) {
+            hash = (hash + folderName.charCodeAt(i)) | 0;
+        }
+        const slot = Math.abs(hash) % 6; // 6 deterministic color buckets
+        return slot;
     }
 
     function renderNotesExplorer() {
@@ -1084,6 +1188,9 @@
 
         // Folders summary
         const summary = getFoldersSummary();
+        const archivedCount = Array.isArray(notes)
+            ? notes.filter(n => n && n.archived).length
+            : 0;
         folderListEl.innerHTML = '';
 
         const makeFolderItem = (label, folderKey) => {
@@ -1098,6 +1205,13 @@
             }
             li.dataset.folder = folderKey === null ? '' : (folderKey || '');
 
+            if (!isAll && !isUnsorted && folderKey && typeof folderKey === 'string') {
+                const slot = getFolderColorSlot(folderKey);
+                if (slot !== null) {
+                    li.dataset.folderSlot = String(slot);
+                }
+            }
+
             const nameSpan = document.createElement('span');
             nameSpan.textContent = label;
             li.appendChild(nameSpan);
@@ -1106,7 +1220,7 @@
             countSpan.className = 'notes-folder-count';
             let count = 0;
             if (folderKey === null) {
-                // "All notes" pseudo-folder = sum of all notes
+                // "All notes" pseudo-folder = sum of all non-archived notes
                 summary.forEach(v => { count += v || 0; });
             } else if (folderKey === '') {
                 count = summary.get('') || 0;
@@ -1127,35 +1241,73 @@
                 renderNotesExplorer();
             });
 
-            // Drag-and-drop target for notes (except the "All notes" pseudo-folder)
-            if (folderKey !== null) {
+            // Drag-and-drop for both notes and folder reordering
+            // Only allow dragging real named folders (not All notes or Unsorted)
+            const isNamedFolder = !isAll && !isUnsorted && folderKey && typeof folderKey === 'string';
+            if (isNamedFolder) {
+                li.draggable = true;
+                li.addEventListener('dragstart', function (e) {
+                    if (draggedNoteId) return; // Don't interfere with note dragging
+                    draggedFolderId = folderKey;
+                    e.dataTransfer.effectAllowed = 'move';
+                    this.style.opacity = '0.6';
+                });
+                li.addEventListener('dragend', function (e) {
+                    draggedFolderId = null;
+                    this.style.opacity = '';
+                });
+            }
+            
+            // Allow drop on named folders only (for both notes and folder reordering)
+            if (isNamedFolder) {
                 li.addEventListener('dragover', function (e) {
-                    if (!draggedNoteId) return;
-                    e.preventDefault();
-                    this.classList.add('drag-over');
+                    if (draggedNoteId) {
+                        // Dragging a note onto a folder
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        this.classList.add('drag-over');
+                    } else if (draggedFolderId && draggedFolderId !== folderKey) {
+                        // Dragging a folder over another folder (reorder)
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        this.classList.add('drag-over');
+                    } else if (draggedFolderId && draggedFolderId === folderKey) {
+                        // Can't drop on itself
+                        e.dataTransfer.dropEffect = 'none';
+                    }
                 });
                 li.addEventListener('dragleave', function (e) {
                     this.classList.remove('drag-over');
                 });
                 li.addEventListener('drop', function (e) {
-                    if (!draggedNoteId) {
+                    if (draggedNoteId) {
+                        // Drop note onto folder
+                        e.preventDefault();
                         this.classList.remove('drag-over');
-                        return;
+                        const note = notes.find(n => n.id === draggedNoteId);
+                        if (!note) return;
+                        note.folder = folderKey;
+                        note.updated_at = new Date().toLocaleString();
+                        saveNoteToServer(note);
+                        render();
+                    } else if (draggedFolderId && draggedFolderId !== folderKey) {
+                        // Drop folder onto folder (reorder)
+                        e.preventDefault();
+                        this.classList.remove('drag-over');
+                        
+                        const draggedIdx = folderOrder.indexOf(draggedFolderId);
+                        const targetIdx = folderOrder.indexOf(folderKey);
+                        if (draggedIdx === -1 || targetIdx === -1) return;
+                        
+                        folderOrder.splice(draggedIdx, 1);
+                        folderOrder.splice(targetIdx, 0, draggedFolderId);
+                        saveFolderOrder();
+                        render();
                     }
-                    e.preventDefault();
-                    this.classList.remove('drag-over');
-                    const note = notes.find(n => n.id === draggedNoteId);
-                    if (!note) return;
-                    const key = this.dataset.folder || '';
-                    const newFolder = key ? key : null;
-                    note.folder = newFolder;
-                    note.updated_at = new Date().toLocaleString();
-                    saveNoteToServer(note);
-                    render();
                 });
             }
 
-            // Context menu for real named folders only
+            // Context menu for real named folders only (right-click to rename/delete)
             if (folderKey && String(folderKey).trim().length > 0) {
                 li.addEventListener('contextmenu', function (e) {
                     e.preventDefault();
@@ -1176,21 +1328,92 @@
             folderListEl.appendChild(makeFolderItem('Unsorted', ''));
         }
 
-        // Actual named folders (sorted alphabetically)
-        const namedFolders = Array.from(summary.keys()).filter(k => k && k.trim().length > 0).sort((a, b) => a.localeCompare(b));
-        namedFolders.forEach(folderName => {
+        // Actual named folders: apply custom order if available, otherwise sort alphabetically
+        const allNamedFolders = Array.from(summary.keys()).filter(k => k && k.trim().length > 0);
+        
+        // Separate active folders from archived ones
+        const activeFolders = allNamedFolders.filter(f => !archivedFolders.has(f));
+        const archivedFoldersList = allNamedFolders.filter(f => archivedFolders.has(f));
+        
+        // Update folderOrder to include any new active folders that weren't in the order yet
+        const missingFolders = activeFolders.filter(f => !folderOrder.includes(f));
+        if (missingFolders.length > 0) {
+            folderOrder.push(...missingFolders.sort((a, b) => a.localeCompare(b)));
+            saveFolderOrder();
+        }
+        
+        // Render active folders in custom order, skipping any that no longer exist
+        const orderedFolders = folderOrder.filter(f => activeFolders.includes(f));
+        // Add any remaining active folders not in the custom order (shouldn't happen with above logic, but safety net)
+        const renderedSet = new Set(orderedFolders);
+        const unorderedFolders = activeFolders.filter(f => !renderedSet.has(f)).sort((a, b) => a.localeCompare(b));
+        
+        orderedFolders.concat(unorderedFolders).forEach(folderName => {
             folderListEl.appendChild(makeFolderItem(folderName, folderName));
         });
+        
+        // Archived folders section
+        if (archivedFoldersList.length > 0) {
+            const archivedSectionDiv = document.createElement('div');
+            archivedSectionDiv.style.cssText = 'margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border-color);';
+            
+            const sectionLabel = document.createElement('div');
+            sectionLabel.style.cssText = 'font-size:0.75rem;font-weight:bold;text-transform:uppercase;color:var(--text-secondary);padding:0 0.8rem;margin-bottom:0.5rem;';
+            sectionLabel.textContent = 'Archived Folders';
+            archivedSectionDiv.appendChild(sectionLabel);
+            
+            archivedFoldersList.forEach(folderName => {
+                const li = makeFolderItem(folderName, folderName);
+                li.style.opacity = '0.6';
+                li.dataset.archived = 'true';
+                archivedSectionDiv.appendChild(li);
+            });
+            
+            folderListEl.appendChild(archivedSectionDiv);
+        }
+
+        // Archive pseudo-folder for archived notes
+        if (archivedCount > 0) {
+            const archiveLi = document.createElement('li');
+            archiveLi.className = 'notes-folder-item';
+            if (currentFolderFilter === '__archive__') {
+                archiveLi.classList.add('active');
+            }
+            archiveLi.dataset.folder = '__archive__';
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = 'Archive';
+            archiveLi.appendChild(nameSpan);
+            const countSpan = document.createElement('span');
+            countSpan.className = 'notes-folder-count';
+            countSpan.textContent = String(archivedCount);
+            archiveLi.appendChild(countSpan);
+            archiveLi.addEventListener('click', function () {
+                currentFolderFilter = '__archive__';
+                renderNotesExplorer();
+            });
+            folderListEl.appendChild(archiveLi);
+        }
 
         // Notes list for current folder
         notesListEl.innerHTML = '';
         let filteredNotes = notes.slice();
-        if (currentFolderFilter !== null) {
-            const target = (currentFolderFilter || '').toLowerCase();
-            filteredNotes = filteredNotes.filter(n => {
-                const f = (n.folder && typeof n.folder === 'string') ? n.folder.toLowerCase() : '';
-                return f === target;
-            });
+
+        if (currentFolderFilter === '__archive__') {
+            filteredNotes = filteredNotes.filter(n => n && n.archived);
+        } else {
+            // All non-archived notes, optionally scoped to a folder
+            filteredNotes = filteredNotes.filter(n => n && !n.archived);
+            if (currentFolderFilter !== null) {
+                if (currentFolderFilter === '') {
+                    filteredNotes = filteredNotes.filter(n => !n.folder);
+                } else {
+                    const target = (currentFolderFilter || '').toLowerCase();
+                    filteredNotes = filteredNotes.filter(n => {
+                        const f = (n.folder && typeof n.folder === 'string') ? n.folder.toLowerCase() : '';
+                        return f === target;
+                    });
+                }
+            }
         }
 
         // Update header title
@@ -1198,6 +1421,8 @@
             currentFolderTitleEl.textContent = 'All notes';
         } else if (currentFolderFilter === '') {
             currentFolderTitleEl.textContent = 'Unsorted';
+        } else if (currentFolderFilter === '__archive__') {
+            currentFolderTitleEl.textContent = 'Archive';
         } else {
             currentFolderTitleEl.textContent = currentFolderFilter;
         }
@@ -1213,7 +1438,7 @@
         }
 
         const sortMode = explorerSortMode || 'updated';
-        filteredNotes.sort((a, b) => {
+        const sortFn = (a, b) => {
             if (sortMode === 'title') {
                 const ta = (a.title || '').toLowerCase();
                 const tb = (b.title || '').toLowerCase();
@@ -1233,11 +1458,30 @@
 
             // Default: sort by updated_at (newest first)
             return updatedB - updatedA;
-        });
+        };
+
+        const pinnedNotes = filteredNotes.filter(n => n && n.pinned);
+        const regularNotes = filteredNotes.filter(n => !n || !n.pinned);
+        pinnedNotes.sort(sortFn);
+        regularNotes.sort(sortFn);
+        filteredNotes = pinnedNotes.concat(regularNotes);
 
         filteredNotes.forEach(note => {
             const li = document.createElement('div');
-            li.className = 'notes-explorer-note' + (note.id === activeNoteId ? ' active' : '');
+            li.className = 'notes-explorer-note' +
+                (note.id === activeNoteId ? ' active' : '') +
+                (note.pinned ? ' is-pinned' : '') +
+                (note.archived ? ' is-archived' : '');
+            li.dataset.noteId = note.id;
+            li.draggable = true;
+
+            const folderForNote = (note.folder && typeof note.folder === 'string') ? note.folder : '';
+            if (folderForNote) {
+                const slot = getFolderColorSlot(folderForNote);
+                if (slot !== null) {
+                    li.dataset.folderSlot = String(slot);
+                }
+            }
             li.dataset.noteId = note.id;
             li.draggable = true;
 
@@ -1246,12 +1490,19 @@
             titleSpan.textContent = note.title || 'Untitled';
             li.appendChild(titleSpan);
 
+            if (note.pinned) {
+                const pinIcon = document.createElement('i');
+                pinIcon.className = 'fas fa-thumbtack notes-pin-icon';
+                pinIcon.title = 'Pinned';
+                li.appendChild(pinIcon);
+            }
+
             const metaSpan = document.createElement('span');
             metaSpan.className = 'notes-explorer-note-meta';
             if (note.updated_at) {
-                metaSpan.textContent = String(note.updated_at);
+                metaSpan.textContent = formatFriendlyDate(note.updated_at);
             } else if (note.created_at) {
-                metaSpan.textContent = String(note.created_at);
+                metaSpan.textContent = formatFriendlyDate(note.created_at);
             }
             li.appendChild(metaSpan);
 
@@ -1305,13 +1556,165 @@
         renderEditors();
     }
 
-    function createNewNote() {
-        // Derive a simple sequential label (Note 1, Note 2, ...)
-        const baseIndex = notes.length + 1;
-        const title = 'Note ' + baseIndex;
+    function formatFriendlyDate(dateString) {
+        if (!dateString || typeof dateString !== 'string') return '';
+        try {
+            let date = new Date(dateString);
+            // If parsing failed (Invalid Date), return empty
+            if (isNaN(date.getTime())) {
+                return '';
+            }
+            const now = new Date();
+            const diffMs = now.getTime() - date.getTime();
+            
+            // Ensure we're dealing with positive time differences
+            if (diffMs < 0) {
+                // Future date - shouldn't happen but handle it
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+            }
+            
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            
+            // Within the last 7 days: show relative format
+            if (diffDays === 0) {
+                const hours = Math.floor(diffMs / (1000 * 60 * 60));
+                if (hours === 0) {
+                    const mins = Math.floor(diffMs / (1000 * 60));
+                    return mins <= 1 ? 'just now' : `${mins} mins ago`;
+                }
+                return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+            } else if (diffDays === 1) {
+                return 'yesterday';
+            } else if (diffDays < 7) {
+                return `${diffDays} days ago`;
+            }
+            
+            // Older than 7 days: show date + time (e.g., "Apr 13, 01:49 am")
+            const month = date.toLocaleDateString('en-US', { month: 'short' });
+            const day = date.getDate();
+            const hours = String(date.getHours()).padStart(2, '0');
+            const mins = String(date.getMinutes()).padStart(2, '0');
+            const hour12 = date.getHours() % 12 || 12;
+            const ampm = date.getHours() >= 12 ? 'pm' : 'am';
+            return `${month} ${day}, ${hour12}:${mins} ${ampm}`;
+        } catch (e) {
+            return '';
+        }
+    }
 
+    function getDefaultNoteTitleForFolder(folder) {
+        // If no specific folder is selected (All notes / Unsorted), keep the
+        // existing global numbering scheme (Note 1, Note 2, ...).
+        const folderName = (folder && typeof folder === 'string') ? folder.trim() : '';
+        if (!folderName) {
+            const baseIndex = notes.length + 1;
+            return 'Note ' + baseIndex;
+        }
+
+        // When creating a note inside a real folder, generate titles like
+        // "folder-1", "folder-2", ... scoped per folder.
+        const normalizedFolder = folderName.toLowerCase();
+        const prefixLower = normalizedFolder + '-';
+        const prefixLength = folderName.length + 1;
+        let maxSuffix = 0;
+
+        if (Array.isArray(notes) && notes.length) {
+            for (const note of notes) {
+                if (!note || typeof note !== 'object') continue;
+                const noteFolderRaw = (note.folder && typeof note.folder === 'string') ? note.folder.trim() : '';
+                if (!noteFolderRaw || noteFolderRaw.toLowerCase() !== normalizedFolder) continue;
+
+                const title = String(note.title || '');
+                const titleLower = title.toLowerCase();
+                if (!titleLower.startsWith(prefixLower)) continue;
+
+                const suffixRaw = title.slice(prefixLength).trim();
+                const suffixNum = parseInt(suffixRaw, 10);
+                if (!Number.isNaN(suffixNum) && suffixNum > maxSuffix) {
+                    maxSuffix = suffixNum;
+                }
+            }
+        }
+
+        return folderName + '-' + String(maxSuffix + 1);
+    }
+
+    async function verifyNoteFlagPersistence(noteId, flags) {
+        try {
+            let serverNotes = null;
+            if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+                serverNotes = await window.Utils.apiRequestJson('/api/notes', {}, { expectObject: false, retries: 1, retryDelayMs: 500 });
+            } else {
+                const resp = await fetch('/api/notes', { credentials: 'include' });
+                if (!resp.ok) return;
+                serverNotes = await resp.json();
+            }
+            if (!Array.isArray(serverNotes)) return;
+            const serverNote = serverNotes.find(n => n && n.id === noteId);
+            if (!serverNote) return;
+            const mismatches = [];
+            if (Object.prototype.hasOwnProperty.call(flags, 'pinned')) {
+                if (Boolean(serverNote.pinned) !== Boolean(flags.pinned)) mismatches.push('pinned');
+            }
+            if (Object.prototype.hasOwnProperty.call(flags, 'archived')) {
+                if (Boolean(serverNote.archived) !== Boolean(flags.archived)) mismatches.push('archived');
+            }
+            if (mismatches.length) {
+                if (window.Utils && typeof window.Utils.debugLog === 'function') {
+                    window.Utils.debugLog('[Notes] persistence mismatch for note', { noteId, flags, serverNote, mismatches });
+                } else {
+                    console.warn('[Notes] persistence mismatch for note', noteId, 'fields:', mismatches);
+                }
+            }
+        } catch (e) {
+            // best-effort only
+        }
+    }
+
+    function toggleNotePinned(noteId, desired) {
+        if (!noteId) return;
+        const note = notes.find(n => n.id === noteId);
+        if (!note) return;
+        const next = (typeof desired === 'boolean') ? desired : !note.pinned;
+        note.pinned = next;
+        note.updated_at = new Date().toLocaleString();
+        saveNoteToServer(note);
+        verifyNoteFlagPersistence(note.id, { pinned: next });
+        render();
+    }
+
+    function setNoteArchived(noteId, archived) {
+        if (!noteId) return;
+        const note = notes.find(n => n.id === noteId);
+        if (!note) return;
+        const next = Boolean(archived);
+        if (note.archived === next) return;
+        note.archived = next;
+        note.updated_at = new Date().toLocaleString();
+
+        if (next && Array.isArray(openNoteIds)) {
+            const idx = openNoteIds.indexOf(noteId);
+            if (idx !== -1) openNoteIds.splice(idx, 1);
+            if (activeNoteId === noteId) {
+                activeNoteId = (openNoteIds && openNoteIds[0]) || (notes.find(n => n && !n.archived) || {}).id || null;
+            }
+            if (secondaryNoteId === noteId) {
+                secondaryNoteId = null;
+            }
+        }
+
+        saveNoteToServer(note);
+        verifyNoteFlagPersistence(note.id, { archived: next });
+        render();
+        if (next && (!Array.isArray(openNoteIds) || openNoteIds.length === 0 || !activeNoteId)) {
+            showNotesDashboard();
+        }
+    }
+
+    function createNewNote() {
         // Determine folder based on current explorer selection
         const folder = (currentFolderFilter === null) ? null : (currentFolderFilter || '');
+        const title = getDefaultNoteTitleForFolder(folder);
 
         // Create a local-only note first. It will only be persisted to SQLite
         // once the user actually edits it (content/title), via saveNoteToServer.
@@ -1341,13 +1744,6 @@
         if (!Array.isArray(openNoteIds)) {
             openNoteIds = notes.map(n => n.id);
         }
-        if (openNoteIds.length <= 1) {
-            // Never close the last remaining open tab
-            if (window.showNotification) {
-                window.showNotification('At least one note must remain open', 'warning');
-            }
-            return;
-        }
         const idx = openNoteIds.indexOf(id);
         if (idx === -1) return;
         const wasActive = activeNoteId === id;
@@ -1356,8 +1752,14 @@
             const nextId = openNoteIds[idx] || openNoteIds[openNoteIds.length - 1] || null;
             activeNoteId = nextId;
         }
+        if (secondaryNoteId === id) {
+            secondaryNoteId = null;
+        }
         render();
         saveNotes();
+        if (!openNoteIds.length || !activeNoteId) {
+            showNotesDashboard();
+        }
     }
 
     function renameActiveNote(id) {
@@ -1464,11 +1866,20 @@
     }
 
     function handleEditorKeydown(e, editor) {
-        // Slash command menu - open inline formatting menu
+        // Slash command menu - only open when '/' is typed on an empty or whitespace-only line.
+        // If the user is mid-text, let the '/' character pass through normally.
         if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === '/') {
-            e.preventDefault();
-            openCommandMenu(editor);
-            return;
+            const value = editor.value;
+            const pos = editor.selectionStart;
+            const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
+            const textBeforeCursor = value.substring(lineStart, pos);
+            if (textBeforeCursor.trim() === '') {
+                // Empty line — open the command menu and consume the keystroke
+                e.preventDefault();
+                openCommandMenu(editor);
+                return;
+            }
+            // Otherwise let '/' be typed normally
         }
 
         // Auto-detect list prefixes when user types '-' or '1.' then space at start of line
@@ -1544,14 +1955,17 @@
                         scheduleSavedNotification();
                         return;
                     } else {
-                        // Continue with next number
+                        // Continue with next number and renumber the rest of the block so
+                        // inserting between items keeps numbering consistent.
                         const beforeCaret = value.substring(0, start);
                         const afterCaret = value.substring(start);
                         const nextNumber = currentNumber + 1;
                         const insert = '\n' + nextNumber + '. ';
                         editor.value = beforeCaret + insert + afterCaret;
-                        const newPos = start + insert.length;
-                        editor.selectionStart = editor.selectionEnd = newPos;
+                        const caretAfterInsert = start + insert.length;
+
+                        const caret = renumberNumberedBlock(editor, caretAfterInsert);
+                        editor.selectionStart = editor.selectionEnd = caret;
                         saveNotes();
                         scheduleSavedNotification();
                         return;
@@ -1651,6 +2065,101 @@
         editor.selectionStart = editor.selectionEnd = newCursor;
         saveNotes();
         scheduleSavedNotification();
+    }
+
+    function renumberNumberedBlock(editor, anchorIndex) {
+        const value = editor.value;
+        if (typeof anchorIndex !== 'number' || anchorIndex < 0 || anchorIndex > value.length) {
+            return anchorIndex;
+        }
+
+        // Find the start of the line containing the caret.
+        let lineStart = value.lastIndexOf('\n', anchorIndex - 1) + 1;
+
+        // Walk up to include any previous numbered lines in the same block.
+        let blockStart = lineStart;
+        while (blockStart > 0) {
+            const prevNewline = value.lastIndexOf('\n', blockStart - 2);
+            const prevStart = prevNewline === -1 ? 0 : prevNewline + 1;
+            const prevLine = value.substring(prevStart, blockStart - 1);
+            if (!/^\s*\d+\.\s/.test(prevLine)) {
+                break;
+            }
+            blockStart = prevStart;
+        }
+
+        // Walk down to include following numbered lines in the same block.
+        let blockEnd = value.indexOf('\n', lineStart);
+        if (blockEnd === -1) blockEnd = value.length;
+        while (blockEnd < value.length) {
+            const nextStart = blockEnd + 1;
+            const nextNewline = value.indexOf('\n', nextStart);
+            const nextEnd = nextNewline === -1 ? value.length : nextNewline;
+            const nextLine = value.substring(nextStart, nextEnd);
+            if (!/^\s*\d+\.\s/.test(nextLine)) {
+                break;
+            }
+            blockEnd = nextEnd;
+        }
+
+        const block = value.substring(blockStart, blockEnd);
+        const origLines = block.split('\n');
+
+        // Determine which line within the block the caret was on before renumbering.
+        const anchorRelative = anchorIndex - blockStart;
+        let anchorLineIndex = 0;
+        {
+            let offset = 0;
+            for (let i = 0; i < origLines.length; i += 1) {
+                const len = origLines[i].length;
+                if (anchorRelative <= offset + len) {
+                    anchorLineIndex = i;
+                    break;
+                }
+                offset += len + 1; // +1 for the newline
+            }
+        }
+
+        let haveBase = false;
+        let currentNum = 0;
+        const newLines = [];
+        let caretPosInBlock = null;
+
+        for (let i = 0; i < origLines.length; i += 1) {
+            const ln = origLines[i];
+            const m = ln.match(/^(\s*)(\d+)\.\s(.*)$/);
+            if (!m) {
+                newLines.push(ln);
+                continue;
+            }
+            const indent = m[1] || '';
+            const text = m[3] || '';
+            if (!haveBase) {
+                currentNum = parseInt(m[2], 10) || 1;
+                haveBase = true;
+            } else {
+                currentNum += 1;
+            }
+            const lineStr = `${indent}${currentNum}. ${text}`;
+            newLines.push(lineStr);
+
+            if (i === anchorLineIndex) {
+                const prefixLen = (indent + String(currentNum) + '. ').length;
+                let beforeLen = 0;
+                for (let j = 0; j < i; j += 1) {
+                    beforeLen += newLines[j].length + 1; // +1 for newline
+                }
+                caretPosInBlock = beforeLen + prefixLen;
+            }
+        }
+
+        const newBlock = newLines.join('\n');
+        editor.value = value.substring(0, blockStart) + newBlock + value.substring(blockEnd);
+
+        if (caretPosInBlock == null) {
+            return blockStart + newBlock.length;
+        }
+        return blockStart + caretPosInBlock;
     }
 
     // Inline formatting helpers removed for now (bold/underline not used)
@@ -1896,11 +2405,20 @@
         const menu = ensureTabContextMenu();
         menu.innerHTML = '';
 
+        const note = notes.find(n => n.id === noteId);
+        const isPinned = !!(note && note.pinned);
+        const isArchived = !!(note && note.archived);
+
         const items = [
-            { label: 'Open in split view', action: 'split' },
-            { label: 'Rename note',        action: 'rename' },
-            { label: 'Close note',         action: 'close' },
-            { label: 'Delete note',        action: 'delete', className: 'notes-tab-context-item--danger' },
+            { label: 'Open in split view',             action: 'split' },
+            { label: isPinned ? 'Unpin note' : 'Pin note', action: 'toggle-pin' },
+            { label: isArchived ? 'Unarchive note' : 'Archive note', action: 'toggle-archive' },
+            { label: 'Rename note',                    action: 'rename' },
+            { label: 'Duplicate note',                 action: 'duplicate' },
+            { label: 'Export as .md',                  action: 'export' },
+            { label: 'Version history',                action: 'history' },
+            { label: 'Close note',                     action: 'close' },
+            { label: 'Delete note',                    action: 'delete', className: 'notes-tab-context-item--danger' },
         ];
 
         items.forEach(item => {
@@ -1918,8 +2436,20 @@
                 }
                 if (item.action === 'split') {
                     openNoteInSplit(id).catch(() => {});
+                } else if (item.action === 'toggle-pin') {
+                    const n = notes.find(nn => nn.id === id);
+                    toggleNotePinned(id, !(n && n.pinned));
+                } else if (item.action === 'toggle-archive') {
+                    const n = notes.find(nn => nn.id === id);
+                    setNoteArchived(id, !(n && n.archived));
                 } else if (item.action === 'rename') {
                     renameActiveNote(id);
+                } else if (item.action === 'duplicate') {
+                    duplicateNote(id);
+                } else if (item.action === 'export') {
+                    exportNoteAsMarkdown(id);
+                } else if (item.action === 'history') {
+                    openNoteHistoryModal(id);
                 } else if (item.action === 'close') {
                     closeNote(id);
                 } else if (item.action === 'delete') {
@@ -1955,11 +2485,20 @@
         const menu = ensureExplorerContextMenu();
         menu.innerHTML = '';
 
+        const note = notes.find(n => n.id === noteId);
+        const isPinned = !!(note && note.pinned);
+        const isArchived = !!(note && note.archived);
+
         const items = [
-            { label: 'Open',          action: 'open' },
-            { label: 'Rename',        action: 'rename' },
-            { label: 'Delete',        action: 'delete', className: 'notes-tab-context-item--danger' },
-            { label: 'Move to folder…', action: 'move' },
+            { label: 'Open',                            action: 'open' },
+            { label: isPinned ? 'Unpin' : 'Pin',        action: 'toggle-pin' },
+            { label: isArchived ? 'Unarchive' : 'Archive', action: 'toggle-archive' },
+            { label: 'Rename',                          action: 'rename' },
+            { label: 'Duplicate',                       action: 'duplicate' },
+            { label: 'Export as .md',                   action: 'export' },
+            { label: 'Version history',                 action: 'history' },
+            { label: 'Move to folder…',                 action: 'move' },
+            { label: 'Delete',                          action: 'delete', className: 'notes-tab-context-item--danger' },
         ];
 
         items.forEach(item => {
@@ -1983,8 +2522,20 @@
                     activeNoteId = id;
                     saveNotes();
                     render();
+                } else if (item.action === 'toggle-pin') {
+                    const n = notes.find(nn => nn.id === id);
+                    toggleNotePinned(id, !(n && n.pinned));
+                } else if (item.action === 'toggle-archive') {
+                    const n = notes.find(nn => nn.id === id);
+                    setNoteArchived(id, !(n && n.archived));
                 } else if (item.action === 'rename') {
                     renameActiveNote(id);
+                } else if (item.action === 'duplicate') {
+                    duplicateNote(id);
+                } else if (item.action === 'export') {
+                    exportNoteAsMarkdown(id);
+                } else if (item.action === 'history') {
+                    openNoteHistoryModal(id);
                 } else if (item.action === 'delete') {
                     deleteNoteWithUndo(id);
                 } else if (item.action === 'move') {
@@ -2022,10 +2573,20 @@
         const menu = ensureExplorerContextMenu();
         menu.innerHTML = '';
 
+        const isArchived = archivedFolders.has(folderName);
+        
         const items = [
             { label: 'Rename folder',                     action: 'rename-folder' },
             { label: 'Delete folder (keep notes in Unsorted)', action: 'delete-folder', className: 'notes-tab-context-item--danger' },
         ];
+        
+        if (!isArchived) {
+            items.push({ label: 'Move folder to archive',            action: 'archive-folder' });
+        } else {
+            items.push({ label: 'Restore from archive',             action: 'restore-folder' });
+        }
+        
+        items.push({ label: 'Delete permanently',                action: 'delete-permanently', className: 'notes-tab-context-item--danger' });
 
         items.forEach(item => {
             const btn = document.createElement('button');
@@ -2060,7 +2621,65 @@
                         virtualFolders.delete(oldName);
                         saveVirtualFolders();
                     }
+                    // Remove from custom folder order
+                    const idx = folderOrder.indexOf(oldName);
+                    if (idx !== -1) {
+                        folderOrder.splice(idx, 1);
+                        saveFolderOrder();
+                    }
                     currentFolderFilter = null;
+                    render();
+                } else if (item.action === 'archive-folder') {
+                    // Mark the folder as archived (but keep notes in place)
+                    archivedFolders.add(oldName);
+                    saveArchivedFolders();
+                    if (window.showNotification) {
+                        window.showNotification(`Folder "${oldName}" archived`, 'success');
+                    }
+                    currentFolderFilter = null;
+                    render();
+                } else if (item.action === 'restore-folder') {
+                    // Restore archived folder
+                    archivedFolders.delete(oldName);
+                    saveArchivedFolders();
+                    if (window.showNotification) {
+                        window.showNotification(`Folder "${oldName}" restored`, 'success');
+                    }
+                    currentFolderFilter = null;
+                    render();
+                } else if (item.action === 'delete-permanently') {
+                    if (!confirm(`Permanently delete folder "${oldName}" and all its notes? This cannot be undone.`)) {
+                        closeExplorerContextMenu();
+                        return;
+                    }
+                    // Delete all notes in this folder from server
+                    const notesInFolder = notes.filter(n => n && (n.folder || '') === oldName);
+                    notesInFolder.forEach(n => {
+                        if (n && n.id) {
+                            fetch(`/api/notes/${encodeURIComponent(n.id)}/permanent`, {
+                                method: 'DELETE',
+                                credentials: 'include'
+                            }).catch(e => console.error('Failed to delete note', e));
+                        }
+                    });
+                    // Remove from local notes array
+                    notes = notes.filter(n => !notesInFolder.includes(n));
+                    // Remove from virtual folders
+                    if (virtualFolders.has(oldName)) {
+                        virtualFolders.delete(oldName);
+                        saveVirtualFolders();
+                    }
+                    // Remove from custom folder order
+                    const idx = folderOrder.indexOf(oldName);
+                    if (idx !== -1) {
+                        folderOrder.splice(idx, 1);
+                        saveFolderOrder();
+                    }
+                    if (window.showNotification) {
+                        window.showNotification(`Folder "${oldName}" and ${notesInFolder.length} note${notesInFolder.length === 1 ? '' : 's'} permanently deleted`, 'success');
+                    }
+                    currentFolderFilter = null;
+                    saveAllNotesToLocalStorage();
                     render();
                 }
 
@@ -2389,6 +3008,38 @@
                 showNotesDashboard();
             });
         }
+
+        const exportAllBtn = document.getElementById('notes-export-all-btn');
+        if (exportAllBtn) {
+            exportAllBtn.addEventListener('click', async function () {
+                try {
+                    exportAllBtn.disabled = true;
+                    exportAllBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+                    const resp = await fetch('/api/notes/export-all', { method: 'POST', credentials: 'include' });
+                    if (!resp.ok) {
+                        const err = await resp.json().catch(() => ({}));
+                        throw new Error(err.error || 'Export failed');
+                    }
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    const cd = resp.headers.get('content-disposition') || '';
+                    const match = cd.match(/filename="?([^"]+)"?/);
+                    a.download = match ? match[1] : 'shakshuka_notes.zip';
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+                    if (window.showNotification) window.showNotification('Notes exported as .zip', 'success');
+                } catch (e) {
+                    console.error('Export all notes failed', e);
+                    if (window.showNotification) window.showNotification(e.message || 'Export failed', 'error');
+                } finally {
+                    exportAllBtn.disabled = false;
+                    exportAllBtn.innerHTML = '<i class="fas fa-download"></i> Export all';
+                }
+            });
+        }
         if (splitToggleBtn) {
             splitToggleBtn.addEventListener('click', toggleSplitView);
         }
@@ -2405,6 +3056,65 @@
             filterInput.addEventListener('input', function () {
                 explorerFilterText = this.value || '';
                 renderNotesExplorer();
+            });
+        }
+
+        // Inline editor search: quick-switch notes without leaving editor view
+        const editorSearchInput = document.getElementById('notes-editor-search-input');
+        const editorSearchResults = document.getElementById('notes-editor-search-results');
+        if (editorSearchInput && editorSearchResults) {
+            let editorSearchDebounce = null;
+            editorSearchInput.addEventListener('input', function () {
+                clearTimeout(editorSearchDebounce);
+                const q = (this.value || '').trim().toLowerCase();
+                if (!q) {
+                    editorSearchResults.style.display = 'none';
+                    editorSearchResults.innerHTML = '';
+                    return;
+                }
+                editorSearchDebounce = setTimeout(() => {
+                    const matches = notes.filter(n => {
+                        if (!n || n.deleted_at) return false;
+                        const title = (n.title || '').toLowerCase();
+                        const content = (n.content || '').toLowerCase();
+                        return title.includes(q) || content.includes(q);
+                    }).slice(0, 10);
+                    editorSearchResults.innerHTML = '';
+                    if (!matches.length) {
+                        editorSearchResults.innerHTML = '<div style="padding:0.5rem 0.8rem;color:var(--text-secondary);font-size:0.8rem;">No notes found</div>';
+                    } else {
+                        matches.forEach(note => {
+                            const item = document.createElement('div');
+                            item.style.cssText = 'padding:0.45rem 0.8rem;cursor:pointer;font-size:0.85rem;border-bottom:1px solid var(--border-color);';
+                            item.textContent = note.title || 'Untitled';
+                            item.addEventListener('mouseenter', () => { item.style.background = 'var(--border-color)'; });
+                            item.addEventListener('mouseleave', () => { item.style.background = ''; });
+                            item.addEventListener('click', () => {
+                                if (!openNoteIds.includes(note.id)) openNoteIds.push(note.id);
+                                activeNoteId = note.id;
+                                editorSearchInput.value = '';
+                                editorSearchResults.style.display = 'none';
+                                editorSearchResults.innerHTML = '';
+                                saveNotes(); render();
+                            });
+                            editorSearchResults.appendChild(item);
+                        });
+                    }
+                    editorSearchResults.style.display = 'block';
+                }, 150);
+            });
+            editorSearchInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') {
+                    editorSearchInput.value = '';
+                    editorSearchResults.style.display = 'none';
+                    editorSearchResults.innerHTML = '';
+                }
+            });
+            // Close results on outside click
+            document.addEventListener('click', function (e) {
+                if (!editorSearchResults.contains(e.target) && e.target !== editorSearchInput) {
+                    editorSearchResults.style.display = 'none';
+                }
             });
         }
         if (sortSelect) {
@@ -2439,11 +3149,13 @@
             primary.addEventListener('input', function () { handleEditorInput(primary); });
             primary.addEventListener('focus', function () { lastFocusedEditor = 'primary'; });
             primary.addEventListener('keydown', function (e) { handleEditorKeydown(e, primary); });
+            primary.addEventListener('click', function (e) { handleNoteLinkClick(primary, e); });
         }
         if (secondary) {
             secondary.addEventListener('input', function () { handleEditorInput(secondary); });
             secondary.addEventListener('focus', function () { lastFocusedEditor = 'secondary'; });
             secondary.addEventListener('keydown', function (e) { handleEditorKeydown(e, secondary); });
+            secondary.addEventListener('click', function (e) { handleNoteLinkClick(secondary, e); });
         }
 
         // Close command and context menus on outside click
@@ -2663,6 +3375,335 @@
         render();
     }
 
+    // ── Duplicate note via server API ──
+    async function duplicateNote(noteId) {
+        if (!noteId) return;
+        try {
+            const resp = await fetch(`/api/notes/${encodeURIComponent(noteId)}/duplicate`, { method: 'POST', credentials: 'include' });
+            if (!resp.ok) { throw new Error('Duplicate failed'); }
+            const dup = await resp.json();
+            if (dup && dup.id) {
+                ensureNoteHasSplitFields(dup);
+                notes.unshift(dup);
+                if (!Array.isArray(openNoteIds)) openNoteIds = [];
+                openNoteIds.push(dup.id);
+                activeNoteId = dup.id;
+                saveAllNotesToLocalStorage();
+                render();
+                showNoteEditorView();
+                if (window.showNotification) window.showNotification('Note duplicated', 'success');
+            }
+        } catch (e) {
+            console.error('Failed to duplicate note', e);
+            if (window.showNotification) window.showNotification('Failed to duplicate note', 'error');
+        }
+    }
+
+    // ── Export note as .md file download ──
+    function exportNoteAsMarkdown(noteId) {
+        const note = notes.find(n => n.id === noteId);
+        if (!note) return;
+        const title = note.title || 'Untitled';
+        const content = note.content || '';
+        const md = '# ' + title + '\n\n' + content;
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = title.replace(/[^a-zA-Z0-9_\- ]/g, '_').trim() + '.md';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+        if (window.showNotification) window.showNotification('Note exported as .md', 'success');
+    }
+
+    // ── Version history modal ──
+    async function openNoteHistoryModal(noteId) {
+        if (!noteId) return;
+        try {
+            const resp = await fetch(`/api/notes/${encodeURIComponent(noteId)}/history`, { credentials: 'include' });
+            if (!resp.ok) throw new Error('Failed to load history');
+            const data = await resp.json();
+            const versions = (data && data.versions) || [];
+
+            // Build or reuse modal
+            let modal = document.getElementById('notes-history-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'notes-history-modal';
+                modal.className = 'modal';
+                modal.innerHTML = `
+                    <div class="modal-content" style="max-width:700px;max-height:80vh;overflow-y:auto;">
+                        <div class="modal-header"><h2>Version History</h2><button class="modal-close" type="button">&times;</button></div>
+                        <div class="modal-body" id="notes-history-list" style="max-height:55vh;overflow-y:auto;"></div>
+                    </div>`;
+                document.body.appendChild(modal);
+                modal.querySelector('.modal-close').addEventListener('click', () => { modal.style.display = 'none'; modal.classList.remove('active'); });
+                modal.addEventListener('click', (e) => { if (e.target === modal) { modal.style.display = 'none'; modal.classList.remove('active'); } });
+            }
+
+            const listEl = document.getElementById('notes-history-list');
+            listEl.innerHTML = '';
+            if (!versions.length) {
+                listEl.innerHTML = '<p style="color:var(--text-secondary);">No version history yet. Versions are saved when you edit a note.</p>';
+            } else {
+                versions.forEach(v => {
+                    const item = document.createElement('div');
+                    item.style.cssText = 'padding:0.6rem;border:1px solid var(--border-color);border-radius:8px;margin-bottom:0.5rem;';
+                    const preview = (v.content || '').slice(0, 200) + ((v.content || '').length > 200 ? '…' : '');
+                    
+                    // Use safe DOM methods to avoid HTML entity encoding issues
+                    const titleDiv = document.createElement('div');
+                    titleDiv.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;';
+                    
+                    const titleStrong = document.createElement('strong');
+                    titleStrong.style.fontSize = '0.85rem';
+                    titleStrong.textContent = v.title || 'Untitled';
+                    titleDiv.appendChild(titleStrong);
+                    
+                    const dateSpan = document.createElement('span');
+                    dateSpan.style.cssText = 'font-size:0.75rem;color:var(--text-secondary);';
+                    dateSpan.textContent = v.saved_at || '';
+                    titleDiv.appendChild(dateSpan);
+                    item.appendChild(titleDiv);
+                    
+                    const pre = document.createElement('pre');
+                    pre.style.cssText = 'font-size:0.75rem;color:var(--text-secondary);white-space:pre-wrap;max-height:80px;overflow:hidden;margin:0;';
+                    pre.textContent = preview;
+                    item.appendChild(pre);
+                    
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn-secondary';
+                    btn.style.cssText = 'margin-top:0.4rem;padding:0.3rem 0.7rem;font-size:0.8rem;';
+                    btn.dataset.versionId = v.id;
+                    btn.textContent = 'Restore this version';
+                    item.appendChild(btn);
+                    listEl.appendChild(item);
+                    
+                    btn.addEventListener('click', async () => {
+                        try {
+                            const r = await fetch(`/api/notes/${encodeURIComponent(noteId)}/restore-version`, {
+                                method: 'POST', credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ version_id: v.id })
+                            });
+                            if (r.ok) {
+                                const updated = await r.json();
+                                const note = notes.find(n => n.id === noteId);
+                                if (note && updated) { note.title = updated.title; note.content = updated.content; note.updated_at = updated.updated_at; }
+                                modal.style.display = 'none'; modal.classList.remove('active');
+                                saveAllNotesToLocalStorage(); render();
+                                if (window.showNotification) window.showNotification('Version restored', 'success');
+                            }
+                        } catch (err) { console.error('Restore version failed', err); }
+                    });
+                });
+            }
+            modal.style.display = 'flex'; modal.classList.add('active');
+        } catch (e) {
+            console.error('Failed to load note history', e);
+            if (window.showNotification) window.showNotification('Failed to load version history', 'error');
+        }
+    }
+
+    // ── Trash: load and render in explorer ──
+    let trashedNotes = [];
+    async function loadTrashedNotes() {
+        try {
+            const resp = await fetch('/api/notes/trash', { credentials: 'include' });
+            if (resp.ok) { trashedNotes = await resp.json(); }
+        } catch (e) { trashedNotes = []; }
+    }
+
+    async function restoreNoteFromTrash(noteId) {
+        try {
+            const resp = await fetch(`/api/notes/${encodeURIComponent(noteId)}/restore`, { method: 'POST', credentials: 'include' });
+            if (resp.ok) {
+                await loadNotes(); await loadTrashedNotes(); render();
+                if (window.showNotification) window.showNotification('Note restored from trash', 'success');
+            }
+        } catch (e) { console.error('Restore from trash failed', e); }
+    }
+
+    async function permanentDeleteNote(noteId) {
+        if (!confirm('Permanently delete this note? This cannot be undone.')) return;
+        try {
+            const resp = await fetch(`/api/notes/${encodeURIComponent(noteId)}/permanent`, { method: 'DELETE', credentials: 'include' });
+            if (resp.ok) {
+                await loadTrashedNotes(); render();
+                if (window.showNotification) window.showNotification('Note permanently deleted', 'success');
+            }
+        } catch (e) { console.error('Permanent delete failed', e); }
+    }
+
+    // Patch renderNotesExplorer to add Trash folder (injected after the archive folder)
+    const _origRenderNotesExplorer = renderNotesExplorer;
+    renderNotesExplorer = function () {
+        _origRenderNotesExplorer();
+        // Add Trash pseudo-folder at the bottom of the folder list
+        const folderListEl = document.getElementById('notes-folder-list');
+        if (!folderListEl) return;
+        const trashLi = document.createElement('li');
+        trashLi.className = 'notes-folder-item' + (currentFolderFilter === '__trash__' ? ' active' : '');
+        trashLi.dataset.folder = '__trash__';
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = 'Trash';
+        trashLi.appendChild(nameSpan);
+        const countSpan = document.createElement('span');
+        countSpan.className = 'notes-folder-count';
+        countSpan.textContent = String(trashedNotes.length);
+        trashLi.appendChild(countSpan);
+        trashLi.addEventListener('click', async () => {
+            currentFolderFilter = '__trash__';
+            await loadTrashedNotes();
+            render();
+        });
+        
+        // Add context menu to trash folder (right-click)
+        trashLi.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (trashedNotes.length === 0) {
+                if (window.showNotification) window.showNotification('Trash is empty', 'info');
+                return;
+            }
+            const menu = ensureExplorerContextMenu();
+            menu.innerHTML = '';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'notes-tab-context-item notes-tab-context-item--danger';
+            btn.textContent = 'Delete all';
+            btn.addEventListener('click', async () => {
+                if (!confirm(`Permanently delete all ${trashedNotes.length} item${trashedNotes.length === 1 ? '' : 's'} in trash? This cannot be undone.`)) {
+                    closeExplorerContextMenu();
+                    return;
+                }
+                try {
+                    // Delete all trashed notes
+                    for (const note of trashedNotes) {
+                        await fetch(`/api/notes/${encodeURIComponent(note.id)}/permanent`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
+                    }
+                    await loadTrashedNotes();
+                    render();
+                    if (window.showNotification) window.showNotification('Trash cleared', 'success');
+                } catch (e) {
+                    console.error('Delete all from trash failed', e);
+                    if (window.showNotification) window.showNotification('Failed to clear trash', 'error');
+                }
+                closeExplorerContextMenu();
+            });
+            menu.appendChild(btn);
+            menu.style.display = 'flex';
+            menu.style.left = e.clientX + 'px';
+            menu.style.top = e.clientY + 'px';
+        });
+        
+        folderListEl.appendChild(trashLi);
+
+        // If trash is selected, render trashed notes in the explorer main list
+        if (currentFolderFilter === '__trash__') {
+            const notesListEl = document.getElementById('notes-explorer-notes');
+            const titleEl = document.getElementById('notes-explorer-current-folder');
+            if (titleEl) titleEl.textContent = 'Trash';
+            if (notesListEl) {
+                notesListEl.innerHTML = '';
+                if (!trashedNotes.length) {
+                    notesListEl.innerHTML = '<div style="padding:1rem;color:var(--text-secondary);font-size:0.85rem;">Trash is empty</div>';
+                }
+                trashedNotes.forEach(note => {
+                    const li = document.createElement('div');
+                    li.className = 'notes-explorer-note is-archived';
+                    li.innerHTML = `<span class="notes-explorer-note-title">${note.title || 'Untitled'}</span>
+                        <span class="notes-explorer-note-meta">${note.deleted_at || ''}</span>`;
+                    // Context actions for trash items
+                    li.addEventListener('contextmenu', (e) => {
+                        e.preventDefault();
+                        const menu = ensureExplorerContextMenu();
+                        menu.innerHTML = '';
+                        [{ label: 'Restore', action: 'restore' }, { label: 'Delete permanently', action: 'perm-delete', className: 'notes-tab-context-item--danger' }].forEach(item => {
+                            const btn = document.createElement('button');
+                            btn.type = 'button';
+                            btn.className = 'notes-tab-context-item' + (item.className ? ' ' + item.className : '');
+                            btn.textContent = item.label;
+                            btn.addEventListener('click', () => {
+                                if (item.action === 'restore') restoreNoteFromTrash(note.id);
+                                else if (item.action === 'perm-delete') permanentDeleteNote(note.id);
+                                closeExplorerContextMenu();
+                            });
+                            menu.appendChild(btn);
+                        });
+                        menu.style.display = 'flex';
+                        menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
+                    });
+                    notesListEl.appendChild(li);
+                });
+            }
+        }
+    };
+
+    // ── Drag-and-drop tab reorder ──
+    let draggedTabNoteId = null;
+    const _origRenderTabs = renderTabs;
+    renderTabs = function () {
+        _origRenderTabs();
+        const container = document.getElementById('notes-tabs');
+        if (!container) return;
+        const tabs = container.querySelectorAll('.notes-tab');
+        tabs.forEach(tab => {
+            tab.draggable = true;
+            tab.addEventListener('dragstart', (e) => {
+                draggedTabNoteId = tab.dataset.noteId;
+                e.dataTransfer.effectAllowed = 'move';
+                tab.style.opacity = '0.5';
+            });
+            tab.addEventListener('dragend', () => {
+                draggedTabNoteId = null;
+                tab.style.opacity = '';
+            });
+            tab.addEventListener('dragover', (e) => {
+                if (!draggedTabNoteId || draggedTabNoteId === tab.dataset.noteId) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+            });
+            tab.addEventListener('drop', (e) => {
+                e.preventDefault();
+                if (!draggedTabNoteId || draggedTabNoteId === tab.dataset.noteId) return;
+                const fromIdx = openNoteIds.indexOf(draggedTabNoteId);
+                const toIdx = openNoteIds.indexOf(tab.dataset.noteId);
+                if (fromIdx === -1 || toIdx === -1) return;
+                openNoteIds.splice(fromIdx, 1);
+                openNoteIds.splice(toIdx, 0, draggedTabNoteId);
+                draggedTabNoteId = null;
+                saveNotes();
+                render();
+            });
+        });
+    };
+
+    // ── Note linking: detect [[Note Title]] on Ctrl+Click in editor ──
+    function handleNoteLinkClick(editor, e) {
+        if (!e.ctrlKey && !e.metaKey) return;
+        const pos = editor.selectionStart;
+        const value = editor.value || '';
+        // Find [[ before cursor and ]] after cursor
+        const before = value.lastIndexOf('[[', pos);
+        if (before === -1) return;
+        const after = value.indexOf(']]', before + 2);
+        if (after === -1 || after < pos - 2) return; // cursor must be inside
+        if (pos < before || pos > after + 2) return;
+        const linkTitle = value.substring(before + 2, after).trim();
+        if (!linkTitle) return;
+        e.preventDefault();
+        const target = notes.find(n => (n.title || '').toLowerCase() === linkTitle.toLowerCase());
+        if (target) {
+            if (!openNoteIds.includes(target.id)) openNoteIds.push(target.id);
+            activeNoteId = target.id;
+            saveNotes(); render(); showNoteEditorView();
+        } else {
+            if (window.showNotification) window.showNotification(`Note "${linkTitle}" not found`, 'warning');
+        }
+    }
+
     function cleanupCacheOnStartup() {
         try {
             if (!window.localStorage) return;
@@ -2682,6 +3723,9 @@
         if (!page) return;
         cleanupCacheOnStartup();
         loadVirtualFolders();
+        loadFolderOrder();
+        loadArchivedFolders();
+        loadTrashedNotes().catch(() => {});
         loadNotes().then(() => {
             render();
             attachEventHandlers();

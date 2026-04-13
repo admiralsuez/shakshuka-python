@@ -78,6 +78,24 @@ function showNotification(message, type = 'info', options = {}) {
 
     container.appendChild(notification);
 
+    // Play notification sound if enabled in settings
+    try {
+        const settings = (typeof AppState !== 'undefined' && AppState && typeof AppState.get === 'function')
+            ? (AppState.get('currentSettings') || {})
+            : {};
+        if (settings.notification_sound) {
+            const audioCtx = window._notifAudioCtx || (window._notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)());
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.value = type === 'success' ? 880 : type === 'error' ? 440 : 660;
+            gain.gain.value = 0.08;
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.12);
+        }
+    } catch (e) { /* audio not available */ }
+
     if (isAuthError && options.autoOpenLogin !== false) {
         console.log('Auto-opening login dialog for auth error');
         setTimeout(() => {

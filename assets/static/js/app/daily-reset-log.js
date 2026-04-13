@@ -2,6 +2,7 @@
     'use strict';
 
     let currentLog = null;
+    let latestCleanerRun = null;
     let loading = false;
 
     function getEl(id) {
@@ -28,52 +29,89 @@
     }
 
     function updateIndicator() {
-        const indicator = getEl('daily-reset-log-indicator');
-        const countEl = getEl('daily-reset-log-count');
-        const hasLog = !!(currentLog && currentLog.task_count > 0);
+        const indicator = getEl('notifications-indicator');
+        const countEl = getEl('notifications-count');
+
+        const resetCount = currentLog && typeof currentLog.task_count === 'number' ? currentLog.task_count : 0;
+        const cleanerCount = latestCleanerRun && typeof latestCleanerRun.cleaned_count === 'number'
+            ? latestCleanerRun.cleaned_count
+            : 0;
+
+        const hasReset = resetCount > 0;
+        const hasCleanerMessage = latestCleanerRun && cleanerCount > 0; // only show cleaner notification if it actually cleaned notes
+
+        const totalNotifications = (hasReset ? 1 : 0) + (hasCleanerMessage ? 1 : 0);
+        const hasAny = totalNotifications > 0;
 
         if (indicator) {
-            indicator.style.display = hasLog ? 'flex' : 'none';
+            indicator.style.display = hasAny ? 'flex' : 'none';
         }
         if (countEl) {
-            countEl.textContent = hasLog ? String(currentLog.task_count) : '0';
+            countEl.textContent = hasAny ? String(totalNotifications) : '0';
         }
     }
 
     function renderLogIntoModal() {
         const listEl = getEl('daily-reset-log-list');
         const subtitleEl = getEl('daily-reset-log-subtitle');
+        const secondaryEl = getEl('daily-reset-secondary');
 
         if (!listEl || !subtitleEl) return;
 
-        if (!currentLog) {
-            subtitleEl.textContent = 'No recent daily reset to show.';
+        const reset = currentLog;
+        const cleaner = latestCleanerRun;
+
+        if (!reset && !cleaner) {
+            subtitleEl.textContent = 'No recent notifications to show.';
+            if (secondaryEl) secondaryEl.textContent = '';
             listEl.innerHTML = '';
             return;
         }
 
-        const when = currentLog.reset_at || '';
-        const count = currentLog.task_count || 0;
-        const reason = currentLog.reset_reason || 'scheduled';
+        if (reset) {
+            const when = reset.reset_at || '';
+            const count = reset.task_count || 0;
+            const reason = reset.reset_reason || 'scheduled';
+            subtitleEl.textContent = `Last daily reset (${reason}) refreshed ${count} task${count === 1 ? '' : 's'}.`;
+        } else {
+            subtitleEl.textContent = 'No recent daily reset summary.';
+        }
 
-        subtitleEl.textContent = `Last daily reset (${reason}) refreshed ${count} task${count === 1 ? '' : 's'}.`;
+        if (secondaryEl) {
+            if (cleaner) {
+                const cleaned = typeof cleaner.cleaned_count === 'number' ? cleaner.cleaned_count : 0;
+                const ranAt = cleaner.ran_at || '';
+                secondaryEl.textContent = `Note cleaner ran at ${ranAt} and cleaned ${cleaned} empty note${cleaned === 1 ? '' : 's'}.`;
+            } else {
+                secondaryEl.textContent = '';
+            }
+        }
 
-        const tasks = Array.isArray(currentLog.tasks) ? currentLog.tasks : [];
-        if (!tasks.length) {
-            listEl.innerHTML = '<p style="color: var(--text-secondary);">No task details available for this reset.</p>';
+        const tasks = reset && Array.isArray(reset.tasks) ? reset.tasks : [];
+
+        // Split into struck tasks (the ones the user actually interacted with)
+        // and tasks that were only unscheduled (no strikes → less interesting).
+        const struckTasks = tasks.filter(t => t && typeof t === 'object' && typeof t.strike_count === 'number' && t.strike_count > 0);
+        const unscheduledOnlyCount = tasks.length - struckTasks.length;
+
+        // Append unscheduled-only count to subtitle so it is surfaced without cluttering the list.
+        if (unscheduledOnlyCount > 0 && subtitleEl) {
+            subtitleEl.textContent += ` ${unscheduledOnlyCount} task${unscheduledOnlyCount === 1 ? '' : 's'} unscheduled (not struck).`;
+        }
+
+        if (!struckTasks.length) {
+            listEl.innerHTML = '<p style="color: var(--text-secondary);">No struck tasks in this reset.</p>';
             return;
         }
 
-        const rows = tasks.map((t) => {
+        const rows = struckTasks.map((t) => {
             if (!t || typeof t !== 'object') return '';
             const title = String(t.title || '').trim() || 'Untitled task';
             const project = String(t.project || '').trim();
             const due = String(t.due_date || '').trim();
-            const scheduled = String(t.scheduled_date || '').trim();
             const metaParts = [];
             if (project) metaParts.push(project);
             if (due) metaParts.push(`due ${due}`);
-            if (scheduled) metaParts.push(`scheduled ${scheduled}`);
             if (typeof t.strike_count === 'number') {
                 metaParts.push(`${t.strike_count} strike${t.strike_count === 1 ? '' : 's'}`);
             }
@@ -115,6 +153,19 @@
             } else {
                 currentLog = data.log;
             }
+
+            // Also fetch the latest note-cleaner summary if the endpoint exists.
+            try {
+                const cleanerData = await fetchJson('/api/notes/cleaner-status');
+                if (cleanerData && cleanerData.success && cleanerData.status) {
+                    latestCleanerRun = cleanerData.status;
+                } else {
+                    latestCleanerRun = null;
+                }
+            } catch (e) {
+                // If the cleaner endpoint is missing or fails, ignore and keep existing value.
+            }
+
             updateIndicator();
         } catch (e) {
             // Best-effort: if this fails, just hide indicator.
@@ -149,7 +200,7 @@
     }
 
     function bindUi() {
-        const indicator = getEl('daily-reset-log-indicator');
+        const indicator = getEl('notifications-indicator');
         if (indicator) {
             indicator.addEventListener('click', async (e) => {
                 e.preventDefault();

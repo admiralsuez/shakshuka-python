@@ -100,7 +100,7 @@
 }
 
 .settings-tab-btn:focus-visible {
-    box-shadow: 0 0 0 calc(2px * var(--dpi-scale)) rgba(255, 140, 66, 0.22), 0 calc(12px * var(--dpi-scale)) calc(12px * var(--dpi-scale)) 0 var(--shadow-color);
+    box-shadow: 0 0 0 calc(2px * var(--dpi-scale)) var(--accent-color), 0 calc(12px * var(--dpi-scale)) calc(12px * var(--dpi-scale)) 0 var(--shadow-color);
 }
 
 .settings-tab-btn.active {

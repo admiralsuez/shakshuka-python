@@ -1,5 +1,12 @@
 """
 Database schema definitions and migrations.
+
+NOTE: The authoritative runtime schema (tables, columns, and all active
+migrations) is implemented in :mod:`src.sqlite_data_manager.SQLiteDataManager`.
+This module is used primarily by tooling and older tests; when making
+schema changes, always update `SQLiteDataManager._init_database` and its
+`_migration_XXX` helpers first, then, if needed, mirror the change here
+for documentation or offline inspection.
 """
 
 import sqlite3
@@ -135,6 +142,14 @@ TABLES = {
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
         )
+    ''',
+    
+    'user_heartbeat': '''
+        CREATE TABLE IF NOT EXISTS user_heartbeat (
+            user_id TEXT PRIMARY KEY,
+            last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        )
     '''
 }
 
@@ -150,6 +165,7 @@ INDEXES = [
     'CREATE INDEX IF NOT EXISTS idx_mobile_devices_user_token ON mobile_devices (user_id, token_hash)',
     'CREATE INDEX IF NOT EXISTS idx_mobile_inbox_user_status_created ON mobile_inbox (user_id, status, created_at)',
     'CREATE INDEX IF NOT EXISTS idx_settings_events_user_timestamp ON settings_events (user_id, timestamp)',
+    'CREATE INDEX IF NOT EXISTS idx_user_heartbeat_last_seen ON user_heartbeat (last_seen_at)',
 ]
 
 

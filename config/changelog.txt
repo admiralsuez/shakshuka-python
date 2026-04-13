@@ -1,3 +1,105 @@
+## Version 26.0 - Notes UX Refinements, Folder Management, Analytics Live Tracking
+Release Date: 2026-04-12
+
+### Notes
+- **Friendly date formatting**: Note last-modified dates now display human-readable format ("2 days ago", "yesterday", "13th April at 8pm") instead of raw ISO timestamps. Dates within the last 7 days show relative time; older dates show "Month Day, H:MM am/pm".
+
+### Folders & Explorer
+- **Folder drag-and-drop reordering**: Drag named folders in the explorer to reorder the custom folder list. Order persists in localStorage across sessions and survives app restarts. Pseudo-folders like "All notes" and "Unsorted" cannot be dragged or reordered.
+- **Folder archiving**: "Move folder to archive" now moves folders into a separate "Archived Folders" section instead of just archiving the notes inside them. Archived folders can be restored from their context menu.
+- **Enhanced folder context menu**: Includes rename, delete-to-Unsorted, archive/restore, and permanent delete actions for real folders.
+- **Improved drag-and-drop feedback**: Dragging folders onto invalid targets such as pseudo-folders is blocked and shows the not-allowed cursor.
+- **Trash management**: Right-clicking the Trash folder now includes a "Delete all" action to permanently clear all trashed notes after confirmation.
+- **Tab closure & dashboard navigation**: If the last open note is archived or all note tabs are closed, the app returns to the notes dashboard instead of leaving an empty editor view.
+- **Improved folder deletion**: Original "Delete folder (keep notes in Unsorted)" still remains available; notes are moved to Unsorted rather than lost.
+
+### Analytics
+- **Active users tracking**: New "Active Users Now" card on analytics page shows real-time count of users active in the last 2 minutes.
+- **Installed users counter**: New "Installed Users" card displays total number of unique users who have ever installed/accessed the app. This data is persistent and never expires (unlike active users which is time-windowed).
+- **Widget reordering**: All analytics cards and widgets are now draggable to customize dashboard layout. Custom order persists in localStorage across sessions.
+- **User heartbeat system**: Frontend sends 1-minute heartbeat to `/api/analytics/heartbeat` endpoint to track active sessions.
+- **Auto-refresh toggle**: New checkbox in analytics header toggles automatic dashboard refresh every 1 minute. Preference persists in localStorage (defaults to OFF).
+- **Smart refresh interval**: 1-minute refresh rate balances responsiveness with server load. Tab visibility detection stops polling when app is hidden.
+
+### Tasks
+- **Companion phone app sync**: New "Sync Phone" button on tasks page checks for pending tasks from the companion Android app. Manual sync available on-demand with automatic sync every 2 hours on startup.
+- **Sync modal with task selection**: When new tasks are detected from the companion app, a modal shows all pending tasks with checkboxes to select which ones to import to desktop. All tasks selected by default.
+- **Auto-sync on startup**: Companion sync automatically checks for new tasks when the app starts up and runs every 2 hours to keep desktop in sync with phone additions.
+
+### Notifications
+- **Fixed persistent cleaner notification**: Notes cleaner notifications no longer show when no notes were cleaned (cleaned_count == 0). Only meaningful notifications display in the indicator.
+
+### Bug Fixes
+- **HTML entity encoding in notes**: Fixed issue where note titles and content containing apostrophes (e.g., "team's") were displaying as HTML entities ("team&#x27;s") in the version history modal. Now uses safe DOM methods instead of innerHTML for all dynamic content insertion.
+
+### API Endpoints
+- **`GET /api/analytics/active-users`**: Returns count of users active in last 2 minutes via heartbeat tracking.
+- **`POST /api/analytics/heartbeat`**: Records user heartbeat timestamp to track activity (called every 1 minute from frontend).
+- **`GET /api/analytics/installed-users`**: Returns total count of all unique users who have ever installed/accessed the app (permanent, non-expiring data).
+
+### Database
+- **New user_heartbeat table**: Tracks `user_id` and `last_seen_at` for active user queries. Index on `last_seen_at` for fast lookups.
+- Schema version unchanged (17); new table auto-created on app startup for backward compatibility.
+
+### Browser Storage
+- **localStorage keys added**:
+  - `shakshuka_notes_folder_order_v1` - persists custom folder order across sessions
+  - `shakshuka_notes_archived_folders_v1` - tracks folders moved to archive for persistent archive state
+  - `analytics-auto-refresh` - saves analytics page auto-refresh toggle state
+
+---
+## Version 25.3 - Notes Workspace Upgrade, Task Subtasks, Settings Expansion & Planner Theme Fix
+Release Date: 2026-04-02
+
+### Notes
+- **Version history**: Every note edit now snapshots the previous content. Right-click a note tab or explorer entry → "Version history" to browse and restore any of the last 50 versions.
+- **Trash / soft delete**: Deleting a note now moves it to a Trash folder instead of permanently removing it. Restore or permanently delete from the Trash folder's right-click context menu. Notes auto-exclude trashed items from normal views.
+- **Note duplicate**: Right-click any note → "Duplicate note" to clone it with a "(Copy)" suffix.
+- **Export as .md**: Right-click → "Export as .md" downloads the note as a Markdown file.
+- **Drag-and-drop tab reorder**: Reorder open note tabs by dragging them.
+- **Note linking**: Type `[[Note Title]]` in the editor and Ctrl+Click to jump to that note.
+- **Inline editor search**: A search bar above the editor lets you find and switch to any note by title/content without going back to the explorer.
+
+### Tasks
+- **Subtasks modal**: Click the subtask chip on a task card (or call `openSubtasksModal(taskId)`) to open a checklist modal — add, check off, and remove subtasks. Task cards show a compact progress chip (e.g. `2/5`).
+- **Undo toast for strikes**: Striking a task now shows a 5-second undo toast before committing the action.
+- **Snooze from UI**: New snooze menu on task cards with preset options (Tomorrow, 3 days, 1 week, 2 weeks) that sets `snoozed_until` and hides the task until that date.
+
+### Settings
+- **Default task duration**: Choose the default estimated duration for new tasks (15 min – 4 hours).
+- **Start page**: Pick which page opens on launch (Tasks, Planner, Notes, or Analytics).
+- **Notification sound**: Toggle a short audio chime on notifications (synthesized via Web Audio API — no file needed).
+- **Week start day**: Choose Monday or Sunday as the first day of the week; the strike calendar respects this setting.
+
+### Planner
+- **Theme-aware colors**: Replaced ~20 hardcoded white/grey colors in the planner CSS with theme variables (`--surface-color`, `--border-color`, `--text-color`, `--accent-color`, etc.). Scheduled tasks are now visible across all themes.
+
+### Notes Export
+- **Export all notes as .zip**: New "Export all" button in the Notes header downloads all notes as a `.zip` of `.md` files.
+- **Auto-export every 7 days**: A background scheduler job exports all notes as `.md` files into `%APPDATA%/Shakshuka/notes_export/<timestamp>/` every Sunday. Maximum 14 exports retained; oldest auto-deleted when the limit is reached.
+- **Export status API**: `GET /api/notes/export-status` returns export history and folder path.
+
+### Bug Fixes
+- **Reset notifications no longer show struck-forever tasks**: The daily reset unscheduled pass now correctly skips completed and struck-forever tasks.
+- **`setup_daily_reset` NameError fixed**: Changing the daily reset time in Settings no longer errors with "name 'setup_daily_reset' is not defined". Both the lambda injection and the direct call now use `scheduler_service.setup_daily_reset()`.
+- **Slash command no longer blocks typing**: The `/` key now only opens the formatting menu on empty lines. Mid-text `/` (e.g. URLs) passes through normally.
+- **Split-view encoded blob no longer shown in editor**: Added a decode guard in `renderEditors()` so raw `__SHAKSHUKA_SPLIT_B64_V1__` content is decoded before display, preventing the encoded blob from leaking into the textarea.
+
+Database: schema bumped to migration 24 (adds `notes.deleted_at`, `note_versions` table, `tasks.subtasks` column).
+
+---
+## Version 24.0 - Recurrence, Notes Pin/Archive, Compact Mode, Recap Feedback, Planner Auto-layout
+Release Date: 2026-03-20T21:52:29.000000
+
+- **Task recurrence & snooze**: Tasks now support three recurrence modes — `daily`, `weekly` (by weekday), and `every N days`. Striking a recurring task hides it until its next occurrence via a `snoozed_until` date computed both at strike time and during the daily reset. The planner excludes snoozed tasks from the available pool automatically.
+- **Notes pin & archive**: Notes can now be pinned (floated to the top of the list) or archived (moved to a dedicated Archive folder). Pin/archive state is persisted in the database (migration 21) and reflected in the notes explorer with context-menu actions for toggling.
+- **Compact mode**: A new Compact Mode toggle in Settings reduces UI density via a `data-compact` body attribute. The setting is persisted per-user and survives restarts.
+- **Daily recap feedback questions**: The Daily Recap modal now shows a "Quick Reflection" section with three questions — *What went well today?*, *What could be better tomorrow?*, and a mood slider (1–5). Answers are saved automatically on blur/change and loaded back when the recap is reopened. Backend: new `daily_recap_feedback` table (migration 22) with helpers in `sqlite_data_manager.py` and `GET`/`POST` endpoints at `/api/analytics/daily-recap/feedback`.
+- **Planner smart suggestion + auto-layout**: Available tasks in the Daily Planner are now sorted by priority (high → medium → low) then by soonest due date. An **Auto-schedule** button fills today's free time slots with all available tasks in that order, using each task's estimated duration.
+
+Database: schema bumped to migration 23 (also includes `compact_mode` column in user preferences and settings tables).
+
+---
 ## Version 23.4 - Mobile Inbox & Companion Notes Folders
 Release Date: 2026-03-01T20:44:36.000000
 
@@ -68,18 +170,6 @@ Release Period: 2026-01-20T14:25:52.780515 – 2026-01-21T21:25:50.138357
 - No standalone user-facing changes beyond what is documented in nearby major versions.
 
 ---
-## Version 19.9 - Release
-Release Date: 2026-01-20T03:01:24.457444
-
-Highlights
-
----
-## Version 19.8 - Release
-Release Date: 2026-01-20T02:42:37.111204
-
-Highlights
-
----
 ## Version 19.7 - Major Mobile & Analytics Update
 Release Date: 2026-01-18
 
@@ -122,46 +212,11 @@ Database:
 - Index idx_notes_user_id added for notes table query performance
 
 ---
-## Version 19.6 - Release
-Release Date: 2026-01-19T01:53:30.605061
+## Versions 19.0 – 19.6 - Internal Release Iterations
+Release Period: 2026-01-16 – 2026-01-20
 
-Highlights
-
----
-## Version 19.5 - Release
-Release Date: 2026-01-17T16:44:22.654784
-
-Highlights
-
----
-## Version 19.4 - Release
-Release Date: 2026-01-17T01:53:17.530645
-
-Highlights
-
----
-## Version 19.3 - Release
-Release Date: 2026-01-16T02:21:54.392314
-
-Highlights
-
----
-## Version 19.2 - Release
-Release Date: 2026-01-16T01:07:54.581684
-
-Highlights
-
----
-## Version 19.1 - Release
-Release Date: 2026-01-16T01:07:01.725806
-
-Highlights
-
----
-## Version 19.0 - Release
-Release Date: 2026-01-16T00:59:20.089861
-
-Highlights
+- Internal build iterations between the Mobile & Analytics Update (19.7) and the Desktop & Android Enhancements (18.9).
+- No standalone user-facing changes beyond what is documented in nearby major versions.
 
 ---
 ## Version 18.9 - Desktop & Android Enhancements
@@ -204,12 +259,6 @@ Android Companion:
 - Backend: Added `/api/mobile/notes` GET and POST endpoints for note management
 - Offline notes are queued locally and automatically synced via `syncOfflineNotes()` when connection restored
 - All caching uses SharedPreferences with JSON encoding for persistence
-
----
-## Version 18.8 - Release
-Release Date: 2026-01-06T20:17:29.023336
-
-Highlights
 
 ---
 ## Version 18.7 - Comprehensive Application Hardening & Quality Assurance
@@ -283,12 +332,6 @@ Highlights
 Technical Notes
 - Added persisted setting `settings_layout` (scroll/tabs).
 - Toast notifications now support `durationMs` for configurable auto-dismiss.
-
----
-## Version 18.0 - Release
-Release Date: 2025-12-28T23:28:51.899737
-
-Highlights
 
 ---
 ## Version 17.10 - Web Companion for iPhone & Security

@@ -52,6 +52,15 @@
         if (isDone(task) || isStruckToday(task)) return false;
 
         const todayStr = _getTodayDateString();
+
+        // Respect snoozed_until ("hide task for X days"). If the task is
+        // snoozed to a future day, it should not appear as active until that
+        // date has passed.
+        if (task.snoozed_until && todayStr) {
+            const snooze = _getDateOnly(task.snoozed_until);
+            if (snooze && snooze > todayStr) return false;
+        }
+
         const due = _getDateOnly(task.due_date);
         if (!todayStr || !due) return true; // no due date => active
 

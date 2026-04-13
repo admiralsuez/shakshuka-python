@@ -231,9 +231,9 @@ def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
 
 
 def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
-    """
+    """\
     Job to reset daily strikes and clean all scheduled tasks (local time).
-    
+
     Behavior:
     - Tasks struck TODAY: Clear strike flag AND all scheduling -> move to available tasks
     - Tasks struck FOREVER (completed): Don't show in available tasks
@@ -378,6 +378,45 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
                         'completed': bool(task.get('completed', False)),
                         'struck_forever': bool(task.get('struck_forever', False)),
                     }
+
+                # If this task has a recurrence rule and was struck today (non-forever),
+                # compute the next eligible day and use snoozed_until so the planner
+                # and tasks page will hide it until that date.
+                if not is_struck_forever:
+                    try:
+                        recurrence_type = (task.get('recurrence_type') or '').strip().lower()
+                        recurrence_param = task.get('recurrence_param')
+                        base_str = struck_date or today_str_local
+                        next_date = None
+                        if recurrence_type == 'every_n_days':
+                            try:
+                                n = int(recurrence_param or 0)
+                            except Exception:
+                                n = 0
+                            if n and n > 1:
+                                base_dt = datetime.strptime(base_str, '%Y-%m-%d')
+                                next_date = base_dt + timedelta(days=n)
+                        elif recurrence_type == 'weekly':
+                            try:
+                                target_wd = int(recurrence_param)
+                            except Exception:
+                                target_wd = None
+                            if target_wd is not None and 0 <= target_wd <= 6:
+                                base_dt = datetime.strptime(base_str, '%Y-%m-%d')
+                                current_wd = base_dt.weekday()
+                                # Always move to the *next* occurrence of target weekday.
+                                days_ahead = (target_wd - current_wd) % 7
+                                if days_ahead == 0:
+                                    days_ahead = 7
+                                next_date = base_dt + timedelta(days=days_ahead)
+                        # For 'daily' or empty recurrence_type we rely on the
+                        # existing behavior: the task re-enters the pool on the
+                        # next day automatically after we clear struck_today.
+                        if next_date is not None:
+                            task['snoozed_until'] = next_date.strftime('%Y-%m-%d')
+                    except Exception:
+                        # Recurrence is best-effort; never break the reset job.
+                        logger.exception("Failed to compute recurrence snooze for task during daily reset")
                 
                 # Clear the today's strike flag
                 task['struck_today'] = False
@@ -404,10 +443,11 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
         for t in tasks:
             # Only unschedule if task is not completed (struck forever)
             is_completed = t.get('completed', False)
+            is_struck_forever = t.get('struck_forever', False)
             has_schedule = t.get('scheduled_date') is not None
             scheduled_date = t.get('scheduled_date')
             
-            if not has_schedule or is_completed:
+            if not has_schedule or is_completed or is_struck_forever:
                 continue
 
             if replay and scheduled_date == today_str_local:
@@ -604,7 +644,7 @@ def check_and_run_missed_reset(reset_time_str: str, verbose: bool = True):
 
 
 def setup_daily_reset():
-    """
+    """\
     Setup daily reset schedule with timezone awareness.
     """
     try:
@@ -612,7 +652,7 @@ def setup_daily_reset():
         if not data_manager:
             logger.warning("Data manager not available for daily reset setup")
             return
-        
+
         # Get user ID for proper settings loading
         user_id = _get_user_id()
         try:
@@ -621,23 +661,275 @@ def setup_daily_reset():
             logger.exception("Database error loading settings for daily reset setup")
             return
         reset_time = settings.get('daily_reset_time', '08:00')
-        
+
         # Validate and normalize reset time
         reset_time = _validate_and_normalize_reset_time(reset_time)
         with _STATE.lock:
             _STATE.last_known_reset_time = reset_time
-        
+
         # Check if we've already passed today's reset time
         _run_job_with_correlation('missed_reset_check', check_and_run_missed_reset, reset_time)
-        
+
         with _STATE.schedule_lock:
             schedule.clear('daily_reset')
             schedule.every().day.at(reset_time).do(_run_job_with_correlation, 'daily_reset', reset_daily_strikes_job).tag('daily_reset')
-        
+
         logger.info(f"✅ Daily reset scheduled for {reset_time} (user: {user_id})")
-        
+
     except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
         logger.exception("Error setting up daily reset")
+
+
+def _is_empty_note_payload(content: Any) -> bool:
+    """Return True only for notes that are truly empty.
+
+    We intentionally use a very strict definition so that only notes whose
+    stored content is blank/whitespace are removed. Any non-string payload is
+    treated as non-empty for safety.
+    """
+    if not isinstance(content, str):
+        return False
+    # Treat pure whitespace as empty; anything else is considered real content.
+    return content.strip() == ''
+
+
+def clean_empty_notes_job() -> None:
+    """Weekly maintenance job: delete notes that have no contents.
+
+    Safety rules:
+    - Only operates on the current user.
+    - Only deletes notes whose *stored* content is blank/whitespace.
+    - Uses a last-run marker so it will not run more than once per week even if
+      the process restarts frequently.
+    """
+    job_name = 'clean_empty_notes'
+    lock = _get_job_lock(job_name)
+    if not lock.acquire(blocking=False):
+        logger.warning("Empty-notes cleaner is already running; skipping duplicate execution")
+        return
+
+    try:
+        now = datetime.now()
+        last_run = _read_last_run(job_name)
+        if last_run is not None and (now - last_run) < timedelta(days=6):
+            # Already ran recently; avoid overly aggressive cleanup.
+            logger.info("Empty-notes cleaner ran recently (%s); skipping", last_run.isoformat())
+            return
+
+        data_manager = _get_data_manager()
+        if not data_manager:
+            logger.warning("Data manager not available for empty-notes cleaner")
+            return
+
+        user_id = _get_user_id()
+        if not user_id:
+            logger.warning("No user ID available for empty-notes cleaner")
+            return
+
+        try:
+            notes = data_manager.load_notes_for_user(user_id) or []
+        except DatabaseError:
+            logger.exception("Database error loading notes for empty-notes cleaner")
+            return
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Unexpected error loading notes for empty-notes cleaner")
+            return
+
+        if not notes:
+            logger.info("Empty-notes cleaner: no notes found; nothing to do")
+            _write_last_run(job_name, now)
+            return
+
+        deleted = 0
+        for note in notes:
+            try:
+                note_id = note.get('id')
+                content = note.get('content', '')
+                if not note_id or not _is_empty_note_payload(content):
+                    continue
+                if data_manager.delete_note_for_user(user_id, str(note_id)):
+                    deleted += 1
+            except Exception:  # noqa: broad-except - Keep cleaning defensive per-note
+                logger.exception("Failed to evaluate/delete candidate empty note")
+                continue
+
+        logger.info("Empty-notes cleaner finished: deleted %d truly empty notes", deleted)
+        _write_last_run(job_name, now)
+
+        # Persist a tiny summary row into daily_reset_log so the UI notifications
+        # indicator can show "note cleaner ran - cleaned N empty notes".
+        try:
+            data_manager = _get_data_manager()
+            user_id = _get_user_id()
+            if data_manager and user_id:
+                summary = [{'id': None, 'title': 'notes_cleaner', 'project': '', 'due_date': None,
+                           'scheduled_date': None, 'strike_count': 0, 'completed': False, 'struck_forever': False}]
+                # We overload task_count and tasks_json with cleaner metadata.
+                # save_daily_reset_log will cap and sanitize this payload.
+                data_manager.save_daily_reset_log(
+                    user_id=user_id,
+                    reset_at_iso=now.isoformat(),
+                    tasks=[{'id': 'notes_cleaner', 'title': 'Notes cleaner run', 'project': '', 'due_date': None,
+                            'scheduled_date': None, 'strike_count': 0, 'completed': False, 'struck_forever': False,
+                            'cleaned_count': int(deleted)}],
+                    reset_reason='notes_cleaner',
+                )
+        except DatabaseError:
+            logger.exception("Failed to save notes cleaner status into daily_reset_log")
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to persist notes cleaner status for notifications")
+
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Error in empty-notes cleaner job")
+    finally:
+        try:
+            lock.release()
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Failed to release empty-notes cleaner job lock")
+
+
+def export_all_notes_job() -> None:
+    """Weekly job: export all notes as .md files into a timestamped subfolder.
+
+    Rules:
+    - Exports go to <user_data_dir>/notes_export/<timestamp>/
+    - Each note becomes a .md file named after its title
+    - Maximum 14 export folders; oldest deleted when limit exceeded
+    - Last-run marker prevents running more than once per 6 days
+    """
+    job_name = 'export_all_notes'
+    lock = _get_job_lock(job_name)
+    if not lock.acquire(blocking=False):
+        logger.warning("Notes export job already running; skipping")
+        return
+
+    try:
+        now = datetime.now()
+        last_run = _read_last_run(job_name)
+        if last_run is not None and (now - last_run) < timedelta(days=6):
+            logger.info("Notes export ran recently (%s); skipping", last_run.isoformat())
+            return
+
+        data_manager = _get_data_manager()
+        if not data_manager:
+            logger.warning("Data manager not available for notes export")
+            return
+
+        user_id = _get_user_id()
+        if not user_id:
+            return
+
+        try:
+            all_notes = data_manager.load_notes_for_user(user_id) or []
+        except DatabaseError:
+            logger.exception("Database error loading notes for export")
+            return
+
+        if not all_notes:
+            logger.info("Notes export: no notes to export")
+            _write_last_run(job_name, now)
+            return
+
+        export_root = os.path.join(get_user_data_dir(), 'notes_export')
+        os.makedirs(export_root, exist_ok=True)
+
+        timestamp = now.strftime('%Y%m%d_%H%M%S')
+        export_dir = os.path.join(export_root, timestamp)
+        os.makedirs(export_dir, exist_ok=True)
+
+        exported = 0
+        for note in all_notes:
+            try:
+                title = (note.get('title') or 'Untitled').strip()
+                # Sanitize filename
+                safe_title = ''.join(c if (c.isalnum() or c in (' ', '-', '_')) else '_' for c in title).strip()
+                if not safe_title:
+                    safe_title = 'note'
+                # Avoid collisions
+                fname = f"{safe_title}.md"
+                fpath = os.path.join(export_dir, fname)
+                counter = 1
+                while os.path.exists(fpath):
+                    fname = f"{safe_title}_{counter}.md"
+                    fpath = os.path.join(export_dir, fname)
+                    counter += 1
+
+                content = note.get('content') or ''
+                with open(fpath, 'w', encoding='utf-8') as f:
+                    f.write(f"# {title}\n\n{content}")
+                exported += 1
+            except Exception:  # noqa: broad-except - per-note defensive
+                logger.exception("Failed to export note %s", note.get('id'))
+                continue
+
+        logger.info("Notes export finished: %d notes exported to %s", exported, export_dir)
+        _write_last_run(job_name, now)
+
+        # Enforce max 14 exports — delete oldest
+        try:
+            _prune_notes_exports(export_root, max_exports=14)
+        except Exception:  # noqa: broad-except - pruning is best-effort
+            logger.exception("Failed to prune old notes exports")
+
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Error in notes export job")
+    finally:
+        try:
+            lock.release()
+        except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+            logger.exception("Failed to release notes export job lock")
+
+
+def _prune_notes_exports(export_root: str, max_exports: int = 14) -> None:
+    """Keep only the most recent `max_exports` export folders, delete the rest."""
+    try:
+        if not os.path.isdir(export_root):
+            return
+        folders = []
+        for name in os.listdir(export_root):
+            full = os.path.join(export_root, name)
+            if os.path.isdir(full):
+                folders.append((name, full))
+        # Sort by name (timestamp-based, so lexicographic = chronological)
+        folders.sort(key=lambda x: x[0])
+        while len(folders) > max_exports:
+            oldest_name, oldest_path = folders.pop(0)
+            try:
+                import shutil as _shutil
+                _shutil.rmtree(oldest_path)
+                logger.info("Pruned old notes export: %s", oldest_name)
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to delete old notes export folder: %s", oldest_path)
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to prune notes exports")
+
+
+def get_notes_export_dir() -> str:
+    """Return the path to the notes_export root folder."""
+    return os.path.join(get_user_data_dir(), 'notes_export')
+
+
+def _setup_weekly_maintenance_jobs() -> None:
+    """Register weekly background maintenance jobs (e.g., empty-notes cleaner, notes export)."""
+    try:
+        with _STATE.schedule_lock:
+            schedule.clear('weekly_maintenance')
+            # Run early Sunday morning local time; exact time is not critical
+            # because we also enforce a last-run marker.
+            schedule.every().sunday.at('03:30').do(
+                _run_job_with_correlation,
+                'clean_empty_notes',
+                clean_empty_notes_job,
+            ).tag('weekly_maintenance')
+            # Notes export: run every Sunday at 04:00 (after cleaner)
+            schedule.every().sunday.at('04:00').do(
+                _run_job_with_correlation,
+                'export_all_notes',
+                export_all_notes_job,
+            ).tag('weekly_maintenance')
+        logger.info("✅ Weekly maintenance jobs scheduled (empty-notes cleaner, notes export)")
+    except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
+        logger.exception("Error setting up weekly maintenance jobs")
 
 
 def scheduler_worker(stop_event: threading.Event):
@@ -693,7 +985,10 @@ def start_scheduler():
 
         # Setup daily reset schedule
         setup_daily_reset()
-        
+
+        # Setup weekly maintenance jobs (e.g., empty-notes cleaner)
+        _setup_weekly_maintenance_jobs()
+
         # Start scheduler thread
         stop_event = threading.Event()
         thread = threading.Thread(

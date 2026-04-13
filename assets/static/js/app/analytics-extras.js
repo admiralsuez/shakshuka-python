@@ -82,6 +82,15 @@
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     }
 
+    function _getWeekStartDay() {
+        try {
+            const s = (typeof AppState !== 'undefined' && AppState && typeof AppState.get === 'function')
+                ? (AppState.get('currentSettings') || {}) : {};
+            const wsd = parseInt(s.week_start_day, 10);
+            return (wsd === 0 || wsd === 1) ? wsd : 1; // 0=Sunday, 1=Monday; default Monday
+        } catch (e) { return 1; }
+    }
+
     function buildMonthGrid(monthStr, dayCounts, maxCount) {
         const [y, m] = monthStr.split('-').map(Number);
         const year = y;
@@ -90,8 +99,10 @@
         const first = new Date(year, monthIndex, 1);
         const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
 
-        // Sunday=0..Saturday=6
-        const leading = first.getDay();
+        // Respect week_start_day setting: 0=Sunday, 1=Monday
+        const weekStart = _getWeekStartDay();
+        const rawDay = first.getDay(); // Sunday=0..Saturday=6
+        const leading = (rawDay - weekStart + 7) % 7;
 
         const cells = [];
         for (let i = 0; i < leading; i++) {
@@ -161,6 +172,20 @@
             const cells = buildMonthGrid(this._month, days, max);
 
             gridEl.innerHTML = '';
+
+            // Render day-of-week headers respecting week_start_day
+            const weekStart = _getWeekStartDay();
+            const dayLabels = weekStart === 1
+                ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+                : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            dayLabels.forEach(label => {
+                const hdr = document.createElement('div');
+                hdr.className = 'strike-cal-cell strike-cal-header';
+                hdr.textContent = label;
+                hdr.style.cssText = 'font-size:0.65rem;font-weight:700;color:var(--text-secondary);text-align:center;visibility:visible;';
+                gridEl.appendChild(hdr);
+            });
+
             cells.forEach(cell => {
                 const el = document.createElement('div');
                 el.className = `strike-cal-cell lvl${cell.level}`;
@@ -396,6 +421,85 @@
             });
 
             this._recapDay = payload.day;
+
+            // Load and populate any previously-saved feedback answers.
+            this._loadAndRenderFeedback(payload.day);
+            // Wire up save-on-change for feedback controls.
+            this._wireFeedbackControls(payload.day);
+        },
+
+        async _loadAndRenderFeedback(day) {
+            if (!day) return;
+            try {
+                const endpoint = `/api/analytics/daily-recap/feedback?day=${encodeURIComponent(day)}`;
+                let data = null;
+                try {
+                    if (typeof window.requestJson === 'function') {
+                        data = await requestJson(endpoint);
+                    } else {
+                        const r = await fetch(endpoint, { credentials: 'include' });
+                        data = r.ok ? await r.json() : null;
+                    }
+                } catch (e) { /* best-effort */ }
+
+                const fb = (data && data.success && data.feedback) ? data.feedback : {};
+
+                const wentWell = document.getElementById('recap-went-well');
+                const improve = document.getElementById('recap-improve-tomorrow');
+                const mood = document.getElementById('recap-mood');
+                const moodDisplay = document.getElementById('recap-mood-display');
+
+                if (wentWell && fb.went_well) wentWell.value = fb.went_well;
+                if (improve && fb.improve_tomorrow) improve.value = fb.improve_tomorrow;
+                if (mood && fb.mood_rating) {
+                    mood.value = fb.mood_rating;
+                    if (moodDisplay) moodDisplay.textContent = fb.mood_rating;
+                }
+            } catch (e) { /* best-effort */ }
+        },
+
+        _wireFeedbackControls(day) {
+            if (!day) return;
+            const save = (key, value) => { this._saveFeedback(day, key, value); };
+
+            const wentWell = document.getElementById('recap-went-well');
+            const improve = document.getElementById('recap-improve-tomorrow');
+            const mood = document.getElementById('recap-mood');
+            const moodDisplay = document.getElementById('recap-mood-display');
+
+            if (wentWell) {
+                wentWell.addEventListener('blur', () => save('went_well', wentWell.value));
+            }
+            if (improve) {
+                improve.addEventListener('blur', () => save('improve_tomorrow', improve.value));
+            }
+            if (mood) {
+                mood.addEventListener('input', () => {
+                    if (moodDisplay) moodDisplay.textContent = mood.value;
+                });
+                mood.addEventListener('change', () => save('mood_rating', mood.value));
+            }
+        },
+
+        async _saveFeedback(day, key, value) {
+            if (!day || !key) return;
+            try {
+                const body = JSON.stringify({ day, answers: { [key]: value } });
+                if (typeof window.apiCall === 'function') {
+                    await window.apiCall('/api/analytics/daily-recap/feedback', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body,
+                    });
+                } else {
+                    await fetch('/api/analytics/daily-recap/feedback', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body,
+                    });
+                }
+            } catch (e) { /* best-effort */ }
         },
 
         async _markSeen(day) {

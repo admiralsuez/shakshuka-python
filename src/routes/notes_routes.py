@@ -14,6 +14,7 @@ from typing import Any, Dict
 from src.constants import DEFAULT_USER_ID
 from src.exceptions import DatabaseError
 from src.routes.api_utils import get_json_object, register_api_error_handlers
+from src.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +89,17 @@ def create_note():
     folder = (folder_raw or "").strip() if isinstance(folder_raw, str) else None
     if folder == "":
         folder = None
+    pinned = bool(note_data.get("pinned", False))
+    archived = bool(note_data.get("archived", False))
 
     dm = _get_data_manager()
     if not dm:
         raise DatabaseError(message='Data manager not available')
 
-    created = dm.create_note_for_user(user_id, {"title": title, "content": content, "folder": folder})
+    created = dm.create_note_for_user(
+        user_id,
+        {"title": title, "content": content, "folder": folder, "pinned": pinned, "archived": archived},
+    )
     if not created:
         raise DatabaseError(message='Failed to create note')
     return jsonify(created), 201
@@ -127,3 +133,187 @@ def delete_note(note_id: str):
     if not success:
         return jsonify({"error": "Note not found"}), 404
     return jsonify({"success": True}), 200
+
+
+@notes_bp.route("/trash", methods=["GET"])
+def get_trashed_notes():
+    """Return soft-deleted notes for the current user."""
+    user_id = _get_user_id()
+    dm = _get_data_manager()
+    if not dm:
+        raise DatabaseError(message='Data manager not available')
+    try:
+        trashed = dm.load_trashed_notes_for_user(user_id)
+        from flask import make_response
+        import json as _json
+        resp = make_response(_json.dumps(trashed, ensure_ascii=False))
+        resp.headers['Content-Type'] = 'application/json; charset=utf-8'
+        return resp, 200
+    except DatabaseError:
+        raise
+    except Exception as e:
+        logger.exception("Error loading trashed notes")
+        raise DatabaseError(message='Error loading trashed notes', cause=e)
+
+
+@notes_bp.route("/<note_id>/restore", methods=["POST"])
+def restore_note(note_id: str):
+    """Restore a trashed note."""
+    user_id = _get_user_id()
+    dm = _get_data_manager()
+    if not dm:
+        raise DatabaseError(message='Data manager not available')
+    ok = dm.restore_note_for_user(user_id, note_id)
+    if not ok:
+        return jsonify({"error": "Note not found in trash"}), 404
+    return jsonify({"success": True}), 200
+
+
+@notes_bp.route("/<note_id>/permanent", methods=["DELETE"])
+def permanent_delete_note(note_id: str):
+    """Permanently delete a note and its version history."""
+    user_id = _get_user_id()
+    dm = _get_data_manager()
+    if not dm:
+        raise DatabaseError(message='Data manager not available')
+    ok = dm.hard_delete_note_for_user(user_id, note_id)
+    if not ok:
+        return jsonify({"error": "Note not found"}), 404
+    return jsonify({"success": True}), 200
+
+
+@notes_bp.route("/<note_id>/history", methods=["GET"])
+def get_note_history(note_id: str):
+    """Return version history for a note."""
+    user_id = _get_user_id()
+    dm = _get_data_manager()
+    if not dm:
+        raise DatabaseError(message='Data manager not available')
+    versions = dm.load_note_versions(user_id, note_id)
+    return jsonify({"success": True, "versions": versions}), 200
+
+
+@notes_bp.route("/<note_id>/restore-version", methods=["POST"])
+def restore_note_version(note_id: str):
+    """Restore a note to a previous version."""
+    user_id = _get_user_id()
+    payload = get_json_object(required=True)
+    version_id = payload.get("version_id")
+    if version_id is None:
+        return jsonify({"error": "version_id is required"}), 400
+    try:
+        version_id = int(version_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "version_id must be an integer"}), 400
+    dm = _get_data_manager()
+    if not dm:
+        raise DatabaseError(message='Data manager not available')
+    result = dm.restore_note_version(user_id, note_id, version_id)
+    if not result:
+        return jsonify({"error": "Version not found"}), 404
+    return jsonify(result), 200
+
+
+@notes_bp.route("/<note_id>/duplicate", methods=["POST"])
+def duplicate_note(note_id: str):
+    """Duplicate an existing note."""
+    user_id = _get_user_id()
+    dm = _get_data_manager()
+    if not dm:
+        raise DatabaseError(message='Data manager not available')
+    dup = dm.duplicate_note_for_user(user_id, note_id)
+    if not dup:
+        return jsonify({"error": "Note not found"}), 404
+    return jsonify(dup), 201
+
+
+@notes_bp.route("/export-all", methods=["POST"])
+def export_all_notes_now():
+    """Trigger an immediate export of all notes as .md files and return a zip download."""
+    import io
+    import zipfile
+    from flask import send_file as _send_file
+
+    user_id = _get_user_id()
+    dm = _get_data_manager()
+    if not dm:
+        raise DatabaseError(message='Data manager not available')
+
+    try:
+        all_notes = dm.load_notes_for_user(user_id) or []
+    except DatabaseError:
+        raise
+    except Exception as e:  # noqa: broad-except
+        raise DatabaseError(message='Error loading notes for export', cause=e)
+
+    if not all_notes:
+        return jsonify({"error": "No notes to export"}), 404
+
+    buf = io.BytesIO()
+    used_names = set()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for note in all_notes:
+            title = (note.get('title') or 'Untitled').strip()
+            safe = ''.join(c if (c.isalnum() or c in (' ', '-', '_')) else '_' for c in title).strip() or 'note'
+            fname = f"{safe}.md"
+            counter = 1
+            while fname in used_names:
+                fname = f"{safe}_{counter}.md"
+                counter += 1
+            used_names.add(fname)
+            content = note.get('content') or ''
+            zf.writestr(fname, f"# {title}\n\n{content}")
+
+    buf.seek(0)
+    from datetime import datetime as _dt
+    ts = _dt.now().strftime('%Y%m%d_%H%M%S')
+    return _send_file(buf, mimetype='application/zip', as_attachment=True,
+                      download_name=f'shakshuka_notes_{ts}.zip')
+
+
+@notes_bp.route("/export-status", methods=["GET"])
+def get_notes_export_status():
+    """Return info about auto-export history (folder path, count, latest)."""
+    import os as _os
+    from src.services.scheduler import get_notes_export_dir
+    export_root = get_notes_export_dir()
+    folders = []
+    try:
+        if _os.path.isdir(export_root):
+            for name in sorted(_os.listdir(export_root)):
+                full = _os.path.join(export_root, name)
+                if _os.path.isdir(full):
+                    count = len([f for f in _os.listdir(full) if f.endswith('.md')])
+                    folders.append({"name": name, "note_count": count})
+    except Exception:  # noqa: broad-except
+        pass
+    return jsonify({
+        "success": True,
+        "export_path": export_root,
+        "exports": folders,
+        "total": len(folders),
+        "max": 14,
+    }), 200
+
+
+@notes_bp.route("/cleaner-status", methods=["GET"])
+def get_notes_cleaner_status():
+    """Expose the latest note-cleaner run summary for the notifications indicator.
+
+    Response format (when available):
+        {"success": True, "status": {"ran_at": iso_str, "cleaned_count": int}}
+    """
+    user_id = _get_user_id()
+    dm = _get_data_manager()
+    if not dm:
+        return jsonify({"success": False, "error": "Data manager not available"}), 500
+
+    try:
+        status = dm.get_latest_notes_cleaner_status(user_id)
+        return jsonify({"success": True, "status": status}), 200
+    except DatabaseError:
+        logger.exception("Database error loading notes cleaner status for user %s", user_id)
+        return jsonify({"success": False, "error": "Database error loading notes cleaner status"}), 503
+    except Exception as e:  # noqa: broad-except
+        logger.exception("Unexpected error loading notes cleaner status for user %s", user_id)
+        return jsonify({"success": False, "error": str(e)}), 500

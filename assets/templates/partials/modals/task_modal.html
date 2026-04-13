@@ -42,6 +42,24 @@
                             <input type="number" id="task-duration" value="60" min="5" max="480">
                         </div>
                     </div>
+
+                    <div class="form-group">
+                        <label for="task-hide-days">Hide task for X days</label>
+                        <input type="number" id="task-hide-days" min="0" step="1" value="0" placeholder="0">
+                        <small class="form-text text-muted">Temporarily hide this task from today and planner suggestions for the given number of days.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="task-recurrence">Reset frequency</label>
+                        <select id="task-recurrence" class="form-control">
+                            <option value="none">Off (one-time task)</option>
+                            <option value="daily" selected>Daily</option>
+                            <option value="every_2_days">Every 2 days</option>
+                            <option value="every_3_days">Every 3 days</option>
+                            <option value="weekly_monday">Every Monday</option>
+                        </select>
+                        <small class="form-text text-muted">Controls when a struck task should re-appear in your queue.</small>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">

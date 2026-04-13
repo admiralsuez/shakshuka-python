@@ -521,18 +521,80 @@ function getTaskFormData() {
     const description = document.getElementById('task-description')?.value.trim();
     const priority = document.getElementById('task-priority')?.value || 'medium';
     const project = document.getElementById('task-project')?.value || '';
+    const dueDate = document.getElementById('task-due-date')?.value || null;
+    const durationRaw = document.getElementById('task-duration')?.value;
+    const hideDaysRaw = document.getElementById('task-hide-days')?.value;
+    const recurrenceRaw = document.getElementById('task-recurrence')?.value || 'daily';
 
     if (!title) {
         Utils.safeShowNotification('Please enter a task title', 'error');
         return null;
     }
 
-    return {
+    let estimatedDuration = parseInt(durationRaw, 10);
+    if (!Number.isFinite(estimatedDuration) || estimatedDuration <= 0) {
+        estimatedDuration = 60;
+    }
+
+    let snoozedUntil = null;
+    const hideDays = hideDaysRaw !== undefined && hideDaysRaw !== null && hideDaysRaw !== ''
+        ? parseInt(hideDaysRaw, 10)
+        : 0;
+    if (Number.isFinite(hideDays) && hideDays > 0) {
+        const base = new Date();
+        base.setHours(0, 0, 0, 0);
+        base.setDate(base.getDate() + hideDays);
+        const year = base.getFullYear();
+        const month = String(base.getMonth() + 1).padStart(2, '0');
+        const day = String(base.getDate()).padStart(2, '0');
+        snoozedUntil = `${year}-${month}-${day}`;
+    }
+
+    const payload = {
         title,
         description,
         priority,
-        project
+        project,
+        due_date: dueDate || null,
+        estimated_duration: estimatedDuration,
     };
+
+    // Only include snoozed_until when we actually want to hide the task.
+    if (snoozedUntil) {
+        payload.snoozed_until = snoozedUntil;
+    }
+
+    // Map recurrence UI values onto recurrence_type/recurrence_param used by the
+    // backend. This is optional metadata; if omitted, tasks behave like
+    // non-recurring tasks with the existing daily-reset semantics.
+    switch (recurrenceRaw) {
+        case 'none':
+            payload.recurrence_type = '';
+            payload.recurrence_param = null;
+            break;
+        case 'daily':
+            payload.recurrence_type = 'daily';
+            payload.recurrence_param = null;
+            break;
+        case 'every_2_days':
+            payload.recurrence_type = 'every_n_days';
+            payload.recurrence_param = 2;
+            break;
+        case 'every_3_days':
+            payload.recurrence_type = 'every_n_days';
+            payload.recurrence_param = 3;
+            break;
+        case 'weekly_monday':
+            payload.recurrence_type = 'weekly';
+            // Python datetime.weekday(): Monday=0 .. Sunday=6
+            payload.recurrence_param = 0;
+            break;
+        default:
+            // Leave unset to preserve existing behavior.
+            break;
+    }
+
+    return payload;
 }
 
 function getQuickTaskFormData() {

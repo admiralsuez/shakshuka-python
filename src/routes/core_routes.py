@@ -6,6 +6,7 @@ import os
 import sqlite3
 import sys
 import threading
+import subprocess
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -14,6 +15,7 @@ from flask import Blueprint, current_app, jsonify, redirect, render_template, re
 from src.constants import DEFAULT_USER_ID
 from src.exceptions import DatabaseError, ValidationError
 from src.routes.api_utils import get_json_object, register_api_error_handlers
+from src.utils.paths import get_logs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +242,32 @@ def get_changelog():
         return 'Error reading changelog.', 500
 
 
+@core_bp.route('/api/logs/open-folder', methods=['POST'])
+def open_logs_folder():
+    """Open the logs directory on the host machine (desktop-only helper)."""
+    try:
+        logs_dir = get_logs_dir()
+
+        # Ensure directory exists
+        if not os.path.isdir(logs_dir):
+            os.makedirs(logs_dir, exist_ok=True)
+
+        if sys.platform.startswith('win'):
+            # Windows explorer
+            os.startfile(logs_dir)  # type: ignore[attr-defined]
+        elif sys.platform == 'darwin':
+            # macOS Finder
+            subprocess.Popen(['open', logs_dir])
+        else:
+            # Linux / other
+            subprocess.Popen(['xdg-open', logs_dir])
+
+        return jsonify({'success': True, 'path': logs_dir}), 200
+    except Exception as e:  # noqa: broad-except - must not crash app if shell open fails
+        logger.exception('Failed to open logs folder')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @core_bp.route('/api/analytics')
 def get_analytics():
     try:
@@ -321,6 +349,54 @@ def mark_daily_recap_seen():
     except Exception:  # noqa: broad-except - API route error handler must catch all exceptions
         logger.exception('Mark recap seen error')
         return jsonify({'success': False, 'error': 'Mark recap seen error'}), 500
+
+
+@core_bp.route('/api/analytics/daily-recap/feedback', methods=['GET'])
+def get_daily_recap_feedback():
+    """Return saved feedback answers for a given recap day."""
+    user_id = _get_user_id()
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        raise DatabaseError(message='Data manager not available')
+
+    day = request.args.get('day', (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d'))
+    try:
+        feedback = _app_context.data_manager.load_recap_feedback(user_id, day)
+        return jsonify({'success': True, 'day': day, 'feedback': feedback}), 200
+    except DatabaseError:
+        logger.exception('Database error loading recap feedback')
+        return jsonify({'success': False, 'error': 'Database error loading recap feedback'}), 503
+    except Exception:  # noqa: broad-except
+        logger.exception('Error loading recap feedback')
+        return jsonify({'success': False, 'error': 'Error loading recap feedback'}), 500
+
+
+@core_bp.route('/api/analytics/daily-recap/feedback', methods=['POST'])
+def save_daily_recap_feedback():
+    """Persist feedback answers for a given recap day."""
+    user_id = _get_user_id()
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        raise DatabaseError(message='Data manager not available')
+
+    payload = get_json_object(required=True)
+    day = payload.get('day') or (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    answers_raw = payload.get('answers')
+    if not isinstance(answers_raw, dict):
+        return jsonify({'success': False, 'error': 'answers must be an object'}), 400
+
+    allowed_keys = {'went_well', 'improve_tomorrow', 'mood_rating'}
+    answers = {k: v for k, v in answers_raw.items() if k in allowed_keys}
+    if not answers:
+        return jsonify({'success': False, 'error': 'No valid answer keys provided'}), 400
+
+    try:
+        _app_context.data_manager.save_recap_feedback(user_id, day, answers)
+        return jsonify({'success': True, 'day': day}), 200
+    except DatabaseError:
+        logger.exception('Database error saving recap feedback')
+        return jsonify({'success': False, 'error': 'Database error saving recap feedback'}), 503
+    except Exception:  # noqa: broad-except
+        logger.exception('Error saving recap feedback')
+        return jsonify({'success': False, 'error': 'Error saving recap feedback'}), 500
 
 
 @core_bp.route('/api/analytics/summary', methods=['GET'])
@@ -601,6 +677,7 @@ def get_settings():
             'perf_disable_glow': bool(settings.get('perf_disable_glow', False)),
             'finish': settings.get('finish', 'glossy'),
             'intensity': settings.get('intensity', '5'),
+            'compact_mode': bool(settings.get('compact_mode', False)),
         }
 
         if validated_settings.get('settings_layout') not in ['scroll', 'tabs']:
@@ -643,8 +720,15 @@ def update_settings():
 
         if 'theme' in settings_data:
             theme = settings_data['theme']
-            # Must stay in sync with frontend theme selector and SQLite validation
-            valid_themes = ['orange', 'blue', 'green', 'purple', 'dark', 'light', 'self-esteem', 'anxiety', 'yellow', 'auto']
+            # Must stay in sync with frontend theme selector and SQLite validation.
+            # "speedy" is a performance-focused theme that is always matte in the
+            # frontend; it must be whitelisted here or the selection will not
+            # persist across sessions.
+            valid_themes = [
+                'orange', 'blue', 'green', 'purple',
+                'dark', 'light', 'self-esteem', 'anxiety',
+                'yellow', 'speedy', 'auto',
+            ]
             if isinstance(theme, str) and theme in valid_themes:
                 validated_updates['theme'] = theme
 
@@ -732,6 +816,36 @@ def update_settings():
             intensity = settings_data['intensity']
             if isinstance(intensity, str) and intensity in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']:
                 validated_updates['intensity'] = intensity
+
+        if 'compact_mode' in settings_data:
+            compact_mode = settings_data['compact_mode']
+            if isinstance(compact_mode, bool):
+                validated_updates['compact_mode'] = compact_mode
+
+        if 'default_task_duration' in settings_data:
+            try:
+                dtd = int(settings_data['default_task_duration'])
+                if 5 <= dtd <= 480:
+                    validated_updates['default_task_duration'] = dtd
+            except (TypeError, ValueError) as e:
+                logger.debug("Invalid default_task_duration value: %s", e)
+
+        if 'start_page' in settings_data:
+            sp = settings_data['start_page']
+            if isinstance(sp, str) and sp in ('tasks', 'planner', 'notes', 'analytics'):
+                validated_updates['start_page'] = sp
+
+        if 'notification_sound' in settings_data:
+            if isinstance(settings_data['notification_sound'], bool):
+                validated_updates['notification_sound'] = settings_data['notification_sound']
+
+        if 'week_start_day' in settings_data:
+            try:
+                wsd = int(settings_data['week_start_day'])
+                if wsd in (0, 1):
+                    validated_updates['week_start_day'] = wsd
+            except (TypeError, ValueError) as e:
+                logger.debug("Invalid week_start_day value: %s", e)
 
         if 'timezone' in settings_data:
             timezone = settings_data['timezone']

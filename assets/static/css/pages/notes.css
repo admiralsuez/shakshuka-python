@@ -94,6 +94,13 @@
     border: 1px solid var(--border-color);
 }
 
+/* Active note tab gets the accent gradient so the white pin icon stays visible */
+#notes-page .notes-tabs-bar .notes-tab.active {
+    background: var(--primary-gradient);
+    color: #fff;
+    border-color: transparent;
+}
+
 #notes-page .notes-tab--new {
     /* Let .btn-primary.btn-icon define the core look; only nudge spacing next to tabs. */
     margin-left: calc(0.25rem * var(--dpi-scale));
@@ -210,6 +217,7 @@
     cursor: pointer;
     font-size: calc(0.85rem * var(--dpi-scale));
     color: var(--text-secondary);
+    border-left: 3px solid transparent;
 }
 
 .notes-folder-item.active {
@@ -224,6 +232,8 @@
 }
 
 .notes-folder-item span {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -308,7 +318,8 @@
     padding: calc(0.4rem * var(--dpi-scale)) calc(0.5rem * var(--dpi-scale));
     border-radius: calc(8px * var(--dpi-scale));
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, border-left-color 0.15s ease;
+    border-left: 3px solid transparent;
 }
 
 .notes-explorer-note:hover {
@@ -349,8 +360,8 @@
     font-family: var(--font-monospace, "Fira Code", monospace);
     font-size: 0.85rem;
     line-height: 1.4;
-    background: var(--surface, #fffaf3);
-    color: var(--text-primary, #2c1810);
+    background: var(--surface-color);
+    color: var(--text-color);
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
     overflow-y: auto;
 }
@@ -361,8 +372,8 @@
 
 #notes-page .notes-editor:focus {
     outline: none;
-    border-color: rgba(255, 140, 66, 0.6);
-    box-shadow: 0 0 0 1px rgba(255, 140, 66, 0.3);
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 1px var(--accent-color);
 }
 
 #notes-page .notes-editor--secondary {
@@ -376,6 +387,63 @@
 #notes-page .notes-editors--split .notes-editor {
     width: 50%;
 }
+
+/* Folder color accents (per-folder slots 0-5) */
+.notes-folder-item[data-folder-slot="0"] {
+    border-left-color: var(--accent-color);
+}
+.notes-folder-item[data-folder-slot="1"] {
+    border-left-color: #4f46e5;
+}
+.notes-folder-item[data-folder-slot="2"] {
+    border-left-color: #10b981;
+}
+.notes-folder-item[data-folder-slot="3"] {
+    border-left-color: #ec4899;
+}
+.notes-folder-item[data-folder-slot="4"] {
+    border-left-color: #f59e0b;
+}
+.notes-folder-item[data-folder-slot="5"] {
+    border-left-color: #0ea5e9;
+}
+
+/* Pinned/archived note styling */
+.notes-explorer-note.is-pinned {
+    border-left-color: var(--accent-color);
+    background: rgba(255, 140, 66, 0.06);
+}
+.notes-explorer-note.is-archived {
+    opacity: 0.75;
+}
+
+/* Pin icon in the tab bar for pinned notes */
+.notes-tab-pin-icon {
+    font-size: calc(0.6rem * var(--dpi-scale));
+    color: var(--accent-color);
+    opacity: 0.8;
+    transform: rotate(45deg);
+    margin-right: calc(0.25rem * var(--dpi-scale));
+    flex-shrink: 0;
+}
+
+/* On the active (selected) tab the background is the accent colour,
+   so switch the pin icon to white so it stays visible. */
+.notes-tab.active .notes-tab-pin-icon {
+    color: #fff;
+    opacity: 0.9;
+}
+
+/* Pin icon shown inline for pinned notes */
+.notes-pin-icon {
+    font-size: calc(0.65rem * var(--dpi-scale));
+    color: var(--accent-color);
+    opacity: 0.85;
+    flex-shrink: 0;
+    transform: rotate(45deg);
+    margin-left: calc(0.3rem * var(--dpi-scale));
+}
+
 
 /* Notes slash command menu */
 .notes-command-menu {

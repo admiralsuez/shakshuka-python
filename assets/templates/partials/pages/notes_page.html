@@ -7,7 +7,7 @@
                             <button class="btn-primary" id="notes-view-list-btn" title="View all notes">
                                 View all notes
                             </button>
-                            <button class="btn-primary" id="notes-split-toggle-btn" title="Toggle split view">
+                            <button class="btn-primary" id="notes-split-toggle-btn" title="Toggle split view" style="display:none;">
                                 Split view
                             </button>
                             <button class="btn-primary" id="notes-add-selection-task-btn" title="Make selected text a task">
@@ -43,6 +43,9 @@
                                         <button type="button" class="btn-primary btn-icon" id="notes-quick-add-btn" title="Quick add note">
                                             <i class="fas fa-plus"></i>
                                         </button>
+                                        <button type="button" class="btn-primary btn-icon" id="notes-export-all-btn" title="Export all notes as .zip">
+                                            <i class="fas fa-download"></i>
+                                        </button>
                                     </div>
                                 </div>
                                 <ul class="notes-explorer-notes" id="notes-explorer-notes"></ul>
@@ -53,6 +56,17 @@
                         <div class="notes-tabs-bar filter-tabs">
                             <div class="notes-tabs-scroll" id="notes-tabs"></div>
                             <button class="notes-tab notes-tab--new btn-primary btn-icon" id="notes-tab-new" type="button" title="New note tab">+</button>
+                        </div>
+                        <!-- Inline note search (quick-switch without leaving editor) -->
+                        <div class="notes-editor-search" id="notes-editor-search" style="position:relative;margin-bottom:0.5rem;">
+                            <div style="position:relative;">
+                                <i class="fas fa-search" style="position:absolute;left:0.75rem;top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:0.8rem;pointer-events:none;"></i>
+                                <input type="text" id="notes-editor-search-input" autocomplete="off" placeholder="Search all notes..."
+                                    style="width:100%;padding:0.5rem 0.8rem 0.5rem 2.2rem;font-size:0.85rem;border-radius:12px;border:1px solid var(--border-color);background:var(--surface-color);color:var(--text-color);outline:none;transition:border-color 0.2s,box-shadow 0.2s;"
+                                    onfocus="this.style.borderColor='var(--accent-color)';this.style.boxShadow='0 0 0 3px rgba(255,140,66,0.12)';"
+                                    onblur="this.style.borderColor='var(--border-color)';this.style.boxShadow='none';">
+                            </div>
+                            <div id="notes-editor-search-results" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;max-height:220px;overflow-y:auto;background:var(--surface-color);border:1px solid var(--border-color);border-radius:10px;box-shadow:0 8px 24px var(--shadow-color);margin-top:4px;"></div>
                         </div>
                         <div class="notes-editors" id="notes-editors">
                             <textarea id="notes-editor-primary" class="notes-editor" spellcheck="false" placeholder="enter your thoughts here, you can use the buttons on top to view notes, split view and add selection to tasklist directly"></textarea>

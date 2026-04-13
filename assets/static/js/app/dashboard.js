@@ -1,4 +1,104 @@
 // Analytics dashboard updater - OPTIMIZED with consolidated endpoint
+let autoRefreshEnabled = false;
+let heartbeatInterval = null;
+let autoRefreshInterval = null;
+
+function startHeartbeat() {
+    // Send heartbeat every 1 minute (60000 ms)
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    heartbeatInterval = setInterval(async () => {
+        try {
+            if (typeof fetch === 'function') {
+                await fetch('/api/analytics/heartbeat', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                }).catch(() => {});
+            }
+        } catch (e) {
+            // Silently ignore heartbeat failures
+        }
+    }, 60000); // 1 minute
+}
+
+function stopHeartbeat() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+    }
+}
+
+function startAutoRefresh() {
+    // Refresh dashboard every 1 minute when enabled
+    if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+    autoRefreshInterval = setInterval(() => {
+        if (autoRefreshEnabled) {
+            updateDashboardStats();
+            updateActiveUsersCount();
+        }
+    }, 60000); // 1 minute
+}
+
+function stopAutoRefresh() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+    }
+}
+
+async function updateActiveUsersCount() {
+    try {
+        let response = null;
+        if (typeof fetchWithFallback === 'function') {
+            response = await fetchWithFallback('/api/analytics/active-users', {
+                fallbackValue: { active_users: 0 },
+                cacheTTL: 0,
+                showError: false
+            });
+        } else if (typeof apiCall === 'function') {
+            const resp = await apiCall('/api/analytics/active-users');
+            response = await resp.json().catch(() => ({ active_users: 0 }));
+        } else {
+            const resp = await fetch('/api/analytics/active-users', { credentials: 'include' });
+            response = await resp.json().catch(() => ({ active_users: 0 }));
+        }
+        
+        const el = document.getElementById('active-users-now');
+        if (el && response) {
+            el.textContent = response.active_users || 0;
+        }
+    } catch (e) {
+        // Silently ignore active users errors
+    }
+}
+
+async function updateInstalledUsersCount() {
+    try {
+        let response = null;
+        if (typeof fetchWithFallback === 'function') {
+            response = await fetchWithFallback('/api/analytics/installed-users', {
+                fallbackValue: { installed_users: 0 },
+                cacheTTL: 300000, // Cache for 5 minutes (data doesn't change often)
+                showError: false
+            });
+        } else if (typeof apiCall === 'function') {
+            const resp = await apiCall('/api/analytics/installed-users');
+            response = await resp.json().catch(() => ({ installed_users: 0 }));
+        } else {
+            const resp = await fetch('/api/analytics/installed-users', { credentials: 'include' });
+            response = await resp.json().catch(() => ({ installed_users: 0 }));
+        }
+        
+        const el = document.getElementById('installed-users-total');
+        if (el && response) {
+            el.textContent = response.installed_users || 0;
+        }
+    } catch (e) {
+        // Silently ignore installed users errors
+    }
+}
+
 async function updateDashboardStats() {
     const tasks = (typeof AppState !== 'undefined' && typeof AppState.getTasks === 'function')
         ? (AppState.getTasks() || [])
@@ -213,4 +313,74 @@ function calculateProductivityScore() {
     const totalTasks = tasks.length;
     
     return Math.round((completedTasks / totalTasks) * 100);
+}
+
+// Initialize analytics page with heartbeat and auto-refresh
+function initializeAnalyticsPage() {
+    // Start heartbeat immediately (every 1 minute)
+    startHeartbeat();
+    
+    // Set up auto-refresh toggle
+    const toggleEl = document.getElementById('analytics-auto-refresh');
+    if (toggleEl) {
+        // Load saved preference from localStorage
+        const savedPref = localStorage.getItem('analytics-auto-refresh') === 'true';
+        toggleEl.checked = savedPref;
+        autoRefreshEnabled = savedPref;
+        
+        toggleEl.addEventListener('change', (e) => {
+            autoRefreshEnabled = e.target.checked;
+            localStorage.setItem('analytics-auto-refresh', autoRefreshEnabled);
+            
+            if (autoRefreshEnabled) {
+                // When enabling, do an immediate refresh then start interval
+                updateDashboardStats();
+                updateActiveUsersCount();
+                startAutoRefresh();
+            } else {
+                stopAutoRefresh();
+            }
+        });
+        
+        // Start auto-refresh if it was enabled previously
+        if (autoRefreshEnabled) {
+            startAutoRefresh();
+        }
+    }
+    
+    // Load active users count immediately
+    updateActiveUsersCount();
+    
+    // Load installed users count immediately (doesn't need to refresh often)
+    updateInstalledUsersCount();
+}
+
+// Hook into page visibility to stop heartbeat when tab is hidden
+if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopHeartbeat();
+            stopAutoRefresh();
+        } else {
+            startHeartbeat();
+            if (autoRefreshEnabled) {
+                startAutoRefresh();
+            }
+        }
+    });
+}
+
+// Initialize when analytics page is shown
+if (typeof window !== 'undefined') {
+    // Patch page switcher to init analytics when page loads
+    const origShowPage = window.showPage;
+    if (typeof origShowPage === 'function') {
+        window.showPage = function(pageName) {
+            const result = origShowPage.call(this, pageName);
+            if (pageName === 'analytics') {
+                setTimeout(initializeAnalyticsPage, 100);
+            }
+            return result;
+        };
+    }
 }

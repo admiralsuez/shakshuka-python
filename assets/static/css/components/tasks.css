@@ -230,6 +230,20 @@
     gap: calc(12px * var(--dpi-scale, 1));
 }
 
+/* In Speedy theme, make task rows match the darker surface treatment and reduce
+   bright glossy overlays so the board feels consistent. */
+body[data-theme="speedy"] .task-item {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--box-shadow-secondary, 0 2px 8px rgba(0, 0, 0, 0.4));
+    backdrop-filter: none;
+}
+
+body[data-theme="speedy"] .task-item::before,
+body[data-theme="speedy"] .task-item::after {
+    display: none;
+}
+
 /* Project tag on the left */
 .task-project-tag {
     flex-shrink: 0;

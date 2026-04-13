@@ -14,6 +14,21 @@
             </div>
             <div class="daily-recap-stats-grid" id="daily-recap-grid"></div>
         </div>
+        <div class="daily-recap-feedback" id="daily-recap-feedback">
+            <h4 class="daily-recap-feedback-title">Quick Reflection</h4>
+            <div class="daily-recap-feedback-field">
+                <label for="recap-went-well">What went well today?</label>
+                <textarea id="recap-went-well" data-key="went_well" rows="2" placeholder="Something that worked out..."></textarea>
+            </div>
+            <div class="daily-recap-feedback-field">
+                <label for="recap-improve-tomorrow">What could be better tomorrow?</label>
+                <textarea id="recap-improve-tomorrow" data-key="improve_tomorrow" rows="2" placeholder="One thing to improve..."></textarea>
+            </div>
+            <div class="daily-recap-feedback-field">
+                <label for="recap-mood">Mood rating <span class="recap-mood-value" id="recap-mood-display">3</span>/5</label>
+                <input type="range" id="recap-mood" data-key="mood_rating" min="1" max="5" step="1" value="3">
+            </div>
+        </div>
         <div class="modal-footer">
             <button type="button" class="btn-secondary" id="daily-recap-dismiss">Got it</button>
         </div>

@@ -51,12 +51,20 @@ def get_planner_v2_schedule():
         except DatabaseError:
             logger.exception("Database error loading tasks for planner v2 schedule (user %s)", user_id)
             return jsonify({'success': False, 'error': 'Database error loading tasks'}), 503
+        
+        logger.info(f"[DEBUG] Loaded {len(tasks)} total tasks for user {user_id}")
         scheduled_tasks = {}
+        scheduled_count = 0
 
         for task in tasks:
-            if task.get('scheduled_hour') is not None and task.get('scheduled_date'):
-                scheduled_date = task['scheduled_date']
-                scheduled_hour = task['scheduled_hour']
+            task_id = task.get('id', 'unknown')
+            scheduled_hour = task.get('scheduled_hour')
+            scheduled_date = task.get('scheduled_date')
+            logger.info(f"[DEBUG] Task {task_id}: scheduled_hour={scheduled_hour}, scheduled_date={scheduled_date}")
+            
+            if scheduled_hour is not None and scheduled_date:
+                scheduled_count += 1
+                logger.info(f"[DEBUG] Task {task_id} is SCHEDULED for {scheduled_date} at {scheduled_hour}")
 
                 if scheduled_date not in scheduled_tasks:
                     scheduled_tasks[scheduled_date] = {}
@@ -65,8 +73,16 @@ def get_planner_v2_schedule():
                     scheduled_tasks[scheduled_date][scheduled_hour] = []
 
                 scheduled_tasks[scheduled_date][scheduled_hour].append(task)
+        
+        logger.info(f"[DEBUG] Found {scheduled_count} scheduled tasks out of {len(tasks)} total")
+        logger.info(f"[DEBUG] Scheduled tasks dict: {scheduled_tasks.keys()}")
 
-        return jsonify({'success': True, 'scheduled_tasks': scheduled_tasks})
+        response = jsonify({'success': True, 'scheduled_tasks': scheduled_tasks})
+        # Disable caching to ensure fresh data
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
 
     except Exception as e:
         logger.exception("Error loading planner v2 schedule")
@@ -150,13 +166,25 @@ def get_planner_v2_available_tasks():
             logger.exception("Database error loading tasks for planner v2 available tasks (user %s)", user_id)
             return jsonify({'success': False, 'error': 'Database error loading tasks'}), 503
 
+        today_str = datetime.now().strftime('%Y-%m-%d')
+
         available_tasks = []
         for task in tasks:
             is_completed = task.get('completed', False)
             is_struck_today = task.get('struck_today', False)
             is_scheduled = task.get('scheduled_hour') is not None and task.get('scheduled_date') is not None
 
-            if not is_completed and not is_struck_today and not is_scheduled:
+            # Exclude snoozed tasks ("hide for X days") from available pool until
+            # their snoozed_until date is today or earlier.
+            snoozed_until = task.get('snoozed_until')
+            is_snoozed = False
+            if isinstance(snoozed_until, str) and snoozed_until.strip():
+                try:
+                    is_snoozed = snoozed_until.strip() > today_str
+                except Exception:  # noqa: broad-except - defensive, string compare only
+                    is_snoozed = False
+
+            if not is_completed and not is_struck_today and not is_scheduled and not is_snoozed:
                 available_tasks.append({
                     'id': task.get('id'),
                     'title': task.get('title', ''),

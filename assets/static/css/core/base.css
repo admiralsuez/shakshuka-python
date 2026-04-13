@@ -61,6 +61,13 @@ body {
     font-size: var(--base-font-size);
 }
 
+/* Compact mode slightly tightens the base typography/spacing without
+ * relying on browser zoom. Controlled by Settings.compact_mode.
+ */
+body[data-compact="on"] {
+    --base-font-size: 12px;
+}
+
 /* Theme Variables */
 body[data-theme="light"] {
     --primary-gradient: linear-gradient(135deg, #FF8C42, #FFB366);

@@ -83,6 +83,211 @@ class DailyPlannerV2 {
         });
 
         // Drag and drop setup is handled in generateHoursGrid and renderAvailableTasks
+
+        // Clear Plans button
+        document.getElementById('planner-clear-plans-btn')?.addEventListener('click', () => this.clearAllPlansForDate());
+
+        // Inject Auto-schedule button next to the Add Task button.
+        this._injectAutoScheduleButton();
+    }
+
+    /**
+     * Unschedule every task planned for the currently selected date and return
+     * them all to the available pool.  Shows a spinner on the button during the
+     * operation and a summary notification on completion.
+     */
+    async clearAllPlansForDate() {
+        const dateKey = this.getDateKey(this.selectedDate);
+
+        // Always fetch the latest schedule from the backend so stale in-memory
+        // data (e.g. right after auto-layout) doesn't cause a partial clear.
+        const taskIds = new Set();
+        try {
+            const caller = (window.Utils && typeof window.Utils.apiCall === 'function')
+                ? window.Utils.apiCall
+                : (url, opts) => fetch(url, Object.assign({ credentials: 'include' }, opts));
+            const resp = await caller('/api/planner-v2/schedule');
+            if (resp.ok) {
+                const data = await resp.json().catch(() => null);
+                if (data && data.success && data.scheduled_tasks && data.scheduled_tasks[dateKey]) {
+                    const hourMap = data.scheduled_tasks[dateKey];
+                    Object.values(hourMap).forEach(taskList => {
+                        if (Array.isArray(taskList)) {
+                            taskList.forEach(t => { if (t && t.id) taskIds.add(t.id); });
+                        }
+                    });
+                }
+            }
+        } catch (e) {
+            // Fallback: use in-memory map if fetch fails
+            const dayTasks = this.scheduledTasks.get(dateKey);
+            if (dayTasks) {
+                dayTasks.forEach((tasks) => {
+                    tasks.forEach(t => { if (t.id) taskIds.add(t.id); });
+                });
+            }
+        }
+
+        if (taskIds.size === 0) {
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                window.Utils.safeShowNotification('No planned tasks for this day', 'info');
+            }
+            return;
+        }
+
+        const btn = document.getElementById('planner-clear-plans-btn');
+        const originalHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Clearing…';
+        }
+
+        let cleared = 0;
+        let failed = 0;
+        for (const taskId of taskIds) {
+            try {
+                await this.unscheduleTaskViaAPI(taskId);
+                cleared++;
+            } catch (e) {
+                console.warn('clearAllPlansForDate: failed to unschedule', taskId, e);
+                failed++;
+            }
+        }
+
+        if (btn) {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+        }
+
+        // Refresh both panels
+        this.loadAvailableTasks();
+        this._lastScheduleFetch = 0; // Bypass throttle
+        this.requestLoadScheduledTasks(0);
+        try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') window.NavbarScheduleCard.update(); } catch (e) {}
+
+        if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+            const msg = failed > 0
+                ? `Cleared ${cleared} task${cleared !== 1 ? 's' : ''} (${failed} failed)`
+                : `Cleared ${cleared} task${cleared !== 1 ? 's' : ''} from the schedule`;
+            window.Utils.safeShowNotification(msg, failed > 0 ? 'warning' : 'success');
+        }
+    }
+
+    _injectAutoScheduleButton() {
+        try {
+            const addBtn = document.getElementById('add-task-to-planner');
+            if (!addBtn || document.getElementById('planner-auto-schedule-btn')) return;
+            const btn = document.createElement('button');
+            btn.id = 'planner-auto-schedule-btn';
+            btn.type = 'button';
+            btn.className = 'btn-secondary';
+            btn.title = 'Auto-schedule available tasks starting from the next free hour';
+            btn.textContent = 'Auto-schedule';
+            btn.style.marginLeft = '0.5rem';
+            btn.addEventListener('click', () => this.autoLayoutTasks());
+            addBtn.parentNode.insertBefore(btn, addBtn.nextSibling);
+        } catch (e) {
+            console.warn('Failed to inject auto-schedule button:', e);
+        }
+    }
+
+    /**
+     * Auto-layout: slot every available (unscheduled) task into the first free
+     * 30-minute block at or after the next whole hour, in smart-suggestion order
+     * (high priority / soonest due date first).  Each task occupies
+     * ceil(estimated_duration / 30) consecutive 30-min slots.
+     */
+    async autoLayoutTasks() {
+        if (!this.availableTasks.length) {
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                window.Utils.safeShowNotification('No available tasks to schedule', 'info');
+            }
+            return;
+        }
+
+        const now = new Date();
+        const isToday = this.isSameDay(this.selectedDate, now);
+        // Start from the next whole hour (minimum: current hour + 1 for today, or 8 AM for future days).
+        let startHour = isToday ? now.getHours() + 1 : 8;
+        if (startHour > 23) startHour = 23;
+
+        // Build a set of already-occupied 30-min slots for the selected date.
+        const dateKey = this.getDateKey(this.selectedDate);
+        const occupied = new Set();
+        const dayTasks = this.scheduledTasks.get(dateKey) || new Map();
+        dayTasks.forEach((tasks, hour) => {
+            tasks.forEach(t => {
+                const dur = t.scheduled_duration || t.estimated_duration || 30;
+                const slots = this.calculateTaskSlots(t.scheduled_hour ?? hour, t.scheduled_minute ?? 0, dur);
+                slots.forEach(s => occupied.add(`${s.hour}:${s.minute}`));
+            });
+        });
+
+        // Sort tasks the same way as renderAvailableTasks.
+        const priorityOrder = { high: 0, medium: 1, low: 2 };
+        const sorted = [...this.availableTasks].sort((a, b) => {
+            const pa = priorityOrder[a.priority] ?? 1;
+            const pb = priorityOrder[b.priority] ?? 1;
+            if (pa !== pb) return pa - pb;
+            const da = a.due_date || '9999-99-99';
+            const db = b.due_date || '9999-99-99';
+            return da < db ? -1 : da > db ? 1 : 0;
+        });
+
+        let cursor = { hour: startHour, minute: 0 };
+
+        const advanceCursor = () => {
+            cursor.minute += 30;
+            if (cursor.minute >= 60) { cursor.hour += 1; cursor.minute = 0; }
+        };
+
+        const findNextFreeSlot = (neededSlots) => {
+            while (cursor.hour <= 23) {
+                // Check whether neededSlots consecutive 30-min slots are free starting at cursor.
+                let fits = true;
+                let h = cursor.hour, m = cursor.minute;
+                for (let i = 0; i < neededSlots; i++) {
+                    if (h > 23) { fits = false; break; }
+                    if (occupied.has(`${h}:${m}`)) { fits = false; break; }
+                    m += 30;
+                    if (m >= 60) { h += 1; m = 0; }
+                }
+                if (fits) return { hour: cursor.hour, minute: cursor.minute };
+                advanceCursor();
+            }
+            return null; // No free slot found for today.
+        };
+
+        let scheduled = 0;
+        for (const task of sorted) {
+            const dur = task.estimated_duration || 30;
+            const neededSlots = Math.ceil(dur / 30);
+            const slot = findNextFreeSlot(neededSlots);
+            if (!slot) break; // Day is full.
+
+            // Mark slots as occupied.
+            const slots = this.calculateTaskSlots(slot.hour, slot.minute, dur);
+            slots.forEach(s => occupied.add(`${s.hour}:${s.minute}`));
+            // Advance cursor past this task.
+            cursor = {
+                hour: slots[slots.length - 1].hour,
+                minute: slots[slots.length - 1].minute,
+            };
+            advanceCursor();
+
+            try {
+                await this.scheduleTaskViaAPI(task.id, slot.hour, slot.minute, dur);
+                scheduled += 1;
+            } catch (e) {
+                console.warn('Auto-layout: failed to schedule task', task.id, e);
+            }
+        }
+
+        if (scheduled > 0 && window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+            window.Utils.safeShowNotification(`Auto-scheduled ${scheduled} task${scheduled !== 1 ? 's' : ''}`, 'success');
+        } else if (scheduled === 0 && window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+            window.Utils.safeShowNotification('No free slots available for auto-schedule', 'info');
+        }
     }
 
     attachPlannerHistoryHandlers() {
@@ -428,8 +633,20 @@ class DailyPlannerV2 {
             return;
         }
 
+        // Smart suggestion: sort by priority (high > medium > low) then by due_date (soonest first).
+        const priorityOrder = { high: 0, medium: 1, low: 2 };
+        const sorted = [...this.availableTasks].sort((a, b) => {
+            const pa = priorityOrder[a.priority] ?? 1;
+            const pb = priorityOrder[b.priority] ?? 1;
+            if (pa !== pb) return pa - pb;
+            // Soonest due_date first; tasks without a due_date go last.
+            const da = a.due_date || '9999-99-99';
+            const db = b.due_date || '9999-99-99';
+            return da < db ? -1 : da > db ? 1 : 0;
+        });
+
         // Use the same HTML structure as the original planner
-        container.innerHTML = this.availableTasks.map(task => `
+        container.innerHTML = sorted.map(task => `
             <div class="draggable-task" data-task-id="${task.id}" draggable="true">
                 <h4>${task.title}</h4>
                 <p>${task.description || 'No Description'}</p>
@@ -988,6 +1205,7 @@ class DailyPlannerV2 {
             
             console.log('Request body:', requestBody);
             console.log('API endpoint:', `/api/tasks/${taskId}/schedule`);
+            console.log('[DEBUG] Before POST request, _lastScheduleFetch:', this._lastScheduleFetch);
             
             let response = null;
             let data = null;
@@ -1010,8 +1228,14 @@ class DailyPlannerV2 {
 
             if (response.ok) {
                 console.log('Task scheduled successfully');
+                console.log('[DEBUG] response.ok is true, proceeding with data refresh');
+                console.log('[DEBUG] About to loadAvailableTasks and requestLoadScheduledTasks(0)');
                 this.loadAvailableTasks();
-                this.requestLoadScheduledTasks();
+                console.log('[DEBUG] After loadAvailableTasks, calling requestLoadScheduledTasks(0)');
+                console.log('[DEBUG] Current time:', Date.now(), '_lastScheduleFetch:', this._lastScheduleFetch);
+                const result = this.requestLoadScheduledTasks(0);
+                console.log('[DEBUG] requestLoadScheduledTasks(0) returned:', result);
+                console.log('[DEBUG] Promise/result details:', result instanceof Promise ? 'Promise' : 'Not a promise', result);
                 try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
             } else if (response.status === 409) {
                 data = await response.json().catch(() => ({ message: 'This time slot conflicts with another task' }));
@@ -1204,7 +1428,7 @@ class DailyPlannerV2 {
                 console.log('Task unscheduled successfully');
                 this.removeScheduledElementsByTaskId(taskId);
                 this.loadAvailableTasks();
-                this.requestLoadScheduledTasks();
+                this.requestLoadScheduledTasks(0); // Bypass throttle on explicit user action
                 try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
             } else if (response.status === 404) {
                 console.warn('Unschedule 404: task not found; removing from planner view');
@@ -1407,13 +1631,18 @@ class DailyPlannerV2 {
 
     // Throttled requester that coalesces concurrent calls and enforces a minimal interval
     requestLoadScheduledTasks(minIntervalMs = 1500) {
+        console.log('[DEBUG] requestLoadScheduledTasks called with minIntervalMs:', minIntervalMs);
         const now = Date.now();
+        console.log('[DEBUG] now:', now, '_lastScheduleFetch:', this._lastScheduleFetch, 'difference:', now - this._lastScheduleFetch);
         if (this._loadScheduledPromise) {
+            console.log('[DEBUG] Request already in-flight, returning existing promise');
             return this._loadScheduledPromise; // Reuse in-flight request
         }
         if (now - this._lastScheduleFetch < minIntervalMs) {
+            console.log('[DEBUG] Throttled! Too soon to fetch (', now - this._lastScheduleFetch, '<', minIntervalMs, ')');
             return Promise.resolve(); // Too soon; skip
         }
+        console.log('[DEBUG] Proceeding with fetch, setting _lastScheduleFetch to', now);
         this._lastScheduleFetch = now;
         this._loadScheduledPromise = this.loadScheduledTasksFromBackend()
             .catch((e) => { console.warn('Scheduled tasks fetch failed', e); })
@@ -1426,10 +1655,13 @@ class DailyPlannerV2 {
         console.log('Fetching from: /api/planner-v2/schedule');
         
         const fetchSchedule = async () => {
+            console.log('[DEBUG] fetchSchedule function started');
             let data = null;
             if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+                console.log('[DEBUG] Using window.Utils.apiRequestJson');
                 data = await window.Utils.apiRequestJson('/api/planner-v2/schedule', {}, { expectObject: true, retries: 1, retryDelayMs: 500 });
             } else {
+                console.log('[DEBUG] Using apiCall directly');
                 const response = await apiCall('/api/planner-v2/schedule');
                 console.log('Response status:', response.status, response.statusText);
                 if (!response.ok) {
