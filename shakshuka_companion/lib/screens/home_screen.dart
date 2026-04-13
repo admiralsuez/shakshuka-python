@@ -229,14 +229,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final submissionId = result['submission_id'] as String?;
       await _storage.addSentTasksHistory(taskData, submissionId);
       
-      // Remove sent items
-      for (final task in selectedTasks) {
-        await _storage.deleteTask(task.id);
-      }
-      for (final note in selectedNotes) {
-        await _storage.deleteNote(note.id);
-      }
-      
+      // Don't auto-delete - let user manually delete after desktop accepts
+      // This prevents accidental loss of tasks if desktop rejects them
       _loadTasks();
       _loadStats();
       
@@ -259,8 +253,9 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['message']),
-            backgroundColor: Colors.green,
+            content: Text('${selectedTasks.length + selectedNoteListDyn.length} item(s) sent! Review & accept on desktop, then delete from phone.'),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 5),
           ),
         );
       }

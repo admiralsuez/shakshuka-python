@@ -45,7 +45,26 @@ class ApiService {
             deviceName: deviceName,
           );
           await _storage.savePairedDevice(device);
-          return {'success': true, 'message': 'Paired successfully!'};
+          
+          // Auto-sync any pending tasks/notes after successful pairing
+          debugPrint('Pairing successful, attempting to sync pending tasks/notes');
+          await Future.delayed(const Duration(milliseconds: 500));
+          final tasks = _storage.getAllTasks();
+          final notes = _storage.getAllNotes();
+          if (tasks.isNotEmpty || notes.isNotEmpty) {
+            debugPrint('Found ${tasks.length} tasks and ${notes.length} notes to sync after pairing');
+            final uploadResult = await uploadTasksAndNotes(tasks, notes);
+            if (uploadResult['success'] == true) {
+              debugPrint('Successfully synced ${tasks.length} tasks and ${notes.length} notes after pairing');
+              debugPrint('Note: Tasks/notes are NOT auto-deleted. User must manually delete them from phone after desktop accepts.');
+            } else {
+              debugPrint('Failed to sync tasks/notes after pairing: ${uploadResult['message']}');
+            }
+          } else {
+            debugPrint('No tasks or notes to sync after pairing');
+          }
+          
+          return {'success': true, 'message': 'Paired successfully!', 'synced': tasks.isNotEmpty || notes.isNotEmpty};
         }
         return {
           'success': false,

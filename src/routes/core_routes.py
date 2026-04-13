@@ -591,6 +591,55 @@ def get_analytics_summary():
         raise DatabaseError(message='Analytics summary error', cause=e)
 
 
+@core_bp.route('/api/analytics/heartbeat', methods=['POST'])
+def record_user_activity():
+    """Record user heartbeat to track active users. Call every 1 minute."""
+    user_id = _get_user_id()
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        return jsonify({'success': False, 'error': 'Data manager not available'}), 500
+    try:
+        _app_context.data_manager.record_user_heartbeat(user_id)
+        return jsonify({'success': True}), 200
+    except DatabaseError:
+        logger.exception('Database error recording heartbeat for user %s', user_id)
+        return jsonify({'success': False, 'error': 'Database error'}), 503
+    except Exception:  # noqa: broad-except
+        logger.exception('Error recording heartbeat for user %s', user_id)
+        return jsonify({'success': False, 'error': 'Heartbeat error'}), 500
+
+
+@core_bp.route('/api/analytics/active-users', methods=['GET'])
+def get_active_users():
+    """Get count of users active in the last 2 minutes."""
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        return jsonify({'success': False, 'error': 'Data manager not available', 'active_users': 0}), 500
+    try:
+        active_count = _app_context.data_manager.count_active_users(minutes=2)
+        return jsonify({'success': True, 'active_users': active_count}), 200
+    except DatabaseError:
+        logger.exception('Database error counting active users')
+        return jsonify({'success': False, 'error': 'Database error', 'active_users': 0}), 503
+    except Exception:  # noqa: broad-except
+        logger.exception('Error counting active users')
+        return jsonify({'success': False, 'error': 'Error', 'active_users': 0}), 500
+
+
+@core_bp.route('/api/analytics/installed-users', methods=['GET'])
+def get_installed_users():
+    """Get total count of all users who have installed/accessed the app."""
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        return jsonify({'success': False, 'error': 'Data manager not available', 'installed_users': 0}), 500
+    try:
+        installed_count = _app_context.data_manager.count_installed_users()
+        return jsonify({'success': True, 'installed_users': installed_count}), 200
+    except DatabaseError:
+        logger.exception('Database error counting installed users')
+        return jsonify({'success': False, 'error': 'Database error', 'installed_users': 0}), 503
+    except Exception:  # noqa: broad-except
+        logger.exception('Error counting installed users')
+        return jsonify({'success': False, 'error': 'Error', 'installed_users': 0}), 500
+
+
 @core_bp.route('/api/account', methods=['GET'])
 def get_account_info():
     try:
