@@ -210,7 +210,20 @@ function showCompanionSyncModal(pending) {
     cancelBtn.type = 'button';
     cancelBtn.className = 'btn-secondary';
     cancelBtn.textContent = 'Skip';
-    cancelBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+    cancelBtn.addEventListener('click', async () => {
+        modal.style.display = 'none';
+        // Reject the submission so it doesn't block newer submissions from appearing
+        try {
+            await fetch(`/api/mobile/inbox/${submissionId}/reject`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+        } catch (e) {
+            console.debug('Failed to reject skipped submission:', e);
+        }
+        // Check if there are more pending submissions
+        setTimeout(() => checkCompanionTasksSync(false), 300);
+    });
     buttons.appendChild(cancelBtn);
     
     const importBtn = document.createElement('button');
