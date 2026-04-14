@@ -254,6 +254,9 @@ async function importCompanionTasks(submissionId, taskIds, noteIds) {
             // Refresh tasks if available
             if (typeof refreshTasks === 'function') refreshTasks();
             if (window.AppState && typeof AppState.loadTasks === 'function') AppState.loadTasks();
+            
+            // Check for more pending submissions after a short delay
+            setTimeout(() => checkCompanionTasksSync(false), 500);
         } else {
             if (window.showNotification) {
                 window.showNotification('Failed to import from phone', 'error');
