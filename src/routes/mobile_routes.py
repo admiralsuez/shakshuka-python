@@ -24,6 +24,9 @@ _pairing_attempts = {}  # IP -> {count, first_attempt_time}
 MAX_PAIRING_ATTEMPTS = 5
 PAIRING_LOCKOUT_SECONDS = 300  # 5 minutes
 
+# Sync request state: user_id -> ISO timestamp when desktop requested sync
+_sync_requested: Dict[str, str] = {}
+
 
 def init_mobile_routes(app_context, get_user_id_func, ensure_data_manager_func):
     global _app_context, _get_user_id_func, _ensure_data_manager_func
@@ -568,6 +571,35 @@ def reject_inbox(submission_id: str):
     except Exception:  # noqa: broad-except
         logger.exception("Failed to reject inbox submission %s", submission_id)
         return jsonify({"success": False, "error": "Failed to reject submission"}), 500
+
+
+@mobile_bp.route("/request-sync", methods=["POST"])
+def request_sync():
+    """Desktop signals that it wants the phone to upload tasks (local only)."""
+    if not _is_local_request():
+        return jsonify({"success": False, "error": "Forbidden"}), 403
+
+    user_id = _get_user_id()
+    _sync_requested[user_id] = datetime.now().isoformat()
+    logger.debug("Sync requested by desktop for user %s", user_id)
+    return jsonify({"success": True})
+
+
+@mobile_bp.route("/sync-request", methods=["GET"])
+def check_sync_request():
+    """Mobile app polls this to know if desktop has requested a sync.
+    Consuming the flag clears it so it only fires once.
+    """
+    ok, device, err = _require_mobile_token()
+    if not ok or not device:
+        return jsonify({"success": False, "error": err}), 401
+
+    user_id = device.get("user_id")
+    requested = user_id in _sync_requested
+    if requested:
+        del _sync_requested[user_id]
+
+    return jsonify({"success": True, "sync_requested": requested})
 
 
 @mobile_bp.route("/current-tasks", methods=["GET"])

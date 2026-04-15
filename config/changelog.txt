@@ -1,3 +1,16 @@
+## Version 26.1 - Two-Way Companion App Sync
+Release Date: 2026-04-15
+
+### Companion Sync
+- **Automatic sync-request**: Pressing the Sync button on the desktop now signals the companion app to push tasks when the inbox is empty. The phone detects the request and auto-uploads all tasks and notes within 1 minute, eliminating the need to manually tap "Send to PC" before syncing.
+- **Companion sync in Notifications modal**: After importing tasks from the companion app, an entry appears in the desktop Notifications modal (bell icon) listing the device name, number of items received, the time, and each task title.
+- **Skip unblocks queue**: Skipping a pending submission in the sync modal now properly rejects it on the backend so newer submissions are no longer blocked.
+
+### API Endpoints
+- **`POST /api/mobile/request-sync`**: Local-only endpoint the desktop calls to signal that a sync is needed. Sets a one-shot flag consumed by the companion app.
+- **`GET /api/mobile/sync-request`**: Mobile-token-authenticated endpoint the companion app polls to check for a pending sync request. Reading the flag clears it.
+
+---
 ## Version 26.0 - Notes UX Refinements, Folder Management, Analytics Live Tracking
 Release Date: 2026-04-12
 

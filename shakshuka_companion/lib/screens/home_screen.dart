@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -32,6 +33,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _totalTasksSent = 0;
   bool _notPairedBarDismissed = false;
   String _appTheme = 'orange';
+  Timer? _syncRequestTimer;
+  Timer? _taskAddedSyncTimer;
 
   @override
   void initState() {
@@ -41,10 +44,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadStats();
     _loadTheme();
     _quickAddController.addListener(_handleQuickAddChanged);
+    _startSyncRequestPolling();
   }
 
   @override
   void dispose() {
+    _syncRequestTimer?.cancel();
+    _taskAddedSyncTimer?.cancel();
     _quickAddController.removeListener(_handleQuickAddChanged);
     _quickAddController.dispose();
     _quickAddFocus.dispose();
@@ -89,6 +95,72 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _startSyncRequestPolling() {
+    _syncRequestTimer?.cancel();
+    if (!_storage.isPaired) return;
+    // Poll every hour for desktop sync requests
+    _syncRequestTimer = Timer.periodic(const Duration(hours: 1), (_) {
+      _pollSyncRequest();
+    });
+  }
+
+  /// Called whenever the user adds a task. Debounces to 1 minute from the
+  /// last addition, then checks once if the desktop has requested a sync.
+  void _schedulePostAddSyncCheck() {
+    if (!_storage.isPaired) return;
+    _taskAddedSyncTimer?.cancel();
+    _taskAddedSyncTimer = Timer(const Duration(minutes: 1), () {
+      _pollSyncRequest();
+    });
+  }
+
+  Future<void> _pollSyncRequest() async {
+    if (!_storage.isPaired || !_isConnected || _isUploading) return;
+    final result = await _api.checkSyncRequest();
+    if (result['sync_requested'] == true) {
+      debugPrint('Desktop requested sync - auto-uploading all tasks/notes');
+      await _autoUploadAllTasks();
+    }
+  }
+
+  Future<void> _autoUploadAllTasks() async {
+    final tasks = _storage.getAllTasks();
+    final notes = _storage.getAllNotes();
+    if (tasks.isEmpty && notes.isEmpty) return;
+
+    setState(() => _isUploading = true);
+    final result = await _api.uploadTasksAndNotes(tasks, notes);
+    setState(() => _isUploading = false);
+
+    if (result['success'] == true) {
+      final tasksCount = result['tasks_count'] ?? tasks.length;
+      final notesCount = result['notes_count'] ?? notes.length;
+      await _storage.incrementTasksSent(tasksCount);
+      final taskData = tasks.map((t) => {'title': t.title, 'duration': t.duration}).toList();
+      final submissionId = result['submission_id'] as String?;
+      await _storage.addSentTasksHistory(taskData, submissionId);
+      _loadTasks();
+      _loadStats();
+      String msg;
+      if (tasksCount > 0 && notesCount > 0) {
+        msg = 'Auto-sent $tasksCount task(s) and $notesCount note(s) to PC';
+      } else if (tasksCount > 0) {
+        msg = 'Auto-sent $tasksCount task(s) to PC';
+      } else {
+        msg = 'Auto-sent $notesCount note(s) to PC';
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _refreshData() async {
     await _checkConnection();
     _loadTasks();
@@ -104,6 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await _storage.addTask(task);
     _quickAddController.clear();
     _loadTasks();
+    _schedulePostAddSyncCheck();
   }
 
   Future<void> _addTask() async {
@@ -114,6 +187,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (result != null) {
       await _storage.addTask(result);
       _loadTasks();
+      _schedulePostAddSyncCheck();
     }
   }
 
@@ -505,7 +579,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    'v1.3 • $_totalTasksSent tasks sent',
+'v1.5 • $_totalTasksSent tasks sent'
                     style: TextStyle(fontSize: 12, color: Colors.grey[400]),
                   ),
                 ],
@@ -598,6 +672,15 @@ class _HomeScreenState extends State<HomeScreen> {
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: const [
+              _ChangelogEntry(
+                version: '1.5.0',
+                date: '2026-04-15',
+                changes: [
+                  'Auto-upload on desktop sync request: when you press Sync on the desktop the app detects the request and automatically pushes all tasks and notes — no need to tap "Send to PC" manually.',
+                  'Smart post-add check: after adding a new task the app waits 1 minute (timer resets with each consecutive addition) then checks for a pending desktop sync request.',
+                  'Hourly background sync check: app quietly polls once per hour to detect any pending sync requests from the desktop.',
+                ],
+              ),
               _ChangelogEntry(
                 version: '1.4.0',
                 date: '2026-02-26',
@@ -996,7 +1079,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 title: const Text('Changelog'),
                 subtitle: Text(
-                  'v1.3.0',
+                  'v1.5.0',
                   style: TextStyle(fontSize: 12, color: Colors.grey[400]),
                 ),
                 onTap: () {
@@ -1020,7 +1103,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text(
-                  'v1.3.0',
+                  'v1.5.0',
                   style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 ),
               ),

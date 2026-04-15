@@ -3,6 +3,7 @@
 
     let currentLog = null;
     let latestCleanerRun = null;
+    let latestCompanionSync = null;
     let loading = false;
 
     function getEl(id) {
@@ -39,8 +40,9 @@
 
         const hasReset = resetCount > 0;
         const hasCleanerMessage = latestCleanerRun && cleanerCount > 0; // only show cleaner notification if it actually cleaned notes
+        const hasCompanionSync = latestCompanionSync && (latestCompanionSync.count > 0);
 
-        const totalNotifications = (hasReset ? 1 : 0) + (hasCleanerMessage ? 1 : 0);
+        const totalNotifications = (hasReset ? 1 : 0) + (hasCleanerMessage ? 1 : 0) + (hasCompanionSync ? 1 : 0);
         const hasAny = totalNotifications > 0;
 
         if (indicator) {
@@ -49,6 +51,30 @@
         if (countEl) {
             countEl.textContent = hasAny ? String(totalNotifications) : '0';
         }
+    }
+
+    function renderCompanionSyncSection() {
+        const el = getEl('daily-reset-companion-sync');
+        if (!el) return;
+        if (!latestCompanionSync || !latestCompanionSync.count) {
+            el.style.display = 'none';
+            el.innerHTML = '';
+            return;
+        }
+        const { count, deviceName, timestamp, tasks } = latestCompanionSync;
+        const label = count === 1 ? '1 task' : `${count} tasks`;
+        let html = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">`
+            + `&#128247; <strong>${escapeHtml(deviceName || 'Phone')}</strong> sent ${label} to inbox`
+            + (timestamp ? ` at ${escapeHtml(timestamp)}` : '')
+            + `.</div>`;
+        if (Array.isArray(tasks) && tasks.length) {
+            html += tasks.map(t => {
+                const title = escapeHtml(String(t.title || t.name || 'Untitled').trim());
+                return `<div style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-color,rgba(0,0,0,0.08));margin-bottom:5px;background:var(--surface-color,#fff);font-size:13px;">${title}</div>`;
+            }).join('');
+        }
+        el.innerHTML = html;
+        el.style.display = 'block';
     }
 
     function renderLogIntoModal() {
@@ -126,6 +152,7 @@
         }).filter(Boolean);
 
         listEl.innerHTML = rows.join('');
+        renderCompanionSyncSection();
     }
 
     function openModal() {
@@ -247,6 +274,20 @@
 
     window.DailyResetLog = {
         refresh: () => loadLatestLog(),
+        addCompanionSync: (info) => {
+            // info: { count, deviceName, timestamp, tasks[] }
+            latestCompanionSync = info || null;
+            updateIndicator();
+            // Re-render companion section if modal is currently open
+            const modal = getEl('daily-reset-log-modal');
+            if (modal && (modal.classList.contains('active') || modal.style.display === 'flex')) {
+                renderCompanionSyncSection();
+            }
+        },
+        clearCompanionSync: () => {
+            latestCompanionSync = null;
+            updateIndicator();
+        },
     };
 
     if (document.readyState === 'loading') {

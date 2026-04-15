@@ -59,8 +59,19 @@ async function checkCompanionTasksSync(isManual = false) {
         
         const data = await response.json();
         if (!data.success || !data.pending || !data.pending.id) {
-            if (isManual && window.showNotification) {
-                window.showNotification('No new tasks from phone', 'info');
+            if (isManual) {
+                // Signal the phone to push tasks, then wait for it to respond
+                try {
+                    await fetch('/api/mobile/request-sync', {
+                        method: 'POST',
+                        credentials: 'include',
+                    });
+                } catch (e) {
+                    console.debug('Failed to request sync from phone:', e);
+                }
+                if (window.showNotification) {
+                    window.showNotification('Asking phone to send tasks\u2026 open the companion app if needed.', 'info');
+                }
             }
             return;
         }
@@ -239,7 +250,7 @@ function showCompanionSyncModal(pending) {
     updateImportBtn();
     
     importBtn.addEventListener('click', async () => {
-        await importCompanionTasks(submissionId, Array.from(selectedTaskIds), Array.from(selectedNoteIds));
+        await importCompanionTasks(submissionId, Array.from(selectedTaskIds), Array.from(selectedNoteIds), payload);
         modal.style.display = 'none';
     });
     buttons.appendChild(importBtn);
@@ -249,7 +260,7 @@ function showCompanionSyncModal(pending) {
     modal.style.display = 'flex';
 }
 
-async function importCompanionTasks(submissionId, taskIds, noteIds) {
+async function importCompanionTasks(submissionId, taskIds, noteIds, pendingPayload) {
     try {
         const response = await fetch(`/api/mobile/inbox/${submissionId}/approve`, {
             method: 'POST',
@@ -263,6 +274,18 @@ async function importCompanionTasks(submissionId, taskIds, noteIds) {
             const totalImported = (result.created_tasks || 0) + (result.created_notes || 0);
             if (window.showNotification) {
                 window.showNotification(`Imported ${totalImported} item${totalImported === 1 ? '' : 's'} from phone`, 'success');
+            }
+            // Record in the notifications modal
+            if (window.DailyResetLog && typeof window.DailyResetLog.addCompanionSync === 'function') {
+                const payload = pendingPayload || {};
+                const importedTasks = (Array.isArray(payload.tasks) ? payload.tasks : [])
+                    .filter(t => taskIds.includes(String(t.client_task_id || t.id || '')));
+                window.DailyResetLog.addCompanionSync({
+                    count: totalImported,
+                    deviceName: payload.device_name || 'Phone',
+                    timestamp: new Date().toLocaleTimeString(),
+                    tasks: importedTasks,
+                });
             }
             // Refresh tasks if available
             if (typeof refreshTasks === 'function') refreshTasks();

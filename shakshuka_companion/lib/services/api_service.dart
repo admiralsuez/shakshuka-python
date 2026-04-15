@@ -451,6 +451,40 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> checkSyncRequest() async {
+    final device = _storage.getPairedDevice();
+    if (device == null) {
+      return {'success': false, 'sync_requested': false};
+    }
+
+    try {
+      final uri = Uri.parse('${device.serverUrl}/api/mobile/sync-request');
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'Bearer ${device.token}',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'sync_requested': data['sync_requested'] == true,
+        };
+      }
+      return {'success': false, 'sync_requested': false};
+    } on SocketException {
+      return {'success': false, 'sync_requested': false};
+    } on TimeoutException {
+      return {'success': false, 'sync_requested': false};
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Check sync request error: $e');
+      return {'success': false, 'sync_requested': false};
+    }
+  }
+
   Future<void> syncOfflineNotes() async {
     final queue = await _storage.getOfflineNotesQueue();
     if (queue.isEmpty) return;
