@@ -579,7 +579,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   Text(
-'v1.5 • $_totalTasksSent tasks sent'
+                    'v1.5 • $_totalTasksSent tasks sent',
                     style: TextStyle(fontSize: 12, color: Colors.grey[400]),
                   ),
                 ],

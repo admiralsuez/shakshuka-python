@@ -4,62 +4,49 @@ Complete guide for building Shakshuka for Windows, Linux, and macOS.
 
 ---
 
-## Recent Work Summary (v15.2)
+## Recent Work Summary (desktop v26.1 · companion v1.5.0)
 
-This section documents the most recent fixes and refactors so a new contributor can quickly understand what changed, where to look in the codebase, and how to verify behavior.
+This section documents the most recent fixes and features so a new contributor can quickly understand what changed, where to look, and how to verify behavior.
 
 ### What changed
 
-- **Analytics: Completed Forever + Analytics page cards**
-  - Completed Forever now counts tasks that are either `completed` or `struck_forever`.
-  - Analytics page cards (Completed Today / Day Streak / Striked Today) now refresh reliably.
-- **Notes: Split View correctness + chooser UX**
-  - Fixed a bug where opening a note in the secondary pane could overwrite another note's secondary content.
-  - Split-pane choice modal now explicitly asks Primary (Left) vs Secondary (Right) and shows current note titles.
-- **Changelog maintenance**
-  - Consolidated consecutive versions with empty Highlights into version ranges (e.g., `## Versions 14.4 – 14.9`).
-- **UI: Matte finish**
-  - Matte finish now applies a visible matte look to buttons consistently.
-- **Installer/Upgrades**
-  - Installer attempts graceful shutdown using `Shakshuka.exe --shutdown` before upgrade, with fallback to force-close.
+#### Two-way companion app sync (the core feature)
+Previously the desktop Sync button could only pull tasks that the phone had already manually pushed. Now the flow is fully automatic:
+
+1. **Desktop → phone signal**: when the desktop Sync button finds an empty inbox it calls `POST /api/mobile/request-sync` (local-only) which sets an in-memory one-shot flag, then shows *"Asking phone to send tasks…"*
+2. **Phone polls for the signal**: the companion app polls `GET /api/mobile/sync-request` (bearer-token auth) hourly and also 1 minute after the *last* task is added (debounced). Reading the flag atomically clears it.
+3. **Auto-upload**: when the phone detects a pending request it silently calls `uploadTasksAndNotes()` for all local tasks/notes and shows a snackbar. No manual "Send to PC" tap required.
+4. **Desktop shows notification**: after the user approves the imported tasks in the sync modal, an entry appears in the desktop Notifications bell (daily-reset-log-modal) showing the device name, item count, time, and task titles.
+
+#### Skip now unblocks the queue
+The Sync modal Skip button previously only hid the dialog; the submission stayed `pending` and permanently blocked newer ones. It now calls `POST /api/mobile/inbox/<id>/reject` on the backend so the queue advances.
 
 ### Key files touched
 
-- **Frontend (JS)**
-  - `assets/static/js/app/dashboard.js` (analytics card calculations + refresh)
-  - `assets/static/js/app/app.js` (await `AppState.setTasks(...)`, analytics navigation refresh)
-  - `assets/static/js/pages/tasks.js` (await task state updates)
-  - `assets/static/js/pages/notes.js` (split view binding + chooser modal)
-- **Frontend (CSS)**
-  - `assets/static/css/core/theme.css` (matte finish overrides)
-  - `assets/static/css/layout/layout-shell.css` (sidebar spacing + `#app-logo` cursor)
 - **Backend (Python)**
-  - `src/routes/task_routes.py` (set/clear `struck_forever` on strike forever + undo)
-  - `src/app.py` + `src/analytics_manager.py` (SQLite-backed `/api/analytics` counters)
-- **Build/Installer**
-  - `scripts/installer.iss` (upgrade shutdown handling, versioning)
-- **Changelog**
-  - `config/changelog.txt`
+  - `src/routes/mobile_routes.py` — new `POST /api/mobile/request-sync` and `GET /api/mobile/sync-request` endpoints; `_sync_requested` in-memory dict (ephemeral by design)
+- **Desktop JS**
+  - `assets/static/js/app/companion-sync.js` — calls request-sync when inbox empty; passes `payload` to `importCompanionTasks` and calls `DailyResetLog.addCompanionSync()` on success
+  - `assets/static/js/app/daily-reset-log.js` — new `latestCompanionSync` state, `renderCompanionSyncSection()`, updated `updateIndicator()`, exposed `window.DailyResetLog.addCompanionSync()` / `clearCompanionSync()`
+- **Desktop HTML**
+  - `assets/templates/partials/modals/daily_reset_log_modal.html` — added `#daily-reset-companion-sync` slot div
+- **Companion app (Flutter/Dart)**
+  - `shakshuka_companion/lib/services/api_service.dart` — new `checkSyncRequest()` method
+  - `shakshuka_companion/lib/screens/home_screen.dart` — `_syncRequestTimer` (1 h periodic), `_taskAddedSyncTimer` (1 min debounce), `_startSyncRequestPolling()`, `_schedulePostAddSyncCheck()`, `_pollSyncRequest()`, `_autoUploadAllTasks()`
+  - `shakshuka_companion/pubspec.yaml` — bumped to `1.5.0+15`
+- **Changelogs**
+  - `config/changelog.txt` — v26.1 entry
+  - `home_screen.dart` changelog widget — v1.5.0 entry; version labels updated throughout
 
 ### How to verify (manual)
 
-- **Analytics**
-  - Strike-forever a task and confirm Completed Forever increments.
-  - Complete a task today and confirm Analytics "Completed Today" increments.
-  - Strike a task and confirm Analytics "Striked Today" updates (prefers `/api/analytics.today_strikes`).
-  - Confirm Day Streak reflects consecutive days of task completions via `completed_at`.
-- **Notes split view**
-  - Open Note A in primary and Note B in secondary; edit each and confirm only the correct note content changes.
-  - When secondary already contains a note, confirm the chooser prompts Primary vs Secondary with titles.
-- **Matte finish**
-  - Switch Finish to Matte and confirm buttons look visibly flatter (reduced gloss/shadows).
-- **Installer**
-  - Upgrade over an existing install with Shakshuka running; verify the installer closes the app automatically.
+1. Pair the phone, add a new task on the phone, wait ≥ 1 minute (or press Sync immediately on desktop first to arm the flag).
+2. Desktop Sync button should show *"Asking phone to send tasks…"* and then, after the phone auto-uploads (within ~1 min), the import modal should appear on the next Sync press.
+3. Skip a pending submission in the import modal — confirm a subsequent Sync shows the next submission rather than the same one.
+4. After approving a batch, open the desktop Notifications bell and confirm an entry listing the device, count, and task titles appears.
 
-### Known pending items
-
-- **Strike Report History 404**: may occur when running an older packaged backend/exe that does not include `/api/tasks/<id>/strike-reports`.
-- **Windows shutdown scheduling**: needs clarification on desired timing/behavior before adding commands.
+### No DB changes
+The sync-request signal is intentionally in-memory (`_sync_requested` dict). All mobile tables (`mobile_devices`, `mobile_inbox`) were already created by migration 014 and require no schema changes.
 
 ## 📋 Quick Start
 
