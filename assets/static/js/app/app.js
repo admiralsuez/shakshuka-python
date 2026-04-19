@@ -1254,9 +1254,7 @@ function openTaskDetailsModal(taskId) {
                         <span class="task-details-project">${sanitizeHTML(project)}</span>
                         <span class="task-details-due">${sanitizeHTML(dueLabel)}</span>
                     </div>
-                    <div class="task-details-description">
-                        ${description ? sanitizeHTML(description) : '<em>No description</em>'}
-                    </div>
+                    <div class="task-details-description">${description ? sanitizeHTML(description) : '<em>No description</em>'}</div>
                 </div>
             </div>
         `;

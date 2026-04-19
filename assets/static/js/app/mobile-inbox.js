@@ -647,6 +647,9 @@
         startPolling();
     }
 
+    // Expose for other modules (e.g. companion-sync.js Sync button)
+    window.openPairPhoneModal = openPairPhoneModal;
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', bindUi);
     } else {

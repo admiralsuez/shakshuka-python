@@ -1,3 +1,25 @@
+## Version 26.2 - Companion Sync UX Polish & Bug Fixes
+Release Date: 2026-04-19
+
+### Companion Sync
+- **Auto-detect phone response**: After the desktop sends a sync request, it now polls the inbox every 5 seconds (for up to 90 seconds) and shows the import modal automatically when the phone pushes tasks — no second Sync press required.
+- **No more double modals**: A concurrency guard prevents two simultaneous sync checks from opening overlapping import dialogs.
+- **Phone opens app → instant sync**: The companion app now polls for a pending sync request immediately on connection (app open, pull-to-refresh), not just on the hourly timer.
+- **Auto-delete after acceptance**: Once the desktop accepts a task submission, the companion app detects the approval and automatically removes those tasks from the phone — no manual delete needed.
+- **Sync button opens pair modal when unpaired**: The Sync button on the Tasks page now checks whether a device is paired; if not, it opens the pair phone modal instead of attempting a sync.
+- **`'` encoding fixed in Notifications modal**: Task names with apostrophes no longer show as `&#039;` in the companion sync section of the Notifications bell.
+- **Improved companion sync card formatting**: The Notifications modal companion sync entry now renders as a styled card with device name, item count, timestamp, and task list rows.
+
+### Tasks
+- **Task description indentation fixed**: Opening a task's detail modal no longer shows the description paragraph indented — the extra whitespace injected by the template literal is now eliminated.
+
+### Performance
+- **Eliminated planner debug log flood**: Each `GET /api/planner-v2/schedule` call was logging one line per task (170+ lines per request). Reduced to a single `DEBUG`-level summary line, silent at the default log level.
+
+### UI
+- **Sync button matches Add Task style**: The Sync Phone button on the tasks header now uses the same `btn-primary` visual style (no glow animation, no coloured box-shadow) for visual consistency.
+
+---
 ## Version 26.1 - Two-Way Companion App Sync
 Release Date: 2026-04-15
 

@@ -4,6 +4,83 @@ const COMPANION_SYNC_KEY = 'shakshuka_companion_last_sync';
 const COMPANION_SYNC_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
 const COMPANION_AUTO_SYNC_KEY = 'companion_auto_sync_enabled';
 
+// Paired-state cache (TTL: 60 s) — avoids a round-trip on every button press
+let _pairedStateCache = null; // null = unknown, true/false
+let _pairedStateCacheAt = 0;
+const PAIRED_CACHE_TTL_MS = 60_000;
+
+async function _isPhonePaired() {
+    if (_pairedStateCache !== null && (Date.now() - _pairedStateCacheAt) < PAIRED_CACHE_TTL_MS) {
+        return _pairedStateCache;
+    }
+    try {
+        const resp = await fetch('/api/mobile/devices', { credentials: 'include' });
+        if (resp.ok) {
+            const data = await resp.json();
+            _pairedStateCache = !!(data.success && Array.isArray(data.devices) && data.devices.length > 0);
+        } else {
+            _pairedStateCache = false;
+        }
+    } catch (e) {
+        _pairedStateCache = false;
+    }
+    _pairedStateCacheAt = Date.now();
+    return _pairedStateCache;
+}
+
+function _openPairModal() {
+    if (typeof window.openPairPhoneModal === 'function') {
+        window.openPairPhoneModal();
+    } else {
+        // Fallback: click the header pair button if the function isn't ready yet
+        const btn = document.getElementById('pair-phone-btn');
+        if (btn) btn.click();
+    }
+}
+
+// Guards / polling state
+let _syncCheckInProgress = false;  // prevents concurrent inbox checks
+let _syncRequestPollInterval = null;
+let _syncRequestPollCount = 0;
+const SYNC_POLL_INTERVAL_MS = 5000; // poll every 5 s after requesting sync
+const SYNC_POLL_MAX_TICKS = 18;     // give up after 90 s
+
+function _stopSyncRequestPoll() {
+    if (_syncRequestPollInterval) {
+        clearInterval(_syncRequestPollInterval);
+        _syncRequestPollInterval = null;
+    }
+    _syncRequestPollCount = 0;
+}
+
+async function _syncRequestPollTick() {
+    _syncRequestPollCount++;
+    if (_syncRequestPollCount > SYNC_POLL_MAX_TICKS) {
+        _stopSyncRequestPoll();
+        return;
+    }
+    try {
+        const resp = await fetch('/api/mobile/inbox/pending', { credentials: 'include' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.success || !data.pending || !data.pending.id) return;
+        const pl = data.pending.payload || {};
+        const total = (Array.isArray(pl.tasks) ? pl.tasks.length : 0)
+                    + (Array.isArray(pl.notes) ? pl.notes.length : 0);
+        if (total > 0) {
+            _stopSyncRequestPoll();
+            showCompanionSyncModal(data.pending);
+        }
+    } catch (e) {
+        console.debug('Sync request poll error:', e);
+    }
+}
+
+function _startSyncRequestPoll() {
+    _stopSyncRequestPoll();
+    _syncRequestPollInterval = setInterval(_syncRequestPollTick, SYNC_POLL_INTERVAL_MS);
+}
+
 function isCompanionAutoSyncEnabled() {
     // Default to true if not set
     const stored = localStorage.getItem(COMPANION_AUTO_SYNC_KEY);
@@ -44,6 +121,10 @@ function updateCompanionAutoSync() {
 }
 
 async function checkCompanionTasksSync(isManual = false) {
+    if (_syncCheckInProgress) return;
+    _syncCheckInProgress = true;
+    // A manual press cancels any outstanding background poll before re-checking
+    if (isManual) _stopSyncRequestPoll();
     try {
         if (isManual && window.showNotification) {
             window.showNotification('Checking for tasks from phone...', 'info');
@@ -60,7 +141,7 @@ async function checkCompanionTasksSync(isManual = false) {
         const data = await response.json();
         if (!data.success || !data.pending || !data.pending.id) {
             if (isManual) {
-                // Signal the phone to push tasks, then wait for it to respond
+                // Signal the phone to push tasks, then auto-poll for the response
                 try {
                     await fetch('/api/mobile/request-sync', {
                         method: 'POST',
@@ -69,8 +150,9 @@ async function checkCompanionTasksSync(isManual = false) {
                 } catch (e) {
                     console.debug('Failed to request sync from phone:', e);
                 }
+                _startSyncRequestPoll();
                 if (window.showNotification) {
-                    window.showNotification('Asking phone to send tasks\u2026 open the companion app if needed.', 'info');
+                    window.showNotification('Waiting for phone to push tasks \u2014 the import dialog will appear automatically.', 'info');
                 }
             }
             return;
@@ -103,10 +185,13 @@ async function checkCompanionTasksSync(isManual = false) {
             window.showNotification('Error fetching tasks from phone', 'error');
         }
         console.debug('Companion sync check failed:', e);
+    } finally {
+        _syncCheckInProgress = false;
     }
 }
 
 function showCompanionSyncModal(pending) {
+    _stopSyncRequestPoll(); // tasks arrived — no need to keep polling
     const submissionId = pending.id;
     const payload = pending.payload || {};
     const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
@@ -324,7 +409,14 @@ function addCompanionSyncButton() {
     syncBtn.className = 'pair-phone-cta';
     syncBtn.innerHTML = '<i class="fas fa-mobile-alt"></i>Sync';
     syncBtn.title = 'Check for tasks from companion phone app';
-    syncBtn.addEventListener('click', () => checkCompanionTasksSync(true));
+    syncBtn.addEventListener('click', async () => {
+        const paired = await _isPhonePaired();
+        if (!paired) {
+            _openPairModal();
+            return;
+        }
+        checkCompanionTasksSync(true);
+    });
     
     // Insert in header-actions (where other action buttons are)
     const headerActions = pageHeader.querySelector('.header-actions');
@@ -365,7 +457,6 @@ if (typeof window !== 'undefined') {
 
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
-    if (companionSyncInterval) {
-        clearInterval(companionSyncInterval);
-    }
+    if (companionSyncInterval) clearInterval(companionSyncInterval);
+    _stopSyncRequestPoll();
 });

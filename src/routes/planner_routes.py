@@ -39,7 +39,6 @@ def _get_data_manager():
 @planner_bp.route("/schedule", methods=["GET"])
 def get_planner_v2_schedule():
     """Get scheduled tasks for Daily Planner v2"""
-    logger.info("GET /api/planner-v2/schedule called")
     user_id = _get_user_id()
     try:
         dm = _get_data_manager()
@@ -52,30 +51,22 @@ def get_planner_v2_schedule():
             logger.exception("Database error loading tasks for planner v2 schedule (user %s)", user_id)
             return jsonify({'success': False, 'error': 'Database error loading tasks'}), 503
         
-        logger.info(f"[DEBUG] Loaded {len(tasks)} total tasks for user {user_id}")
         scheduled_tasks = {}
         scheduled_count = 0
 
         for task in tasks:
-            task_id = task.get('id', 'unknown')
             scheduled_hour = task.get('scheduled_hour')
             scheduled_date = task.get('scheduled_date')
-            logger.info(f"[DEBUG] Task {task_id}: scheduled_hour={scheduled_hour}, scheduled_date={scheduled_date}")
-            
+
             if scheduled_hour is not None and scheduled_date:
                 scheduled_count += 1
-                logger.info(f"[DEBUG] Task {task_id} is SCHEDULED for {scheduled_date} at {scheduled_hour}")
-
                 if scheduled_date not in scheduled_tasks:
                     scheduled_tasks[scheduled_date] = {}
-
                 if scheduled_hour not in scheduled_tasks[scheduled_date]:
                     scheduled_tasks[scheduled_date][scheduled_hour] = []
-
                 scheduled_tasks[scheduled_date][scheduled_hour].append(task)
-        
-        logger.info(f"[DEBUG] Found {scheduled_count} scheduled tasks out of {len(tasks)} total")
-        logger.info(f"[DEBUG] Scheduled tasks dict: {scheduled_tasks.keys()}")
+
+        logger.debug("Planner schedule: %d scheduled out of %d total tasks", scheduled_count, len(tasks))
 
         response = jsonify({'success': True, 'scheduled_tasks': scheduled_tasks})
         # Disable caching to ensure fresh data

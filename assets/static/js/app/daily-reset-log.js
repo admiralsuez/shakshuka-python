@@ -62,17 +62,26 @@
             return;
         }
         const { count, deviceName, timestamp, tasks } = latestCompanionSync;
-        const label = count === 1 ? '1 task' : `${count} tasks`;
-        let html = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">`
-            + `&#128247; <strong>${escapeHtml(deviceName || 'Phone')}</strong> sent ${label} to inbox`
-            + (timestamp ? ` at ${escapeHtml(timestamp)}` : '')
-            + `.</div>`;
-        if (Array.isArray(tasks) && tasks.length) {
+        const itemLabel = count === 1 ? '1 item' : `${count} items`;
+        const hasTasks = Array.isArray(tasks) && tasks.length > 0;
+        let html = `<div style="border:1px solid var(--border-color,rgba(0,0,0,0.1));border-radius:8px;overflow:hidden;margin-bottom:12px;">`
+            + `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface-color,#fff);">`
+            + `<span style="font-size:18px;line-height:1;">&#128247;</span>`
+            + `<div style="flex:1;min-width:0;">`
+            + `<div style="font-weight:600;font-size:13px;color:var(--text-color);">Synced from ${escapeHtml(deviceName || 'Phone')} &mdash; ${itemLabel}</div>`
+            + (timestamp ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:1px;">at ${escapeHtml(timestamp)}</div>` : '')
+            + `</div></div>`;
+        if (hasTasks) {
+            html += `<div style="padding:6px 14px 10px;display:flex;flex-direction:column;gap:4px;">`;
             html += tasks.map(t => {
                 const title = escapeHtml(String(t.title || t.name || 'Untitled').trim());
-                return `<div style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-color,rgba(0,0,0,0.08));margin-bottom:5px;background:var(--surface-color,#fff);font-size:13px;">${title}</div>`;
+                const proj = t.project ? `<span style="font-size:11px;color:var(--text-secondary);margin-left:6px;">&#183; ${escapeHtml(t.project)}</span>` : '';
+                return `<div style="display:flex;align-items:baseline;padding:4px 8px;border-radius:5px;background:var(--bg-color,rgba(0,0,0,0.03));font-size:13px;">`
+                    + `<span style="color:var(--text-secondary);margin-right:6px;font-size:11px;">&#9632;</span>${title}${proj}</div>`;
             }).join('');
+            html += `</div>`;
         }
+        html += `</div>`;
         el.innerHTML = html;
         el.style.display = 'block';
     }
@@ -88,9 +97,10 @@
         const cleaner = latestCleanerRun;
 
         if (!reset && !cleaner) {
-            subtitleEl.textContent = 'No recent notifications to show.';
+            subtitleEl.textContent = 'No recent daily reset summary.';
             if (secondaryEl) secondaryEl.textContent = '';
             listEl.innerHTML = '';
+            renderCompanionSyncSection();
             return;
         }
 
@@ -218,12 +228,12 @@
     }
 
     function escapeHtml(str) {
+        // Only escape characters that are unsafe in HTML text content.
+        // Single quotes are safe inside text nodes and do not need encoding.
         return String(str)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
+            .replace(/>/g, '&gt;');
     }
 
     function bindUi() {
@@ -235,10 +245,10 @@
                 if (!currentLog) {
                     await loadLatestLog();
                 }
-                if (currentLog) {
+                if (currentLog || latestCompanionSync) {
                     openModal();
                 } else {
-                    safeNotify('No recent daily reset found.', 'info');
+                    safeNotify('No recent notifications found.', 'info');
                 }
             });
         }

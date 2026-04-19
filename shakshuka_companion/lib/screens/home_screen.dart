@@ -90,6 +90,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_storage.isPaired) {
       final connected = await _api.testConnection();
       setState(() => _isConnected = connected);
+      // Immediately check for a pending sync request whenever the app
+      // connects (startup, pull-to-refresh, resume from background).
+      if (connected) _pollSyncRequest();
     } else {
       setState(() => _isConnected = false);
     }
@@ -158,6 +161,40 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       }
+      // Watch for desktop acceptance and auto-remove tasks from phone
+      if (submissionId != null && tasks.isNotEmpty) {
+        _watchForApproval(submissionId, tasks.map((t) => t.id).toList());
+      }
+    }
+  }
+
+  /// Polls the submission status after an upload. When the desktop accepts,
+  /// deletes the uploaded tasks from local storage automatically.
+  Future<void> _watchForApproval(String submissionId, List<String> taskIds) async {
+    const maxAttempts = 60; // 5 min at 5 s/poll
+    for (int i = 0; i < maxAttempts; i++) {
+      await Future.delayed(const Duration(seconds: 5));
+      if (!mounted) return;
+      final status = await _api.checkSubmissionStatus(submissionId);
+      final s = status['status'] as String?;
+      if (s == 'approved') {
+        for (final id in taskIds) {
+          await _storage.deleteTask(id);
+        }
+        _loadTasks();
+        _loadStats();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Tasks accepted by desktop — removed from phone ✅'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+      if (s == 'rejected') return; // keep tasks on phone if rejected
     }
   }
 
@@ -303,12 +340,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final submissionId = result['submission_id'] as String?;
       await _storage.addSentTasksHistory(taskData, submissionId);
       
-      // Don't auto-delete - let user manually delete after desktop accepts
-      // This prevents accidental loss of tasks if desktop rejects them
       _loadTasks();
       _loadStats();
-      
-      // Show notification for successful upload
+
       String notifBody = '';
       if (tasksCount > 0 && notesCount > 0) {
         notifBody = '$tasksCount task(s) and $notesCount note(s) sent to PC inbox';
@@ -317,21 +351,25 @@ class _HomeScreenState extends State<HomeScreen> {
       } else {
         notifBody = '$notesCount note(s) sent to PC inbox';
       }
-      
+
       await _notifications.showTaskNotification(
         title: 'Upload Successful!',
         body: notifBody,
         submissionId: submissionId,
       );
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${selectedTasks.length + selectedNoteListDyn.length} item(s) sent! Review & accept on desktop, then delete from phone.'),
+            content: Text('${selectedTasks.length + selectedNoteListDyn.length} item(s) sent — will be removed automatically when desktop accepts.'),
             backgroundColor: Colors.blue,
             duration: const Duration(seconds: 5),
           ),
         );
+      }
+      // Auto-delete tasks from phone once desktop accepts the submission
+      if (submissionId != null && selectedTasks.isNotEmpty) {
+        _watchForApproval(submissionId, selectedTasks.map((t) => t.id).toList());
       }
     } else {
       // Check if device was unpaired from desktop
