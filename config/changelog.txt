@@ -1,4 +1,4 @@
-## Version 26.2 - Companion Sync UX Polish & Bug Fixes
+## Version 27.0 - Companion Sync UX Polish & Bug Fixes
 Release Date: 2026-04-19
 
 ### Companion Sync
