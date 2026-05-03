@@ -196,6 +196,7 @@ class SQLiteDataManager:
                         title TEXT NOT NULL,
                         description TEXT,
                         project TEXT,
+                        owner TEXT,
                         priority TEXT DEFAULT 'medium',
                         status TEXT DEFAULT 'pending',
                         completed BOOLEAN DEFAULT 0,
@@ -720,6 +721,26 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.error(f"Migration 024 failed: {e}")
             raise
+
+    def _migration_025_owner_column(self, conn) -> List[Dict[str, Any]]:
+        """Migration 025: Add owner column to tasks table"""
+        migrations_applied = []
+        try:
+            cursor = conn.execute("PRAGMA table_info(tasks)")
+            tasks_cols = [row[1] for row in cursor.fetchall()]
+            if 'owner' not in tasks_cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN owner TEXT DEFAULT ''")
+                self.logger.info("Added owner column to tasks table")
+
+            migrations_applied.append({
+                'version': 25,
+                'description': 'Added owner column to tasks table',
+                'sql': 'Migration 025: tasks.owner',
+            })
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 025 failed: {e}")
+            raise
         
     def _run_migrations(self):
         """Run database migrations with comprehensive error handling and rollback"""
@@ -837,6 +858,10 @@ class SQLiteDataManager:
                     # Migration 24: Notes trash, version history, task subtasks
                     if migration_version < 24:
                         migrations_applied.extend(self._migration_024_notes_trash_versions_subtasks(conn))
+
+                    # Migration 25: Add owner column to tasks
+                    if migration_version < 25:
+                        migrations_applied.extend(self._migration_025_owner_column(conn))
                     
                     # Update migration version
                     if migrations_applied:
@@ -923,6 +948,7 @@ class SQLiteDataManager:
         normalized['title'] = self._sanitize_text(normalized.get('title'), 200)
         normalized['description'] = self._sanitize_text(normalized.get('description', ''), 10000)
         normalized['project'] = self._sanitize_text(normalized.get('project', ''), 200)
+        normalized['owner'] = self._sanitize_text(normalized.get('owner', ''), 200)
         normalized['priority'] = self._sanitize_text(normalized.get('priority', 'medium'), 32) or 'medium'
         normalized['status'] = self._sanitize_text(normalized.get('status', 'pending'), 32) or 'pending'
 
@@ -1044,11 +1070,11 @@ class SQLiteDataManager:
                 conn.execute(
                     '''
                     INSERT INTO tasks (
-                        id, user_id, title, description, project, priority, status,
+                        id, user_id, title, description, project, owner, priority, status,
                         completed, completed_at, due_date, estimated_duration, scheduled_hour,
                         scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
                         daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''',
                     task_row
                 )
@@ -1735,6 +1761,7 @@ class SQLiteDataManager:
             task['title'],
             task.get('description', ''),
             task.get('project', ''),
+            task.get('owner', ''),
             task.get('priority', 'medium'),
             task.get('status', 'pending'),
             task.get('completed', False),
@@ -1793,6 +1820,7 @@ class SQLiteDataManager:
             'title': row['title'],
             'description': row['description'] or '',
             'project': row['project'] or '',
+            'owner': row['owner'] if 'owner' in keys else '',
             'priority': row['priority'] or 'medium',
             'status': row['status'] or 'pending',
             'completed': bool(row['completed']),
@@ -1896,11 +1924,11 @@ class SQLiteDataManager:
                             task_rows = [self._task_dict_to_row(task, user_id) for task in tasks_normalized]
                             conn.executemany('''
                                 INSERT INTO tasks (
-                                    id, user_id, title, description, project, priority, status,
+                                    id, user_id, title, description, project, owner, priority, status,
                                     completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                     scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
                                     daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_rows)
 
                             count_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ?', (user_id,))
@@ -1925,11 +1953,11 @@ class SQLiteDataManager:
                                     backup_rows = [self._task_dict_to_row(task, user_id) for task in backup_tasks]
                                     conn.executemany('''
                                         INSERT INTO tasks (
-                                            id, user_id, title, description, project, priority, status,
+                                            id, user_id, title, description, project, owner, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                             scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                                            daily_strikes, refreshed_at, created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     ''', backup_rows)
                                     conn.commit()
                                     self.logger.info(f"Backup restored for user {user_id}")
@@ -2020,11 +2048,11 @@ class SQLiteDataManager:
                             task_row = self._task_dict_to_row(task_data, user_id)
                             conn.execute('''
                                 INSERT INTO tasks (
-                                    id, user_id, title, description, project, priority, status,
+                                    id, user_id, title, description, project, owner, priority, status,
                                     completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                     scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
                                     daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', task_row)
 
                             conn.commit()
@@ -2095,11 +2123,11 @@ class SQLiteDataManager:
                     task_rows = [self._task_dict_to_row(task, user_id) for task in tasks]
                     conn.executemany('''
                         INSERT INTO tasks (
-                            id, user_id, title, description, project, priority, status,
+                            id, user_id, title, description, project, owner, priority, status,
                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
                             scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today,
                             struck_date, strike_report, strike_count, daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', task_rows)
 
                     conn.commit()
@@ -2154,7 +2182,7 @@ class SQLiteDataManager:
                             conn.execute(
                                 '''
                                 UPDATE tasks SET
-                                    title = ?, description = ?, project = ?, priority = ?,
+                                    title = ?, description = ?, project = ?, owner = ?, priority = ?,
                                     status = ?, completed = ?, completed_at = ?, due_date = ?, estimated_duration = ?,
                                     scheduled_hour = ?, scheduled_minute = ?, scheduled_date = ?, scheduled_duration = ?,
                                     struck_forever = ?, struck_today = ?, struck_date = ?,
@@ -2166,6 +2194,7 @@ class SQLiteDataManager:
                                     merged_task.get('title', ''),
                                     merged_task.get('description', ''),
                                     merged_task.get('project', ''),
+                                    merged_task.get('owner', ''),
                                     merged_task.get('priority', 'medium'),
                                     merged_task.get('status', 'pending'),
                                     merged_task.get('completed', False),
@@ -2217,11 +2246,11 @@ class SQLiteDataManager:
                                     conn.execute(
                                         '''
                                         INSERT INTO tasks (
-                                            id, user_id, title, description, project, priority, status,
+                                            id, user_id, title, description, project, owner, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                             scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                                            daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                         ''',
                                         backup_row_tuple,
                                     )
@@ -2291,11 +2320,11 @@ class SQLiteDataManager:
                                     conn.execute(
                                         '''
                                         INSERT INTO tasks (
-                                            id, user_id, title, description, project, priority, status,
+                                            id, user_id, title, description, project, owner, priority, status,
                                             completed, completed_at, due_date, estimated_duration, scheduled_hour,
                                             scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                                            daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                         ''',
                                         backup_row_tuple,
                                     )

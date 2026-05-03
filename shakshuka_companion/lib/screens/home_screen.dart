@@ -35,10 +35,12 @@ class _HomeScreenState extends State<HomeScreen> {
   String _appTheme = 'orange';
   Timer? _syncRequestTimer;
   Timer? _taskAddedSyncTimer;
+  late _ApprovalPoller _approvalPoller;
 
   @override
   void initState() {
     super.initState();
+    _approvalPoller = _ApprovalPoller(_api);
     _loadTasks();
     _checkConnection();
     _loadStats();
@@ -51,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _syncRequestTimer?.cancel();
     _taskAddedSyncTimer?.cancel();
+    _approvalPoller.cancel();
     _quickAddController.removeListener(_handleQuickAddChanged);
     _quickAddController.dispose();
     _quickAddFocus.dispose();
@@ -127,21 +130,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _autoUploadAllTasks() async {
-    final tasks = _storage.getAllTasks();
+    // Delta sync: only upload unsent tasks
+    final unsentTasks = await _storage.getUnsentTasks();
     final notes = _storage.getAllNotes();
-    if (tasks.isEmpty && notes.isEmpty) return;
+    if (unsentTasks.isEmpty && notes.isEmpty) return;
 
     setState(() => _isUploading = true);
-    final result = await _api.uploadTasksAndNotes(tasks, notes);
+    final result = await _api.uploadTasksAndNotes(unsentTasks, notes);
     setState(() => _isUploading = false);
 
     if (result['success'] == true) {
-      final tasksCount = result['tasks_count'] ?? tasks.length;
+      final tasksCount = result['tasks_count'] ?? unsentTasks.length;
       final notesCount = result['notes_count'] ?? notes.length;
       await _storage.incrementTasksSent(tasksCount);
-      final taskData = tasks.map((t) => {'title': t.title, 'duration': t.duration}).toList();
+      final taskData = unsentTasks.map((t) => {'title': t.title, 'duration': t.duration}).toList();
       final submissionId = result['submission_id'] as String?;
       await _storage.addSentTasksHistory(taskData, submissionId);
+      
+      // Mark tasks as sent for delta sync
+      if (submissionId != null) {
+        await _storage.markTasksAsSent(
+          unsentTasks.map((t) => t.id).toList(),
+          submissionId,
+        );
+      }
+      
       _loadTasks();
       _loadStats();
       String msg;
@@ -162,40 +175,58 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
       // Watch for desktop acceptance and auto-remove tasks from phone
-      if (submissionId != null && tasks.isNotEmpty) {
-        _watchForApproval(submissionId, tasks.map((t) => t.id).toList());
+      if (submissionId != null && unsentTasks.isNotEmpty) {
+        _watchForApproval(submissionId, unsentTasks.map((t) => t.id).toList());
       }
     }
   }
 
-  /// Polls the submission status after an upload. When the desktop accepts,
-  /// deletes the uploaded tasks from local storage automatically.
+  /// Register submission with batch approval poller (replaces old sequential polling)
   Future<void> _watchForApproval(String submissionId, List<String> taskIds) async {
-    const maxAttempts = 60; // 5 min at 5 s/poll
-    for (int i = 0; i < maxAttempts; i++) {
-      await Future.delayed(const Duration(seconds: 5));
-      if (!mounted) return;
-      final status = await _api.checkSubmissionStatus(submissionId);
-      final s = status['status'] as String?;
-      if (s == 'approved') {
-        for (final id in taskIds) {
-          await _storage.deleteTask(id);
-        }
-        _loadTasks();
-        _loadStats();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Tasks accepted by desktop — removed from phone ✅'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 4),
-            ),
-          );
+    _approvalPoller.watchSubmission(submissionId, taskIds);
+    
+    // Monitor for approval in background
+    _monitorApprovalInBackground(submissionId, taskIds);
+  }
+  
+  /// Background task to handle approved submissions
+  void _monitorApprovalInBackground(String submissionId, List<String> taskIds) {
+    // Check every 10 seconds if submission was approved
+    Timer.periodic(Duration(seconds: 10), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      // Check if this submission is still being watched
+      if (_approvalPoller.pendingCount == 0 || !_approvalPoller._watchers.containsKey(submissionId)) {
+        timer.cancel();
+        
+        // Check final status
+        final status = await _api.checkSubmissionStatus(submissionId);
+        final s = status['status'] as String?;
+        
+        if (s == 'approved') {
+          // Delete tasks from phone
+          for (final id in taskIds) {
+            await _storage.deleteTask(id);
+          }
+          _loadTasks();
+          _loadStats();
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Tasks accepted by desktop — removed from phone ✅'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 4),
+              ),
+            );
+          }
         }
         return;
       }
-      if (s == 'rejected') return; // keep tasks on phone if rejected
-    }
+    });
   }
 
   Future<void> _refreshData() async {
@@ -339,6 +370,14 @@ class _HomeScreenState extends State<HomeScreen> {
       final taskData = selectedTasks.map((t) => {'title': t.title, 'duration': t.duration}).toList();
       final submissionId = result['submission_id'] as String?;
       await _storage.addSentTasksHistory(taskData, submissionId);
+      
+      // Mark tasks as sent for delta sync
+      if (submissionId != null) {
+        await _storage.markTasksAsSent(
+          selectedTasks.map((t) => t.id).toList(),
+          submissionId,
+        );
+      }
       
       _loadTasks();
       _loadStats();
@@ -1944,4 +1983,126 @@ class _StatsPageState extends State<_StatsPage> {
             ),
     );
   }
+}
+
+/// Batch approval poller - checks all pending submissions with exponential backoff
+class _ApprovalPoller {
+  final Map<String, _ApprovalWatcher> _watchers = {};
+  final ApiService _api;
+  Timer? _pollingTimer;
+  bool _isPolling = false;
+  
+  static const Duration INITIAL_INTERVAL = Duration(seconds: 5);
+  static const Duration MAX_INTERVAL = Duration(seconds: 30);
+  static const Duration MAX_WAIT_TIME = Duration(minutes: 5);
+  
+  _ApprovalPoller(this._api);
+  
+  /// Register a submission for approval tracking
+  void watchSubmission(String submissionId, List<String> taskIds) {
+    _watchers[submissionId] = _ApprovalWatcher(
+      submissionId: submissionId,
+      taskIds: taskIds,
+      startTime: DateTime.now(),
+      nextCheckTime: DateTime.now(),
+      pollInterval: INITIAL_INTERVAL,
+    );
+    
+    debugPrint('Watching submission $submissionId with ${taskIds.length} tasks');
+    
+    // Start polling if not already running
+    if (_pollingTimer == null) {
+      _startPolling();
+    }
+  }
+  
+  /// Single polling loop checks ALL pending submissions
+  void _startPolling() {
+    _pollingTimer = Timer.periodic(Duration(seconds: 2), (_) {
+      _checkAllSubmissions();
+    });
+    debugPrint('Started batch approval polling');
+  }
+  
+  Future<void> _checkAllSubmissions() async {
+    if (_isPolling || _watchers.isEmpty) return;
+    
+    _isPolling = true;
+    try {
+      final now = DateTime.now();
+      final toRemove = <String>[];
+      
+      for (final entry in _watchers.entries) {
+        final watcher = entry.value;
+        
+        // Skip if not time to check yet
+        if (now.isBefore(watcher.nextCheckTime)) continue;
+        
+        // Skip if exceeded max wait time
+        if (now.difference(watcher.startTime) > MAX_WAIT_TIME) {
+          debugPrint('Submission ${entry.key} exceeded max wait time, giving up');
+          toRemove.add(entry.key);
+          continue;
+        }
+        
+        // Check status
+        final status = await _api.checkSubmissionStatus(watcher.submissionId);
+        final s = status['status'] as String?;
+        
+        if (s == 'approved') {
+          debugPrint('Submission ${entry.key} approved, marking for deletion');
+          toRemove.add(entry.key);
+        } else if (s == 'rejected') {
+          debugPrint('Submission ${entry.key} rejected');
+          toRemove.add(entry.key);
+        } else {
+          // Exponential backoff: 5s → 7.5s → 11s → 16s → 24s → 30s
+          final nextInterval = Duration(
+            seconds: (watcher.pollInterval.inSeconds * 1.5).toInt()
+              .clamp(5, 30)
+          );
+          watcher.pollInterval = nextInterval;
+          watcher.nextCheckTime = now.add(nextInterval);
+          debugPrint('Submission ${entry.key} still pending, next check in ${nextInterval.inSeconds}s');
+        }
+      }
+      
+      // Clean up completed watchers
+      for (final id in toRemove) {
+        _watchers.remove(id);
+      }
+      
+      // Stop polling if no more watchers
+      if (_watchers.isEmpty) {
+        _pollingTimer?.cancel();
+        _pollingTimer = null;
+        debugPrint('No more submissions to watch, stopped polling');
+      }
+    } finally {
+      _isPolling = false;
+    }
+  }
+  
+  void cancel() {
+    _pollingTimer?.cancel();
+    _watchers.clear();
+  }
+  
+  int get pendingCount => _watchers.length;
+}
+
+class _ApprovalWatcher {
+  final String submissionId;
+  final List<String> taskIds;
+  final DateTime startTime;
+  DateTime nextCheckTime;
+  Duration pollInterval;
+  
+  _ApprovalWatcher({
+    required this.submissionId,
+    required this.taskIds,
+    required this.startTime,
+    required this.nextCheckTime,
+    required this.pollInterval,
+  });
 }

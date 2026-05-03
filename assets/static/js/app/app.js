@@ -858,6 +858,14 @@ async function navigateToPage(page) {
         } catch (e) {
             renderTasks();
         }
+    } else if (page === 'notes') {
+        // Always return to the dashboard view so re-clicking Notes in the nav
+        // acts as a "back" button from the editor.
+        try {
+            if (window.Notes && typeof window.Notes.showDashboard === 'function') {
+                window.Notes.showDashboard();
+            }
+        } catch (e) { /* no-op */ }
     }
 }
 
@@ -1964,6 +1972,8 @@ function populateTaskForm(task) {
     document.getElementById('task-title').value = task.title;
     document.getElementById('task-description').value = task.description || '';
     document.getElementById('task-project').value = task.project || '';
+    var ownerEl = document.getElementById('task-owner');
+    if (ownerEl) ownerEl.value = task.owner || '';
     document.getElementById('task-due-date').value = task.due_date || '';
     document.getElementById('task-duration').value = task.estimated_duration || 60;
 }
@@ -1974,8 +1984,9 @@ function clearTaskForm() {
 }
 
 // Helper to apply "quick project from title" rule for NEW tasks.
-// If enabled in settings and no project is specified, a title like
-// "Work, finish report" becomes project="Work" and title="finish report".
+// If enabled in settings, supports two formats:
+// 1. "project, task details" -> project="project", title="task details"
+// 2. "project, owner, task details" -> project="project", owner="owner", title="task details"
 function applyQuickProjectFromTitle(taskData) {
     try {
         const settings = (typeof AppState !== 'undefined' && AppState.get)
@@ -1994,23 +2005,43 @@ function applyQuickProjectFromTitle(taskData) {
     }
 
     const title = (taskData.title || '').trim();
-    const commaIndex = title.indexOf(',');
-    if (commaIndex <= 0) {
+    const firstCommaIndex = title.indexOf(',');
+    if (firstCommaIndex <= 0) {
         return taskData;
     }
 
-    const prefix = title.slice(0, commaIndex);
-    const firstWord = prefix.trim().split(/\s+/)[0];
-    if (!firstWord) {
+    // Extract first part (project)
+    const projectPart = title.slice(0, firstCommaIndex).trim();
+    const project = projectPart.split(/\s+/)[0];
+    if (!project) {
         return taskData;
     }
 
-    const rest = title.slice(commaIndex + 1).trim();
-    return {
+    // Check for second comma (owner)
+    const afterFirstComma = title.slice(firstCommaIndex + 1).trim();
+    const secondCommaIndex = afterFirstComma.indexOf(',');
+    
+    let owner = '';
+    let finalTitle = afterFirstComma;
+    
+    if (secondCommaIndex > 0) {
+        // Format: "project, owner, task"
+        const ownerPart = afterFirstComma.slice(0, secondCommaIndex).trim();
+        owner = ownerPart.split(/\s+/)[0];
+        finalTitle = afterFirstComma.slice(secondCommaIndex + 1).trim();
+    }
+
+    const result = {
         ...taskData,
-        title: rest,
-        project: firstWord
+        title: finalTitle,
+        project: project
     };
+    
+    if (owner) {
+        result.owner = owner;
+    }
+    
+    return result;
 }
 
 

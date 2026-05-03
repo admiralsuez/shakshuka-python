@@ -1,0 +1,32 @@
+    <!-- Export Excel Modal -->
+    <div id="export-excel-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Export Excel Report</h3>
+                <button class="modal-close" id="close-export-excel-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="export-excel-form">
+                    <div class="form-group">
+                        <label for="export-start-date">Start Date</label>
+                        <input type="date" id="export-start-date">
+                    </div>
+                    <div class="form-group">
+                        <label for="export-end-date">End Date</label>
+                        <input type="date" id="export-end-date">
+                    </div>
+                    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;">
+                        Leave dates empty to export all tasks.
+                    </p>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="cancel-export-excel">Cancel</button>
+                <button type="button" class="btn-primary" id="confirm-export-excel">
+                    <i class="fas fa-file-excel"></i> Export
+                </button>
+            </div>
+        </div>
+    </div>

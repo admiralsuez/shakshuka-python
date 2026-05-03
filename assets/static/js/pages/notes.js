@@ -2811,6 +2811,99 @@
         commandMenuEl.style.display = 'none';
     }
 
+    async function _createSingleTask(title, silent) {
+        const taskPayload = {
+            title,
+            description: '',
+            project: '',
+            estimated_duration: 60
+        };
+        try {
+            if (typeof window.createTask === 'function') {
+                await window.createTask(taskPayload);
+            } else if (window.Utils && typeof Utils.apiCall === 'function') {
+                await Utils.apiCall('/api/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(taskPayload)
+                });
+            }
+            if (!silent && window.showNotification) {
+                window.showNotification('Task created from note selection', 'success');
+            }
+            return true;
+        } catch (err) {
+            console.error('Failed to create task from selection', err);
+            if (!silent && window.showNotification) {
+                window.showNotification('Failed to create task from selection', 'error');
+            }
+            return false;
+        }
+    }
+
+    function _showAddTasksChoiceDialog(lines, fullText) {
+        return new Promise((resolve) => {
+            // Remove any existing dialog
+            const existing = document.getElementById('notes-add-tasks-choice-modal');
+            if (existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.id = 'notes-add-tasks-choice-modal';
+            modal.className = 'modal';
+            modal.style.display = 'flex';
+
+            const previewLines = lines.slice(0, 3);
+            const moreCount = lines.length - previewLines.length;
+            const previewHtml = previewLines
+                .map(l => `<div style="padding:0.2rem 0;font-size:0.82rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">&bull; ${l.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`)
+                .join('');
+            const moreHtml = moreCount > 0 ? `<div style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.2rem;">…and ${moreCount} more line${moreCount > 1 ? 's' : ''}</div>` : '';
+
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width:480px;">
+                    <div class="modal-header">
+                        <h2>Add selection to tasks</h2>
+                        <button class="modal-close" type="button" data-action="cancel">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding-bottom:0.5rem;">
+                        <p style="color:var(--text-secondary);margin:0 0 0.6rem;">How would you like to add the ${lines.length} selected lines?</p>
+                        <div style="background:var(--surface-color);border:1px solid var(--border-color);border-radius:8px;padding:0.6rem 0.8rem;margin-bottom:0.6rem;">
+                            ${previewHtml}${moreHtml}
+                        </div>
+                    </div>
+                    <div class="modal-footer" style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                        <button class="btn-secondary" type="button" data-action="cancel">Cancel</button>
+                        <button class="btn-secondary" type="button" data-action="one">1 task (whole selection)</button>
+                        <button class="btn-primary" type="button" data-action="per-line">${lines.length} tasks (one per line)</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            modal.classList.add('active');
+
+            const cleanup = (result) => {
+                modal.classList.remove('active');
+                modal.style.display = 'none';
+                modal.remove();
+                resolve(result);
+            };
+
+            modal.addEventListener('click', (e) => {
+                const btn = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+                if (!btn) {
+                    // Click on the backdrop itself
+                    if (e.target === modal) cleanup(null);
+                    return;
+                }
+                const action = btn.getAttribute('data-action');
+                if (action === 'one') cleanup('one');
+                else if (action === 'per-line') cleanup('per-line');
+                else if (action === 'cancel') cleanup(null);
+            });
+        });
+    }
+
     async function addSelectionToTask() {
         const editor = getFocusedEditor();
         if (!editor) return;
@@ -2824,36 +2917,36 @@
             return;
         }
 
-        const preview = text.length > 120 ? text.slice(0, 120) + '…' : text;
-        const ok = window.confirm ? window.confirm(`Make this selection a task?\n\n"${preview}"`) : true;
-        if (!ok) {
+        // Split into non-empty lines
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+        if (lines.length <= 1) {
+            // Single-line: original confirm + create behavior
+            const preview = text.length > 120 ? text.slice(0, 120) + '\u2026' : text;
+            const ok = window.confirm ? window.confirm(`Make this selection a task?\n\n"${preview}"`) : true;
+            if (!ok) return;
+            await _createSingleTask(text, false);
             return;
         }
 
-        const taskPayload = {
-            title: text,
-            description: '',
-            project: '',
-            estimated_duration: 60
-        };
+        // Multi-line: show choice dialog
+        const choice = await _showAddTasksChoiceDialog(lines, text);
+        if (!choice) return; // cancelled
 
-        try {
-            if (typeof window.createTask === 'function') {
-                await window.createTask(taskPayload);
-            } else if (window.Utils && typeof Utils.apiCall === 'function') {
-                await Utils.apiCall('/api/tasks', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(taskPayload)
-                });
+        if (choice === 'one') {
+            await _createSingleTask(text, false);
+        } else if (choice === 'per-line') {
+            let successCount = 0;
+            for (const line of lines) {
+                const ok = await _createSingleTask(line, true);
+                if (ok) successCount++;
             }
             if (window.showNotification) {
-                window.showNotification('Task created from note selection', 'success');
-            }
-        } catch (err) {
-            console.error('Failed to create task from selection', err);
-            if (window.showNotification) {
-                window.showNotification('Failed to create task from selection', 'error');
+                if (successCount === lines.length) {
+                    window.showNotification(`${successCount} task${successCount === 1 ? '' : 's'} created from selection`, 'success');
+                } else {
+                    window.showNotification(`${successCount} of ${lines.length} tasks created`, successCount > 0 ? 'info' : 'error');
+                }
             }
         }
     }
@@ -3735,7 +3828,8 @@
     // Expose a minimal API if needed later
     window.Notes = {
         init,
-        addSelectionToTask
+        addSelectionToTask,
+        showDashboard: showNotesDashboard
     };
 
     // Initialize when DOM is ready so that navigating to Notes works on first open

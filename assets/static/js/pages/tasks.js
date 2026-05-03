@@ -521,6 +521,7 @@ function getTaskFormData() {
     const description = document.getElementById('task-description')?.value.trim();
     const priority = document.getElementById('task-priority')?.value || 'medium';
     const project = document.getElementById('task-project')?.value || '';
+    const owner = document.getElementById('task-owner')?.value || '';
     const dueDate = document.getElementById('task-due-date')?.value || null;
     const durationRaw = document.getElementById('task-duration')?.value;
     const hideDaysRaw = document.getElementById('task-hide-days')?.value;
@@ -555,6 +556,7 @@ function getTaskFormData() {
         description,
         priority,
         project,
+        owner,
         due_date: dueDate || null,
         estimated_duration: estimatedDuration,
     };
@@ -619,6 +621,7 @@ function openTaskModal(taskId = null) {
     const titleInput = document.getElementById('task-title');
     const descriptionInput = document.getElementById('task-description');
     const projectSelect = document.getElementById('task-project');
+    const ownerInput = document.getElementById('task-owner');
 
     if (taskId) {
         // Edit existing task
@@ -630,6 +633,7 @@ function openTaskModal(taskId = null) {
             titleInput.value = task.title;
             descriptionInput.value = task.description || '';
             projectSelect.value = task.project || '';
+            ownerInput.value = task.owner || '';
 
             document.getElementById('modal-title').textContent = 'Edit Task';
             document.getElementById('save-task').textContent = 'Update Task';
@@ -781,6 +785,7 @@ function createTaskElement(task) {
             <span class="project-tag ${task.project ? '' : 'project-tag--no-project no-project'}">
                 ${task.project || 'No Project'}
             </span>
+            ${task.owner ? `<span class="owner-tag">${Utils.sanitizeHTML(task.owner)}</span>` : ''}
         </div>
 
         <div class="task-content">

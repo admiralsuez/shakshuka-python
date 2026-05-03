@@ -11,6 +11,65 @@ async function checkForUpdates() {
     return checkGitHubUpdate();
 }
 
+// ── Excel Export ──
+function openExportExcelModal() {
+    const modal = document.getElementById('export-excel-modal');
+    if (!modal) return;
+    const today = new Date();
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    const startEl = document.getElementById('export-start-date');
+    const endEl = document.getElementById('export-end-date');
+    if (startEl) startEl.value = thirtyDaysAgo.toISOString().split('T')[0];
+    if (endEl) endEl.value = today.toISOString().split('T')[0];
+    modal.style.display = 'flex';
+    modal.classList.add('active');
+}
+
+function closeExportExcelModal() {
+    const modal = document.getElementById('export-excel-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+    }
+}
+
+function exportExcelReport() {
+    const startDate = (document.getElementById('export-start-date') || {}).value || '';
+    const endDate = (document.getElementById('export-end-date') || {}).value || '';
+    let url = '/api/tasks/export-excel?';
+    if (startDate) url += 'start_date=' + encodeURIComponent(startDate) + '&';
+    if (endDate) url += 'end_date=' + encodeURIComponent(endDate) + '&';
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    closeExportExcelModal();
+    if (typeof showNotification === 'function') showNotification('Excel report exported! 📊', 'success');
+}
+
+(function initExportExcelHandlers() {
+    function setup() {
+        var btn = document.getElementById('export-excel-btn');
+        if (btn) btn.addEventListener('click', openExportExcelModal);
+        var closeBtn = document.getElementById('close-export-excel-modal');
+        if (closeBtn) closeBtn.addEventListener('click', closeExportExcelModal);
+        var cancelBtn = document.getElementById('cancel-export-excel');
+        if (cancelBtn) cancelBtn.addEventListener('click', closeExportExcelModal);
+        var confirmBtn = document.getElementById('confirm-export-excel');
+        if (confirmBtn) confirmBtn.addEventListener('click', exportExcelReport);
+        var modal = document.getElementById('export-excel-modal');
+        if (modal) modal.addEventListener('click', function(e) { if (e.target === modal) closeExportExcelModal(); });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setup);
+    } else {
+        setup();
+    }
+})();
+
 async function checkGitHubUpdate() {
     try {
         const branchElement = document.getElementById('github-branch');

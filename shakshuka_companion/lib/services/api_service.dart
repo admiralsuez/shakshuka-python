@@ -14,6 +14,11 @@ class ApiService {
   ApiService._internal();
 
   final StorageService _storage = StorageService();
+  
+  // Connection caching - avoid redundant health checks
+  DateTime? _lastConnectionCheck;
+  bool _cachedConnectionStatus = false;
+  static const Duration CONNECTION_CACHE_TTL = Duration(seconds: 30);
 
   Future<Map<String, dynamic>> pairWithServer({
     required String serverUrl,
@@ -197,23 +202,35 @@ class ApiService {
     return {'success': false, 'message': 'Upload failed after retries'};
   }
 
-  Future<bool> testConnection({int retries = 2}) async {
+  Future<bool> testConnection({int retries = 2, bool forceRefresh = false}) async {
     final device = _storage.getPairedDevice();
     if (device == null) return false;
+
+    // Return cached result if fresh and not forced to refresh
+    if (!forceRefresh && _lastConnectionCheck != null) {
+      final age = DateTime.now().difference(_lastConnectionCheck!);
+      if (age < CONNECTION_CACHE_TTL) {
+        debugPrint('Using cached connection status: $_cachedConnectionStatus (age: ${age.inSeconds}s)');
+        return _cachedConnectionStatus;
+      }
+    }
 
     for (int attempt = 0; attempt <= retries; attempt++) {
       try {
         final uri = Uri.parse('${device.serverUrl}/health');
         final response =
-            await http.get(uri).timeout(const Duration(seconds: 5));
+            await http.get(uri).timeout(const Duration(seconds: 3));
         if (response.statusCode == 200) {
+          _cachedConnectionStatus = true;
+          _lastConnectionCheck = DateTime.now();
+          debugPrint('Connection test successful, cached for 30s');
           return true;
         }
       }
       on SocketException catch (e) {
         debugPrint('Connection test attempt ${attempt + 1}/${retries + 1}: SocketException - $e');
         if (attempt < retries) {
-          await Future.delayed(Duration(seconds: 1 + attempt)); // Exponential backoff
+          await Future.delayed(Duration(seconds: 1 + attempt));
         }
       }
       on TimeoutException catch (e) {
@@ -229,6 +246,10 @@ class ApiService {
         }
       }
     }
+    
+    _cachedConnectionStatus = false;
+    _lastConnectionCheck = DateTime.now();
+    debugPrint('Connection test failed, cached for 30s');
     return false;
   }
 

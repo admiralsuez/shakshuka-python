@@ -275,6 +275,23 @@ body[data-theme="speedy"] .task-item::after {
     opacity: 0.7;
 }
 
+.owner-tag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--secondary-color, #6C5CE7);
+    color: white;
+    padding: calc(4px * var(--dpi-scale, 1)) calc(12px * var(--dpi-scale, 1));
+    border-radius: calc(999px * var(--dpi-scale, 1));
+    font-size: calc(0.7rem * var(--dpi-scale, 1));
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: calc(6px * var(--dpi-scale, 1));
+    position: relative;
+    z-index: 3;
+}
+
 /* Task content in the center */
  .task-content {
     flex: 1;

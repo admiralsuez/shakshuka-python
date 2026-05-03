@@ -98,6 +98,49 @@ class StorageService {
     }
   }
 
+  // Delta sync - track which tasks have been sent to prevent duplicates
+  Future<void> markTasksAsSent(List<String> taskIds, String submissionId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final sentMap = await _getSentTasksMap();
+    
+    for (final id in taskIds) {
+      sentMap[id] = {
+        'submission_id': submissionId,
+        'sent_at': DateTime.now().toIso8601String(),
+      };
+    }
+    
+    await prefs.setString('sent_tasks_map', jsonEncode(sentMap));
+    debugPrint('Marked ${taskIds.length} tasks as sent');
+  }
+
+  Future<Map<String, dynamic>> _getSentTasksMap() async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString('sent_tasks_map');
+    if (json == null) return {};
+    try {
+      return Map<String, dynamic>.from(jsonDecode(json));
+    }
+    catch (e) { // noqa: broad-catch
+      debugPrint('Failed to parse sent tasks map: $e');
+      return {};
+    }
+  }
+
+  Future<List<LocalTask>> getUnsentTasks() async {
+    final allTasks = getAllTasks();
+    final sentMap = await _getSentTasksMap();
+    
+    final unsent = allTasks.where((task) => !sentMap.containsKey(task.id)).toList();
+    debugPrint('Found ${unsent.length} unsent tasks out of ${allTasks.length}');
+    return unsent;
+  }
+
+  Future<void> clearSentTasksMap() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('sent_tasks_map');
+  }
+
   // Tasks
   List<LocalTask> getAllTasks() {
     return _taskBox.values.toList()

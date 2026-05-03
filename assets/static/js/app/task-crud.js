@@ -828,10 +828,12 @@ async function saveTask() {
     const formData = new FormData(form);
     
     const dueRaw = document.getElementById('task-due-date').value;
+    const ownerEl = document.getElementById('task-owner');
     const taskData = {
         title: document.getElementById('task-title').value,
         description: document.getElementById('task-description').value,
         project: document.getElementById('task-project').value,
+        owner: ownerEl ? ownerEl.value : '',
         estimated_duration: parseInt(document.getElementById('task-duration').value)
     };
     // Only include due_date if provided; backend rejects empty strings

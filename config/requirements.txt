@@ -44,3 +44,6 @@ Pillow>=11.0.0
 
 # Caching (for CSRF token TTL cache)
 cachetools>=5.3.0
+
+# Excel export
+openpyxl>=3.1.0

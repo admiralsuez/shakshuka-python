@@ -1,3 +1,15 @@
+## Version 27.3 - Task Owner Field & Excel Export Enhancement
+Release Date: 2026-05-04
+
+### Tasks
+- **Owner field for tasks**: Tasks now include an "Assigned By" field to track who assigned each task. Owner can be set when creating or editing tasks, and is displayed as a tag next to the project tag in the task list.
+- **Quick project and owner extraction**: Enhanced the quick task add feature to support extracting both project and owner from the task title using comma separation (e.g., "Task name, ProjectName, OwnerName"). Toggle in Settings → Additional Customization → "Quick project and owner from title".
+- **Excel export with owner column**: The Excel export now includes the owner field in the report, showing who assigned each task alongside the task name, category, and completion status.
+
+### Database
+- **Migration 025**: Automatically adds the `owner` column to the tasks table for existing databases. New databases include the owner column from creation.
+
+---
 ## Version 27.0 - Companion Sync UX Polish & Bug Fixes
 Release Date: 2026-04-19
 

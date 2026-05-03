@@ -1487,15 +1487,9 @@ class DailyPlannerV2 {
             const currentHour = now.getHours();
             const currentMinute = now.getMinutes();
             
-            // Scroll to one hour ahead of current time for better context
-            let targetHour = currentHour + 1;
+            // Scroll to current time
+            let targetHour = currentHour;
             let targetMinute = 0;
-            
-            // Handle edge case where we're at 11:30 PM or later
-            if (targetHour > 23) {
-                targetHour = 23;
-                targetMinute = 30;
-            }
             
             const targetElement = document.querySelector(`.hour-slot[data-hour="${targetHour}"][data-minute="${targetMinute}"]`);
             

@@ -62,12 +62,13 @@
                         </div>
                         <div class="setting-item">
                             <label class="setting-label">
-                                <span>Quick project from title (first word before comma)</span>
+                                <span>Quick project and owner from title (project, owner, task)</span>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="quick-project-from-title">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </label>
+                            <small class="form-text text-muted">Format: "project, owner, task details" or just "project, task details"</small>
                         </div>
                         <div class="setting-item">
                             <label class="setting-label">
@@ -319,6 +320,10 @@
                             <button class="btn-secondary" id="export-data-btn">
                                 <i class="fas fa-download"></i>
                                 Export Data
+                            </button>
+                            <button class="btn-primary" id="export-excel-btn">
+                                <i class="fas fa-file-excel"></i>
+                                Export Excel Report
                             </button>
                             <button class="btn-danger" id="clear-data-btn">
                                 <i class="fas fa-trash"></i>

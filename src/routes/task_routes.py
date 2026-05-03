@@ -8,9 +8,10 @@ This module handles:
 - Daily strike resets
 """
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_file
 import logging
 import uuid
+import io
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 import re
@@ -829,6 +830,133 @@ def reset_daily_strikes():
     except Exception:  # noqa: broad-except
         logger.exception("Unexpected error in reset_daily_strikes for user %s", user_id)
         return jsonify({'error': 'Internal server error'}), 500
+
+
+@task_bp.route('/export-excel', methods=['GET'])
+def export_excel():
+    """Export task report as Excel with custom date range.
+
+    Query params:
+    - start_date: YYYY-MM-DD (optional)
+    - end_date: YYYY-MM-DD (optional)
+    """
+    user_id = _get_user_id()
+    data_manager = _get_data_manager()
+    if not data_manager:
+        return jsonify({'error': 'Data manager not available'}), 500
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+
+        tasks = data_manager.load_tasks(user_id)
+
+        # Filter by created_at date range
+        filtered = []
+        for task in tasks:
+            created = task.get('created_at', '')
+            if created:
+                try:
+                    task_date = datetime.fromisoformat(created).strftime('%Y-%m-%d')
+                except Exception:  # noqa: broad-except
+                    task_date = ''
+                if start_date and task_date < start_date:
+                    continue
+                if end_date and task_date > end_date:
+                    continue
+            filtered.append(task)
+
+        # Load strike report history for each task
+        task_reports = {}
+        for task in filtered:
+            try:
+                reports = data_manager.load_strike_today_report_history(
+                    user_id, task['id'], limit=50, offset=0
+                )
+                task_reports[task['id']] = reports
+            except Exception:  # noqa: broad-except
+                task_reports[task['id']] = []
+
+        max_updates = max((len(r) for r in task_reports.values()), default=0)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Task Report'
+
+        hdr_font = Font(name='Calibri', bold=True, color='FFFFFF', size=11)
+        hdr_fill = PatternFill(start_color='FF6B35', end_color='FF6B35', fill_type='solid')
+        hdr_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+        cell_align = Alignment(vertical='center', wrap_text=True)
+        done_fill = PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid')
+
+        headers = ['Date', 'Task Name', 'Category', 'Owner', 'Completed']
+        for i in range(1, max_updates + 1):
+            headers.append(f'Update {i}')
+
+        for col, h in enumerate(headers, 1):
+            c = ws.cell(row=1, column=col, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = hdr_align
+            c.border = border
+
+        for ridx, task in enumerate(filtered, 2):
+            created = task.get('created_at', '')
+            try:
+                ds = datetime.fromisoformat(created).strftime('%d-%m-%Y') if created else ''
+            except Exception:  # noqa: broad-except
+                ds = created
+            ws.cell(row=ridx, column=1, value=ds).border = border
+            ws.cell(row=ridx, column=2, value=task.get('title', '')).border = border
+            ws.cell(row=ridx, column=3, value=task.get('project', '')).border = border
+            ws.cell(row=ridx, column=4, value=task.get('owner', '')).border = border
+
+            is_done = bool(task.get('completed') or task.get('struck_forever'))
+            ws.cell(row=ridx, column=5, value='✓' if is_done else '').border = border
+
+            reports = task_reports.get(task['id'], [])
+            for ui, rpt in enumerate(reports):
+                text = f"{rpt.get('report', '')}"
+                ws.cell(row=ridx, column=6 + ui, value=text).border = border
+
+            for col in range(1, len(headers) + 1):
+                c = ws.cell(row=ridx, column=col)
+                c.alignment = cell_align
+                if is_done:
+                    c.fill = done_fill
+
+        for letter, w in {'A': 14, 'B': 30, 'C': 18, 'D': 18, 'E': 12}.items():
+            ws.column_dimensions[letter].width = w
+        for i in range(max_updates):
+            cl = chr(ord('F') + i) if i < 18 else None
+            if cl:
+                ws.column_dimensions[cl].width = 30
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        dr = ''
+        if start_date:
+            dr += f'_from_{start_date}'
+        if end_date:
+            dr += f'_to_{end_date}'
+        fname = f'Shakshuka_Report{dr}.xlsx'
+
+        return send_file(
+            buf, as_attachment=True, download_name=fname,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception:  # noqa: broad-except
+        logger.exception("Excel export failed for user %s", user_id)
+        return jsonify({'error': 'Failed to export Excel report'}), 500
 
 
 @task_bp.route('/reset-log', methods=['GET'])
