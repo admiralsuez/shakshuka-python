@@ -1,3 +1,29 @@
+## Version 27.5 - Network Switching & Excel Export Enhancements
+Release Date: 2026-05-05
+
+### Network & Sync
+- **Network switching support**: Desktop now supports seamless network switching. When paired phone switches networks (home Wi-Fi → office Wi-Fi), it automatically discovers the desktop on the new network without requiring re-pairing.
+- **Desktop discovery endpoint**: New `/api/mobile/discover` endpoint allows phones to find desktop on new networks by scanning local subnet and trying common ports (8989, 8080, 5000).
+- **Secure by design**: Auto-discovery only works on private networks (192.168.x.x, 10.x.x.x, 172.16-31.x.x). Public networks (coffee shops, airports) disable auto-discovery to prevent MITM attacks.
+
+### Excel Export Enhancements
+- **Project filtering**: Users can now select which projects to include in the Excel export report. "Select All" and "Clear All" buttons for quick selection.
+- **Quick date presets**: Added 7 preset date range buttons for faster report generation:
+  - Today
+  - Last 7 Days
+  - This Month (new)
+  - Last 30 Days
+  - Last 90 Days
+  - Last Year
+  - All Time
+- **Backend filtering**: Export API now accepts `projects` query parameter (comma-separated) to filter tasks by project.
+
+### UI/UX Improvements
+- **Daily planner task wrapping**: Long task names in the daily planner now wrap to 2 lines with "..." ellipsis instead of being cut off, improving readability.
+- **CSS standards compliance**: Added standard `line-clamp` property alongside `-webkit-line-clamp` for better browser compatibility.
+
+---
+
 ## Version 27.4 - Startup Performance, Sync System Overhaul & Decorator Refactoring
 Release Date: 2026-05-04
 
