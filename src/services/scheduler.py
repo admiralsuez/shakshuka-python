@@ -321,7 +321,7 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
                         day_dt = datetime.strptime(str(day_str), '%Y-%m-%d')
                         if (today_dt - day_dt).days <= 7:
                             cleaned[day_str] = value
-                    except Exception:
+                    except Exception:  # noqa: broad-except
                         # Ignore malformed keys
                         continue
                 t['daily_strikes'] = cleaned
@@ -391,7 +391,7 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
                         if recurrence_type == 'every_n_days':
                             try:
                                 n = int(recurrence_param or 0)
-                            except Exception:
+                            except Exception:  # noqa: broad-except
                                 n = 0
                             if n and n > 1:
                                 base_dt = datetime.strptime(base_str, '%Y-%m-%d')
@@ -399,7 +399,7 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
                         elif recurrence_type == 'weekly':
                             try:
                                 target_wd = int(recurrence_param)
-                            except Exception:
+                            except Exception:  # noqa: broad-except
                                 target_wd = None
                             if target_wd is not None and 0 <= target_wd <= 6:
                                 base_dt = datetime.strptime(base_str, '%Y-%m-%d')
@@ -414,7 +414,7 @@ def reset_daily_strikes_job(*, replay: bool = False, replay_reason: str = ''):
                         # next day automatically after we clear struck_today.
                         if next_date is not None:
                             task['snoozed_until'] = next_date.strftime('%Y-%m-%d')
-                    except Exception:
+                    except Exception:  # noqa: broad-except
                         # Recurrence is best-effort; never break the reset job.
                         logger.exception("Failed to compute recurrence snooze for task during daily reset")
                 

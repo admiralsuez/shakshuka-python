@@ -57,7 +57,7 @@ class IncrementalSyncTracker:
         }
         try:
             return hash(json.dumps(hashable, sort_keys=True, default=str))
-        except Exception:
+        except Exception:  # noqa: broad-except
             return hash(str(item))
     
     def get_changed_tasks(self, user_id: str, current_tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

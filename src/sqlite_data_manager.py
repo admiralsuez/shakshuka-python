@@ -3373,7 +3373,7 @@ class SQLiteDataManager:
                 'created_at': row['created_at'],
                 'last_seen_at': row['last_seen_at'],
             }
-        except Exception as e:
+        except Exception as e:  # noqa: broad-except
             self.logger.exception("Error looking up mobile device for user %s", user_id)
             raise DatabaseError(message="Error looking up mobile device", details={'user_id': user_id}, cause=e)
     
@@ -3388,7 +3388,7 @@ class SQLiteDataManager:
                     INSERT OR REPLACE INTO mobile_devices (
                         user_id, device_id, device_name, token_hash, created_at, last_seen_at
                     ) VALUES (
-                        ?, ?, ?, ?,
+                        ?, ?, ?, ?, 
                         COALESCE((SELECT created_at FROM mobile_devices WHERE user_id = ? AND device_id = ?), ?),
                         ?
                     )
@@ -3409,7 +3409,7 @@ class SQLiteDataManager:
                                 "DELETE FROM mobile_devices WHERE user_id = ? AND device_id = ?",
                                 [(user_id, d) for d in to_delete],
                             )
-                except Exception:
+                except Exception:  # noqa: broad-except
                     # Best-effort cleanup; do not fail pairing if pruning fails.
                     self.logger.exception("Failed to prune excess mobile devices for user %s", user_id)
                 conn.commit()
@@ -3506,7 +3506,7 @@ class SQLiteDataManager:
             payload = None
             try:
                 payload = json.loads(row['payload_json']) if row['payload_json'] else None
-            except Exception:
+            except Exception:  # noqa: broad-except
                 payload = None
             return {
                 'id': row['id'],
@@ -3632,7 +3632,7 @@ class SQLiteDataManager:
                     (request_id, user_id, requested_at, expires_at_iso),
                 )
                 conn.commit()
-        except Exception as e:
+        except Exception as e:  # noqa: broad-except
             self.logger.exception("Error saving mobile sync request for user %s", user_id)
             raise DatabaseError(message="Error saving mobile sync request", details={'user_id': user_id}, cause=e)
     

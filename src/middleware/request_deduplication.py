@@ -134,8 +134,8 @@ def deduplicate_request(func):
                     data = json.dumps(request.json, sort_keys=True)
                 elif request.data:
                     data = request.data.decode('utf-8')
-            except Exception:
-                pass
+            except Exception:  # noqa: broad-except
+                logger.debug("Could not extract request data for deduplication")
         
         # Check for duplicate
         if _deduplicator.is_duplicate(method, path, data):

@@ -104,8 +104,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _startSyncRequestPolling() {
     _syncRequestTimer?.cancel();
     if (!_storage.isPaired) return;
-    // Poll every hour for desktop sync requests
-    _syncRequestTimer = Timer.periodic(const Duration(hours: 1), (_) {
+    // Poll every 30 minutes for desktop sync requests
+    // This ensures tasks are synced promptly without excessive battery drain
+    _syncRequestTimer = Timer.periodic(const Duration(minutes: 30), (_) {
       _pollSyncRequest();
     });
   }

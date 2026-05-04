@@ -143,31 +143,44 @@ function loadProjectsForFilter() {
     const projectList = document.getElementById('project-filter-list');
     if (!projectList) return;
     
-    // Get unique projects from current tasks
-    const tasks = window.AppState ? window.AppState.getTasks() : [];
-    const projects = new Set();
+    projectList.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem;">Loading projects...</p>';
     
-    tasks.forEach(task => {
-        if (task.project && task.project.trim()) {
-            projects.add(task.project.trim());
-        }
-    });
-    
-    // Sort projects alphabetically
-    const sortedProjects = Array.from(projects).sort();
-    
-    if (sortedProjects.length === 0) {
-        projectList.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem;">No projects found.</p>';
-        return;
-    }
-    
-    // Create checkboxes for each project
-    projectList.innerHTML = sortedProjects.map(project => `
-        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.3rem 0;">
-            <input type="checkbox" class="project-filter-checkbox" value="${project}" checked>
-            <span>${project}</span>
-        </label>
-    `).join('');
+    // Fetch tasks from API to get current projects
+    window.Utils.apiRequestJson('/api/tasks')
+        .then(response => {
+            if (!response || !response.tasks) {
+                projectList.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem;">No projects found.</p>';
+                return;
+            }
+            
+            // Get unique projects from tasks
+            const projects = new Set();
+            response.tasks.forEach(task => {
+                if (task.project && task.project.trim()) {
+                    projects.add(task.project.trim());
+                }
+            });
+            
+            // Sort projects alphabetically
+            const sortedProjects = Array.from(projects).sort();
+            
+            if (sortedProjects.length === 0) {
+                projectList.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem;">No projects found.</p>';
+                return;
+            }
+            
+            // Create checkboxes for each project
+            projectList.innerHTML = sortedProjects.map(project => `
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.3rem 0;">
+                    <input type="checkbox" class="project-filter-checkbox" value="${project}" checked>
+                    <span>${project}</span>
+                </label>
+            `).join('');
+        })
+        .catch(error => {
+            console.error('Error loading projects:', error);
+            projectList.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem;">Error loading projects.</p>';
+        });
 }
 
 function setupDatePresets() {

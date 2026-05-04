@@ -9,6 +9,9 @@ let _pairedStateCache = null; // null = unknown, true/false
 let _pairedStateCacheAt = 0;
 const PAIRED_CACHE_TTL_MS = 60_000;
 
+// Modal state guard to prevent duplicate modals
+let _syncModalOpen = false;
+
 async function _isPhonePaired() {
     if (_pairedStateCache !== null && (Date.now() - _pairedStateCacheAt) < PAIRED_CACHE_TTL_MS) {
         return _pairedStateCache;
@@ -157,6 +160,13 @@ async function checkCompanionTasksSync(isManual = false) {
 }
 
 function showCompanionSyncModal(pending) {
+    // Prevent duplicate modals from appearing
+    if (_syncModalOpen) {
+        console.debug('Sync modal already open, queueing next check');
+        return;
+    }
+    _syncModalOpen = true;
+    
     const submissionId = pending.id;
     const payload = pending.payload || {};
     const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
@@ -273,14 +283,21 @@ function showCompanionSyncModal(pending) {
     cancelBtn.textContent = 'Skip';
     cancelBtn.addEventListener('click', async () => {
         modal.style.display = 'none';
+        _syncModalOpen = false;
         // Reject the submission so it doesn't block newer submissions from appearing
         try {
             await fetch(`/api/mobile/inbox/${submissionId}/reject`, {
                 method: 'POST',
                 credentials: 'include',
             });
+            if (window.showNotification) {
+                window.showNotification('Submission skipped', 'info');
+            }
         } catch (e) {
             console.debug('Failed to reject skipped submission:', e);
+            if (window.showNotification) {
+                window.showNotification('Failed to skip submission', 'error');
+            }
         }
         // Check if there are more pending submissions
         setTimeout(() => checkCompanionTasksSync(false), 300);
@@ -300,8 +317,9 @@ function showCompanionSyncModal(pending) {
     updateImportBtn();
     
     importBtn.addEventListener('click', async () => {
-        await importCompanionTasks(submissionId, Array.from(selectedTaskIds), Array.from(selectedNoteIds), payload);
         modal.style.display = 'none';
+        _syncModalOpen = false;
+        await importCompanionTasks(submissionId, Array.from(selectedTaskIds), Array.from(selectedNoteIds), payload);
     });
     buttons.appendChild(importBtn);
     content.appendChild(buttons);
