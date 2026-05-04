@@ -191,6 +191,7 @@ instance/
 # Logs
 *.log
 logs/
+*.md
 
 # Temporary files
 *.tmp

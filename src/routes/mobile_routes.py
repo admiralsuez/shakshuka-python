@@ -166,6 +166,35 @@ def get_pairing_code():
     )
 
 
+@mobile_bp.route("/discover", methods=["GET"])
+def discover_desktop():
+    """Allow phone to discover desktop on new network.
+    
+    This endpoint helps phones reconnect after switching networks
+    (e.g., from home Wi-Fi to office Wi-Fi) without re-pairing.
+    
+    Returns:
+    - desktop_name: Friendly name for verification
+    - lan_url: Current LAN URL (e.g., http://192.168.1.100:8989)
+    - port: Server port
+    
+    Security: Only responds to local network requests
+    """
+    if not _is_local_request():
+        return jsonify({"success": False, "error": "Forbidden"}), 403
+
+    ip = _get_local_ip()
+    port = request.host.split(":")[-1] if request.host else "8989"
+    lan_url = f"http://{ip}:{port}" if ip else None
+
+    return jsonify({
+        "success": True,
+        "desktop_name": "Shakshuka Desktop",
+        "lan_url": lan_url,
+        "port": port,
+    })
+
+
 def _check_rate_limit(ip: str) -> Tuple[bool, str]:
     """Check if IP is rate limited. Returns (allowed, error_message)."""
     now = datetime.now()

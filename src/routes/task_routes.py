@@ -907,11 +907,12 @@ def reset_daily_strikes():
 
 @task_bp.route('/export-excel', methods=['GET'])
 def export_excel():
-    """Export task report as Excel with custom date range.
+    """Export task report as Excel with custom date range and project filtering.
 
     Query params:
     - start_date: YYYY-MM-DD (optional)
     - end_date: YYYY-MM-DD (optional)
+    - projects: comma-separated project names (optional)
     """
     user_id = _get_user_id()
     data_manager = _get_data_manager()
@@ -924,10 +925,16 @@ def export_excel():
 
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
+        projects_param = request.args.get('projects', '')
+        
+        # Parse selected projects
+        selected_projects = set()
+        if projects_param:
+            selected_projects = set(p.strip() for p in projects_param.split(',') if p.strip())
 
         tasks = data_manager.load_tasks(user_id)
 
-        # Filter by created_at date range
+        # Filter by created_at date range and selected projects
         filtered = []
         for task in tasks:
             created = task.get('created_at', '')
@@ -940,6 +947,13 @@ def export_excel():
                     continue
                 if end_date and task_date > end_date:
                     continue
+            
+            # Filter by project if projects are selected
+            if selected_projects:
+                task_project = task.get('project', '').strip()
+                if task_project not in selected_projects:
+                    continue
+            
             filtered.append(task)
 
         # Load strike report history for each task

@@ -9,17 +9,57 @@
             </div>
             <div class="modal-body">
                 <form id="export-excel-form">
-                    <div class="form-group">
-                        <label for="export-start-date">Start Date</label>
-                        <input type="date" id="export-start-date">
+                    <!-- Date Range Section -->
+                    <div class="form-section">
+                        <h4 style="margin-bottom: 1rem; font-size: 0.95rem; font-weight: 600;">Date Range</h4>
+                        
+                        <!-- Quick Date Presets -->
+                        <div class="form-group">
+                            <label>Quick Select</label>
+                            <div class="quick-date-buttons" style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                                <button type="button" class="btn-small" id="preset-today" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Today</button>
+                                <button type="button" class="btn-small" id="preset-week" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Last 7 Days</button>
+                                <button type="button" class="btn-small" id="preset-this-month" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">This Month</button>
+                                <button type="button" class="btn-small" id="preset-month" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Last 30 Days</button>
+                                <button type="button" class="btn-small" id="preset-quarter" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Last 90 Days</button>
+                                <button type="button" class="btn-small" id="preset-year" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Last Year</button>
+                                <button type="button" class="btn-small" id="preset-all" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">All Time</button>
+                            </div>
+                        </div>
+
+                        <!-- Custom Date Range -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group">
+                                <label for="export-start-date">Start Date</label>
+                                <input type="date" id="export-start-date">
+                            </div>
+                            <div class="form-group">
+                                <label for="export-end-date">End Date</label>
+                                <input type="date" id="export-end-date">
+                            </div>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label for="export-end-date">End Date</label>
-                        <input type="date" id="export-end-date">
+
+                    <!-- Project Filter Section -->
+                    <div class="form-section" style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                        <h4 style="margin-bottom: 1rem; font-size: 0.95rem; font-weight: 600;">Projects to Include</h4>
+                        
+                        <!-- Select All / Clear All -->
+                        <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                            <button type="button" class="btn-small" id="select-all-projects" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Select All</button>
+                            <button type="button" class="btn-small" id="clear-all-projects" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Clear All</button>
+                        </div>
+
+                        <!-- Project Checkboxes -->
+                        <div id="project-filter-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 200px; overflow-y: auto;">
+                            <!-- Projects will be populated here -->
+                            <p style="color: var(--text-secondary); font-size: 0.85rem;">Loading projects...</p>
+                        </div>
+
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;">
+                            Leave empty to include all projects.
+                        </p>
                     </div>
-                    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;">
-                        Leave dates empty to export all tasks.
-                    </p>
                 </form>
             </div>
             <div class="modal-footer">

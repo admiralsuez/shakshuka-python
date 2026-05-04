@@ -123,6 +123,12 @@ function openExportExcelModal() {
     if (endEl) endEl.value = today.toISOString().split('T')[0];
     modal.style.display = 'flex';
     modal.classList.add('active');
+    
+    // Load projects
+    loadProjectsForFilter();
+    
+    // Setup quick date preset buttons
+    setupDatePresets();
 }
 
 function closeExportExcelModal() {
@@ -133,12 +139,158 @@ function closeExportExcelModal() {
     }
 }
 
+function loadProjectsForFilter() {
+    const projectList = document.getElementById('project-filter-list');
+    if (!projectList) return;
+    
+    // Get unique projects from current tasks
+    const tasks = window.AppState ? window.AppState.getTasks() : [];
+    const projects = new Set();
+    
+    tasks.forEach(task => {
+        if (task.project && task.project.trim()) {
+            projects.add(task.project.trim());
+        }
+    });
+    
+    // Sort projects alphabetically
+    const sortedProjects = Array.from(projects).sort();
+    
+    if (sortedProjects.length === 0) {
+        projectList.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem;">No projects found.</p>';
+        return;
+    }
+    
+    // Create checkboxes for each project
+    projectList.innerHTML = sortedProjects.map(project => `
+        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.3rem 0;">
+            <input type="checkbox" class="project-filter-checkbox" value="${project}" checked>
+            <span>${project}</span>
+        </label>
+    `).join('');
+}
+
+function setupDatePresets() {
+    const today = new Date();
+    const startEl = document.getElementById('export-start-date');
+    const endEl = document.getElementById('export-end-date');
+    
+    const setDateRange = (startDate, endDate) => {
+        if (startEl) startEl.value = startDate.toISOString().split('T')[0];
+        if (endEl) endEl.value = endDate.toISOString().split('T')[0];
+    };
+    
+    // Today
+    const presetToday = document.getElementById('preset-today');
+    if (presetToday) {
+        presetToday.addEventListener('click', (e) => {
+            e.preventDefault();
+            setDateRange(today, today);
+        });
+    }
+    
+    // Last 7 Days
+    const presetWeek = document.getElementById('preset-week');
+    if (presetWeek) {
+        presetWeek.addEventListener('click', (e) => {
+            e.preventDefault();
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(today.getDate() - 7);
+            setDateRange(sevenDaysAgo, today);
+        });
+    }
+    
+    // This Month
+    const presetThisMonth = document.getElementById('preset-this-month');
+    if (presetThisMonth) {
+        presetThisMonth.addEventListener('click', (e) => {
+            e.preventDefault();
+            const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            setDateRange(firstDayOfMonth, today);
+        });
+    }
+    
+    // Last 30 Days
+    const presetMonth = document.getElementById('preset-month');
+    if (presetMonth) {
+        presetMonth.addEventListener('click', (e) => {
+            e.preventDefault();
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(today.getDate() - 30);
+            setDateRange(thirtyDaysAgo, today);
+        });
+    }
+    
+    // Last 90 Days
+    const presetQuarter = document.getElementById('preset-quarter');
+    if (presetQuarter) {
+        presetQuarter.addEventListener('click', (e) => {
+            e.preventDefault();
+            const ninetyDaysAgo = new Date();
+            ninetyDaysAgo.setDate(today.getDate() - 90);
+            setDateRange(ninetyDaysAgo, today);
+        });
+    }
+    
+    // Last Year
+    const presetYear = document.getElementById('preset-year');
+    if (presetYear) {
+        presetYear.addEventListener('click', (e) => {
+            e.preventDefault();
+            const oneYearAgo = new Date();
+            oneYearAgo.setFullYear(today.getFullYear() - 1);
+            setDateRange(oneYearAgo, today);
+        });
+    }
+    
+    // All Time
+    const presetAll = document.getElementById('preset-all');
+    if (presetAll) {
+        presetAll.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (startEl) startEl.value = '';
+            if (endEl) endEl.value = '';
+        });
+    }
+    
+    // Select All Projects
+    const selectAllBtn = document.getElementById('select-all-projects');
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            document.querySelectorAll('.project-filter-checkbox').forEach(cb => {
+                cb.checked = true;
+            });
+        });
+    }
+    
+    // Clear All Projects
+    const clearAllBtn = document.getElementById('clear-all-projects');
+    if (clearAllBtn) {
+        clearAllBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            document.querySelectorAll('.project-filter-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+        });
+    }
+}
+
 function exportExcelReport() {
     const startDate = (document.getElementById('export-start-date') || {}).value || '';
     const endDate = (document.getElementById('export-end-date') || {}).value || '';
+    
+    // Get selected projects
+    const selectedProjects = Array.from(document.querySelectorAll('.project-filter-checkbox:checked'))
+        .map(cb => cb.value);
+    
     let url = '/api/tasks/export-excel?';
     if (startDate) url += 'start_date=' + encodeURIComponent(startDate) + '&';
     if (endDate) url += 'end_date=' + encodeURIComponent(endDate) + '&';
+    if (selectedProjects.length > 0) {
+        url += 'projects=' + encodeURIComponent(selectedProjects.join(',')) + '&';
+    }
+    
     const a = document.createElement('a');
     a.href = url;
     a.download = '';
