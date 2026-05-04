@@ -5,11 +5,19 @@ import hashlib
 import json
 import uuid
 import socket
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from src.constants import DEFAULT_USER_ID
 from src.utils.validators import validate_task_data
+
+# Import decorators
+from src.routes.route_decorators import (
+    require_data_manager,
+    require_json_body,
+    handle_database_error
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +32,13 @@ _pairing_attempts = {}  # IP -> {count, first_attempt_time}
 MAX_PAIRING_ATTEMPTS = 5
 PAIRING_LOCKOUT_SECONDS = 300  # 5 minutes
 
-# Sync request state: user_id -> ISO timestamp when desktop requested sync
-_sync_requested: Dict[str, str] = {}
+# Sync request state: now backed by database with TTL
+# Lock for atomic operations on sync requests
+_sync_request_lock = threading.Lock()
+
+# Submission-level locks for mutual exclusion on approve/reject
+_submission_locks: Dict[str, threading.Lock] = {}
+_submission_locks_lock = threading.Lock()
 
 
 def init_mobile_routes(app_context, get_user_id_func, ensure_data_manager_func):
@@ -103,6 +116,21 @@ def _require_mobile_token() -> Tuple[bool, Optional[Dict[str, Any]], str]:
         "user_id": user_id,
     }
     return True, device, ""
+
+
+def _get_submission_lock(submission_id: str) -> threading.Lock:
+    """Get or create a lock for a submission (mutual exclusion for approve/reject)"""
+    with _submission_locks_lock:
+        if submission_id not in _submission_locks:
+            _submission_locks[submission_id] = threading.Lock()
+        return _submission_locks[submission_id]
+
+
+def _cleanup_submission_lock(submission_id: str) -> None:
+    """Remove lock after submission is processed"""
+    with _submission_locks_lock:
+        if submission_id in _submission_locks:
+            del _submission_locks[submission_id]
 
 
 @mobile_bp.route("/pairing", methods=["GET"])
@@ -277,6 +305,8 @@ def unpair_device(device_id: str):
 
 
 @mobile_bp.route("/inbox", methods=["POST"])
+@require_json_body
+@handle_database_error
 def submit_inbox():
     if _ensure_data_manager_func and not _ensure_data_manager_func():
         return jsonify({"success": False, "error": "Data manager not initialized"}), 503
@@ -286,9 +316,6 @@ def submit_inbox():
         return jsonify({"success": False, "error": err}), 401
 
     data = request.json
-    if data is None or not isinstance(data, dict):
-        return jsonify({"success": False, "error": "Request must contain JSON object"}), 400
-
     tasks = data.get("tasks", [])
     notes = data.get("notes", [])
     
@@ -313,18 +340,14 @@ def submit_inbox():
     user_id = device.get("user_id")
     now = datetime.now().isoformat()
 
-    try:
-        dm.save_mobile_inbox_submission(
-            user_id,
-            device.get("device_id"),
-            device.get("device_name"),
-            submission_id,
-            payload,
-            now,
-        )
-    except Exception:  # noqa: broad-except
-        logger.exception("Failed to save inbox submission")
-        return jsonify({"success": False, "error": "Failed to save submission"}), 500
+    dm.save_mobile_inbox_submission(
+        user_id,
+        device.get("device_id"),
+        device.get("device_name"),
+        submission_id,
+        payload,
+        now,
+    )
 
     total_items = len(tasks) + len(notes)
     return jsonify({
@@ -337,27 +360,16 @@ def submit_inbox():
 
 
 @mobile_bp.route("/inbox/pending", methods=["GET"])
-def get_pending_inbox():
+@require_data_manager
+@handle_database_error
+def get_pending_inbox(user_id, data_manager):
     # Allow local requests or any request that comes from the same system
     # Since we use a single default user, all requests are for the same user
     # This allows both local desktop app and browser requests to access pending submissions
-    if _ensure_data_manager_func and not _ensure_data_manager_func():
-        return jsonify({"success": False, "error": "Data manager not initialized"}), 503
-
-    dm = _get_data_manager()
-    if not dm:
-        return jsonify({"success": False, "error": "Data manager not available"}), 500
-
-    user_id = _get_user_id()
-
-    try:
-        pending = dm.load_next_pending_mobile_inbox(user_id)
-        if not pending:
-            return jsonify({"success": True, "pending": None})
-        return jsonify({"success": True, "pending": pending})
-    except Exception:  # noqa: broad-except
-        logger.exception("Failed to load pending inbox")
-        return jsonify({"success": False, "error": "Failed to load inbox"}), 500
+    pending = data_manager.load_next_pending_mobile_inbox(user_id)
+    if not pending:
+        return jsonify({"success": True, "pending": None})
+    return jsonify({"success": True, "pending": pending})
 
 
 def _map_mobile_task_to_task_payload(mobile_task: Dict[str, Any]) -> Tuple[bool, Dict[str, Any], str]:
@@ -427,96 +439,101 @@ def approve_inbox(submission_id: str):
         return jsonify({"success": False, "error": "selected_note_ids must be a list"}), 400
 
     user_id = _get_user_id()
-
-    try:
-        payload = dm.get_pending_mobile_inbox_payload(user_id, submission_id)
-        if payload is None:
-            return jsonify({"success": False, "error": "Submission not found"}), 404
-
-        tasks = payload.get("tasks") if isinstance(payload, dict) else None
-        notes = payload.get("notes") if isinstance(payload, dict) else None
-        if not isinstance(tasks, list):
-            tasks = []
-        if not isinstance(notes, list):
-            notes = []
-
-        created_tasks = []
-        created_notes = []
-        created_tasks_count = 0
-        created_notes_count = 0
-        skipped = []
-
-        selected_task_set = set(str(x) for x in selected_task_ids)
-        selected_note_set = set(str(x) for x in selected_note_ids)
-
-        for t in tasks:
-            if not isinstance(t, dict):
-                continue
-            client_task_id = str(t.get("client_task_id") or t.get("id") or "").strip()
-            if not client_task_id:
-                skipped.append({"client_task_id": client_task_id, "error": "Missing client_task_id"})
-                continue
-            if client_task_id not in selected_task_set:
-                continue
-
-            ok_map, task_payload, msg = _map_mobile_task_to_task_payload(t)
-            if not ok_map:
-                skipped.append({"client_task_id": client_task_id, "error": msg})
-                continue
-
-            created = dm.create_task_for_user(user_id, task_payload)
-            if created:
-                created_tasks.append(created)
-                created_tasks_count += 1
-            else:
-                skipped.append({"client_task_id": client_task_id, "error": "Create failed"})
-        
-        # Process notes
-        for n in notes:
-            if not isinstance(n, dict):
-                continue
-            client_note_id = str(n.get("client_note_id") or n.get("id") or "").strip()
-            if not client_note_id:
-                skipped.append({"client_note_id": client_note_id, "error": "Missing client_note_id"})
-                continue
-            if client_note_id not in selected_note_set:
-                continue
-            
-            title = (n.get("title") or "").strip() or "Untitled"
-            content = n.get("content", "")
-            
-            created_note = dm.create_note_for_user(user_id, {"title": title, "content": content})
-            if created_note:
-                created_notes.append(created_note)
-                created_notes_count += 1
-            else:
-                skipped.append({"client_note_id": client_note_id, "error": "Create failed"})
-
-        now = datetime.now().isoformat()
-        result = {
-            "created_tasks": created_tasks_count,
-            "created_notes": created_notes_count,
-            "skipped": skipped,
-        }
-
+    
+    # Acquire submission-level lock to prevent concurrent approve/reject
+    submission_lock = _get_submission_lock(submission_id)
+    with submission_lock:
         try:
-            dm.mark_mobile_inbox_approved(user_id, submission_id, result, now)
+            payload = dm.get_pending_mobile_inbox_payload(user_id, submission_id)
+            if payload is None:
+                return jsonify({"success": False, "error": "Submission not found"}), 404
+
+            tasks = payload.get("tasks") if isinstance(payload, dict) else None
+            notes = payload.get("notes") if isinstance(payload, dict) else None
+            if not isinstance(tasks, list):
+                tasks = []
+            if not isinstance(notes, list):
+                notes = []
+
+            created_tasks = []
+            created_notes = []
+            created_tasks_count = 0
+            created_notes_count = 0
+            skipped = []
+
+            selected_task_set = set(str(x) for x in selected_task_ids)
+            selected_note_set = set(str(x) for x in selected_note_ids)
+
+            for t in tasks:
+                if not isinstance(t, dict):
+                    continue
+                client_task_id = str(t.get("client_task_id") or t.get("id") or "").strip()
+                if not client_task_id:
+                    skipped.append({"client_task_id": client_task_id, "error": "Missing client_task_id"})
+                    continue
+                if client_task_id not in selected_task_set:
+                    continue
+
+                ok_map, task_payload, msg = _map_mobile_task_to_task_payload(t)
+                if not ok_map:
+                    skipped.append({"client_task_id": client_task_id, "error": msg})
+                    continue
+
+                created = dm.create_task_for_user(user_id, task_payload)
+                if created:
+                    created_tasks.append(created)
+                    created_tasks_count += 1
+                else:
+                    skipped.append({"client_task_id": client_task_id, "error": "Create failed"})
+            
+            # Process notes
+            for n in notes:
+                if not isinstance(n, dict):
+                    continue
+                client_note_id = str(n.get("client_note_id") or n.get("id") or "").strip()
+                if not client_note_id:
+                    skipped.append({"client_note_id": client_note_id, "error": "Missing client_note_id"})
+                    continue
+                if client_note_id not in selected_note_set:
+                    continue
+                
+                title = (n.get("title") or "").strip() or "Untitled"
+                content = n.get("content", "")
+                
+                created_note = dm.create_note_for_user(user_id, {"title": title, "content": content})
+                if created_note:
+                    created_notes.append(created_note)
+                    created_notes_count += 1
+                else:
+                    skipped.append({"client_note_id": client_note_id, "error": "Create failed"})
+
+            now = datetime.now().isoformat()
+            result = {
+                "created_tasks": created_tasks_count,
+                "created_notes": created_notes_count,
+                "skipped": skipped,
+            }
+
+            try:
+                dm.mark_mobile_inbox_approved(user_id, submission_id, result, now)
+            except Exception:  # noqa: broad-except
+                logger.exception("Failed to mark inbox submission %s approved", submission_id)
+                return jsonify({"success": False, "error": "Failed to approve submission"}), 500
+
+            _cleanup_submission_lock(submission_id)
+            return jsonify({
+                "success": True,
+                "created_tasks": created_tasks_count,
+                "created_notes": created_notes_count,
+                "tasks": created_tasks,
+                "notes": created_notes,
+                "skipped": skipped
+            })
+
         except Exception:  # noqa: broad-except
-            logger.exception("Failed to mark inbox submission %s approved", submission_id)
+            logger.exception("Failed to approve inbox submission %s", submission_id)
+            _cleanup_submission_lock(submission_id)
             return jsonify({"success": False, "error": "Failed to approve submission"}), 500
-
-        return jsonify({
-            "success": True,
-            "created_tasks": created_tasks_count,
-            "created_notes": created_notes_count,
-            "tasks": created_tasks,
-            "notes": created_notes,
-            "skipped": skipped
-        })
-
-    except Exception:  # noqa: broad-except
-        logger.exception("Failed to approve inbox submission %s", submission_id)
-        return jsonify({"success": False, "error": "Failed to approve submission"}), 500
 
 
 @mobile_bp.route("/inbox/<submission_id>/status", methods=["GET"])
@@ -579,26 +596,49 @@ def request_sync():
     if not _is_local_request():
         return jsonify({"success": False, "error": "Forbidden"}), 403
 
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        return jsonify({"success": False, "error": "Data manager not initialized"}), 503
+
+    dm = _get_data_manager()
+    if not dm:
+        return jsonify({"success": False, "error": "Data manager not available"}), 500
+
     user_id = _get_user_id()
-    _sync_requested[user_id] = datetime.now().isoformat()
-    logger.debug("Sync requested by desktop for user %s", user_id)
-    return jsonify({"success": True})
+    request_id = str(uuid.uuid4())
+    
+    # Sync request expires in 5 minutes
+    expires_at = (datetime.now() + timedelta(minutes=5)).isoformat()
+    
+    try:
+        dm.save_mobile_sync_request(user_id, request_id, expires_at)
+        logger.debug("Sync requested by desktop for user %s (request_id=%s)", user_id, request_id)
+        return jsonify({"success": True, "request_id": request_id})
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to save sync request for user %s", user_id)
+        return jsonify({"success": False, "error": "Failed to save sync request"}), 500
 
 
 @mobile_bp.route("/sync-request", methods=["GET"])
+@handle_database_error
 def check_sync_request():
     """Mobile app polls this to know if desktop has requested a sync.
-    Consuming the flag clears it so it only fires once.
+    Atomically consumes the request so it only fires once.
     """
     ok, device, err = _require_mobile_token()
     if not ok or not device:
         return jsonify({"success": False, "error": err}), 401
 
-    user_id = device.get("user_id")
-    requested = user_id in _sync_requested
-    if requested:
-        del _sync_requested[user_id]
+    if _ensure_data_manager_func and not _ensure_data_manager_func():
+        return jsonify({"success": False, "error": "Data manager not initialized"}), 503
 
+    dm = _get_data_manager()
+    if not dm:
+        return jsonify({"success": False, "error": "Data manager not available"}), 500
+
+    user_id = device.get("user_id")
+    
+    # Atomically check and consume sync request
+    requested = dm.get_and_consume_mobile_sync_request(user_id)
     return jsonify({"success": True, "sync_requested": requested})
 
 

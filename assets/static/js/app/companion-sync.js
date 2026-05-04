@@ -1,7 +1,7 @@
 // Companion phone app task sync
 let companionSyncInterval = null;
 const COMPANION_SYNC_KEY = 'shakshuka_companion_last_sync';
-const COMPANION_SYNC_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
+const COMPANION_SYNC_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours (for background auto-sync)
 const COMPANION_AUTO_SYNC_KEY = 'companion_auto_sync_enabled';
 
 // Paired-state cache (TTL: 60 s) — avoids a round-trip on every button press
@@ -38,48 +38,9 @@ function _openPairModal() {
     }
 }
 
-// Guards / polling state
+// Guards / state for on-demand sync
 let _syncCheckInProgress = false;  // prevents concurrent inbox checks
-let _syncRequestPollInterval = null;
-let _syncRequestPollCount = 0;
-const SYNC_POLL_INTERVAL_MS = 5000; // poll every 5 s after requesting sync
-const SYNC_POLL_MAX_TICKS = 18;     // give up after 90 s
-
-function _stopSyncRequestPoll() {
-    if (_syncRequestPollInterval) {
-        clearInterval(_syncRequestPollInterval);
-        _syncRequestPollInterval = null;
-    }
-    _syncRequestPollCount = 0;
-}
-
-async function _syncRequestPollTick() {
-    _syncRequestPollCount++;
-    if (_syncRequestPollCount > SYNC_POLL_MAX_TICKS) {
-        _stopSyncRequestPoll();
-        return;
-    }
-    try {
-        const resp = await fetch('/api/mobile/inbox/pending', { credentials: 'include' });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        if (!data.success || !data.pending || !data.pending.id) return;
-        const pl = data.pending.payload || {};
-        const total = (Array.isArray(pl.tasks) ? pl.tasks.length : 0)
-                    + (Array.isArray(pl.notes) ? pl.notes.length : 0);
-        if (total > 0) {
-            _stopSyncRequestPoll();
-            showCompanionSyncModal(data.pending);
-        }
-    } catch (e) {
-        console.debug('Sync request poll error:', e);
-    }
-}
-
-function _startSyncRequestPoll() {
-    _stopSyncRequestPoll();
-    _syncRequestPollInterval = setInterval(_syncRequestPollTick, SYNC_POLL_INTERVAL_MS);
-}
+let _syncCheckTimeout = null;  // timeout guard for hanging requests
 
 function isCompanionAutoSyncEnabled() {
     // Default to true if not set
@@ -123,75 +84,79 @@ function updateCompanionAutoSync() {
 async function checkCompanionTasksSync(isManual = false) {
     if (_syncCheckInProgress) return;
     _syncCheckInProgress = true;
-    // A manual press cancels any outstanding background poll before re-checking
-    if (isManual) _stopSyncRequestPoll();
+    
+    // Set timeout guard (30 seconds max)
+    _syncCheckTimeout = setTimeout(() => {
+        _syncCheckInProgress = false;
+    }, 30000);
+    
     try {
         if (isManual && window.showNotification) {
             window.showNotification('Checking for tasks from phone...', 'info');
         }
         
+        // First, check if there are already pending tasks waiting to be imported
         const response = await fetch('/api/mobile/inbox/pending', { credentials: 'include' });
-        if (!response.ok) {
-            if (isManual && window.showNotification) {
-                window.showNotification('Error fetching tasks from phone', 'error');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.pending && data.pending.id) {
+                const pending = data.pending;
+                const payload = pending.payload || {};
+                const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+                const notes = Array.isArray(payload.notes) ? payload.notes : [];
+                const totalItems = tasks.length + notes.length;
+                
+                if (totalItems > 0) {
+                    if (isManual && window.showNotification) {
+                        const label = [];
+                        if (tasks.length) label.push(`${tasks.length} task${tasks.length > 1 ? 's' : ''}`);
+                        if (notes.length) label.push(`${notes.length} note${notes.length > 1 ? 's' : ''}`);
+                        window.showNotification(`Found ${label.join(' and ')} from phone`, 'success');
+                    }
+                    // Show sync modal with new tasks
+                    showCompanionSyncModal(pending);
+                    clearTimeout(_syncCheckTimeout);
+                    _syncCheckInProgress = false;
+                    return;
+                }
             }
-            return;
         }
         
-        const data = await response.json();
-        if (!data.success || !data.pending || !data.pending.id) {
-            if (isManual) {
-                // Signal the phone to push tasks, then auto-poll for the response
-                try {
-                    await fetch('/api/mobile/request-sync', {
-                        method: 'POST',
-                        credentials: 'include',
-                    });
-                } catch (e) {
-                    console.debug('Failed to request sync from phone:', e);
+        // No pending tasks, signal the phone to push tasks
+        if (isManual) {
+            try {
+                const syncResp = await fetch('/api/mobile/request-sync', {
+                    method: 'POST',
+                    credentials: 'include',
+                });
+                if (syncResp.ok) {
+                    if (window.showNotification) {
+                        window.showNotification('Sync request sent to phone. Waiting for response...', 'info');
+                    }
+                } else {
+                    if (window.showNotification) {
+                        window.showNotification('Failed to request sync from phone', 'error');
+                    }
                 }
-                _startSyncRequestPoll();
+            } catch (e) {
+                console.debug('Failed to request sync from phone:', e);
                 if (window.showNotification) {
-                    window.showNotification('Waiting for phone to push tasks \u2014 the import dialog will appear automatically.', 'info');
+                    window.showNotification('Error requesting sync from phone', 'error');
                 }
             }
-            return;
         }
-        
-        const pending = data.pending;
-        const payload = pending.payload || {};
-        const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
-        const notes = Array.isArray(payload.notes) ? payload.notes : [];
-        const totalItems = tasks.length + notes.length;
-        
-        if (totalItems === 0) {
-            if (isManual && window.showNotification) {
-                window.showNotification('No new tasks from phone', 'info');
-            }
-            return;
-        }
-        
-        if (isManual && window.showNotification) {
-            const label = [];
-            if (tasks.length) label.push(`${tasks.length} task${tasks.length > 1 ? 's' : ''}`);
-            if (notes.length) label.push(`${notes.length} note${notes.length > 1 ? 's' : ''}`);
-            window.showNotification(`Found ${label.join(' and ')} from phone`, 'success');
-        }
-        
-        // Show sync modal with new tasks
-        showCompanionSyncModal(pending);
     } catch (e) {
         if (isManual && window.showNotification) {
             window.showNotification('Error fetching tasks from phone', 'error');
         }
         console.debug('Companion sync check failed:', e);
     } finally {
+        clearTimeout(_syncCheckTimeout);
         _syncCheckInProgress = false;
     }
 }
 
 function showCompanionSyncModal(pending) {
-    _stopSyncRequestPoll(); // tasks arrived — no need to keep polling
     const submissionId = pending.id;
     const payload = pending.payload || {};
     const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
@@ -458,5 +423,5 @@ if (typeof window !== 'undefined') {
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
     if (companionSyncInterval) clearInterval(companionSyncInterval);
-    _stopSyncRequestPoll();
+    if (_syncCheckTimeout) clearTimeout(_syncCheckTimeout);
 });

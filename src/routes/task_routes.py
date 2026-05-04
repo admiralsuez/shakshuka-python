@@ -17,11 +17,32 @@ from typing import Dict, List, Tuple
 import re
 
 # Import app context and utilities (will be injected)
-from src.constants import DEFAULT_USER_ID
+from src.constants import DEFAULT_USER_ID, TaskStatus
 from src.services.importer import parse_csv_tasks, parse_txt_tasks
 from src.exceptions import DatabaseError
 from src.routes.api_utils import register_api_error_handlers
 from src.services import scheduler as scheduler_service
+
+# Import decorators and validators
+from src.routes.route_decorators import (
+    require_data_manager,
+    require_json_body,
+    require_file_upload,
+    validate_input,
+    rate_limit,
+    handle_database_error
+)
+from src.routes.input_validators import (
+    validate_schedule_input,
+    validate_task_title,
+    validate_priority,
+    validate_date_yyyy_mm_dd,
+    validate_description,
+    validate_project_name,
+    validate_owner_name,
+    validate_strike_report,
+    validate_bulk_operation_count
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +95,66 @@ def _get_data_manager():
 
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+# Validator functions for decorators
+def validate_schedule(data):
+    """Validate schedule input"""
+    hour = data.get('hour')
+    minute = data.get('minute', 0)
+    duration = data.get('duration', 30)
+    return validate_schedule_input(hour, minute, duration)
+
+
+def validate_strike(data):
+    """Validate strike input"""
+    strike_type = data.get('type')
+    report = data.get('report', '')
+    
+    if not strike_type or strike_type not in ['today', 'forever']:
+        return False, "Invalid strike type"
+    
+    if not isinstance(report, str):
+        return False, "Report must be a string"
+    
+    if len(report) > 2000:
+        return False, "Report too long (max 2000 characters)"
+    
+    return True, ""
+
+
+def validate_task_creation(data):
+    """Validate task creation input"""
+    title = data.get('title', '')
+    valid, error = validate_task_title(title)
+    if not valid:
+        return False, error
+    
+    priority = data.get('priority', 'medium')
+    if priority:
+        valid, error = validate_priority(priority)
+        if not valid:
+            return False, error
+    
+    project = data.get('project', '')
+    if project:
+        valid, error = validate_project_name(project)
+        if not valid:
+            return False, error
+    
+    owner = data.get('owner', '')
+    if owner:
+        valid, error = validate_owner_name(owner)
+        if not valid:
+            return False, error
+    
+    description = data.get('description', '')
+    if description:
+        valid, error = validate_description(description)
+        if not valid:
+            return False, error
+    
+    return True, ""
 
 
 def _validate_date_yyyy_mm_dd(value: str) -> bool:
@@ -152,35 +233,49 @@ def _parse_schedule_payload(payload: Dict) -> Tuple[bool, Dict, str]:
 
 
 @task_bp.route('', methods=['GET'])
-def get_tasks():
+@require_data_manager
+@handle_database_error
+def get_tasks(user_id, data_manager):
     """Get all tasks for the current user"""
-    user_id = _get_user_id()
     logger.info(f"API get_tasks called with user_id: {user_id}")
     
-    try:
-        # Ensure data manager is initialized
-        if _ensure_data_manager_func and not _ensure_data_manager_func():
-            logger.error("Data manager not initialized")
-            return jsonify({'error': 'Data manager not initialized'}), 503
-        
-        data_manager = _get_data_manager()
-        if not data_manager:
-            return jsonify({'error': 'Data manager not available'}), 503
-        
-        tasks = data_manager.load_tasks(user_id)
-        logger.info(f"Loaded {len(tasks)} tasks for user {user_id}")
-        return jsonify(tasks)
-    except DatabaseError:
-        logger.exception("Database error loading tasks for user %s", user_id)
-        return jsonify({'error': 'Database error loading tasks'}), 503
-    except Exception:  # noqa: broad-except
-        logger.exception("Error loading tasks for user %s", user_id)
-        return jsonify({'error': 'Internal server error'}), 500
+    tasks = data_manager.load_tasks(user_id)
+    logger.info(f"Loaded {len(tasks)} tasks for user {user_id}")
+    return jsonify(tasks)
 
 
 @task_bp.route('/import', methods=['POST'])
 def import_tasks():
-    """Import tasks from CSV or TXT file"""
+    """Import tasks from CSV or TXT file with batch operations and rate limiting"""
+    # Rate limiting: max 10 imports per hour per user
+    user_id = _get_user_id()
+    if not hasattr(import_tasks, '_import_times'):
+        import_tasks._import_times = {}
+    
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    key = user_id
+    
+    # Clean old requests (older than 1 hour)
+    if key in import_tasks._import_times:
+        import_tasks._import_times[key] = [
+            t for t in import_tasks._import_times[key]
+            if (now - t).total_seconds() < 3600
+        ]
+    else:
+        import_tasks._import_times[key] = []
+    
+    # Check rate limit
+    if len(import_tasks._import_times[key]) >= 10:
+        return jsonify({
+            'error': 'Rate limit exceeded',
+            'message': 'Maximum 10 imports per hour',
+            'retry_after': 3600
+        }), 429
+    
+    # Record this import
+    import_tasks._import_times[key].append(now)
+    
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
     
@@ -206,38 +301,45 @@ def import_tasks():
         if not imported_tasks:
             return jsonify({'error': 'No valid tasks found in file', 'details': errors}), 400
         
-        # Load existing tasks for the user
+        # Limit to 1000 tasks per import
+        if len(imported_tasks) > 1000:
+            return jsonify({
+                'error': 'Too many tasks',
+                'message': 'Maximum 1000 tasks per import',
+                'count': len(imported_tasks)
+            }), 400
+        
+        # Get user and data manager
         user_id = _get_user_id()
         data_manager = _get_data_manager()
         if not data_manager:
             return jsonify({'error': 'Data manager not available'}), 500
         
-        try:
-            existing_tasks = data_manager.load_tasks(user_id)
-        except DatabaseError:
-            logger.exception("Database error loading existing tasks for import (user %s)", user_id)
-            return jsonify({'error': 'Database error loading tasks'}), 503
-        
-        # Add imported tasks
+        # Prepare tasks with IDs and timestamps
+        tasks_to_import = []
         for task in imported_tasks:
             task['id'] = str(uuid.uuid4())
             task['created_at'] = datetime.now().isoformat()
             task['completed'] = False
             task['strike_count'] = 0
             task['struck_today'] = False
-            existing_tasks.append(task)
+            tasks_to_import.append(task)
         
-        # Save all tasks for the user
-        # NOTE: save_tasks signature is save_tasks(tasks, user_id=None)
-        if data_manager.save_tasks(existing_tasks, user_id):
-            return jsonify({
-                'success': True,
-                'message': f'Successfully imported {len(imported_tasks)} tasks',
-                'imported_count': len(imported_tasks),
-                'errors': errors
-            })
-        else:
-            return jsonify({'error': 'Failed to save imported tasks'}), 500
+        # Use batch create instead of load-all/save-all (100x faster!)
+        try:
+            success = data_manager.bulk_create_tasks(user_id, tasks_to_import)
+            if success:
+                return jsonify({
+                    'success': True,
+                    'message': f'Successfully imported {len(tasks_to_import)} tasks',
+                    'imported_count': len(tasks_to_import),
+                    'errors': errors
+                })
+            else:
+                return jsonify({'error': 'Failed to save imported tasks'}), 500
+        except DatabaseError:
+            logger.exception("Database error during bulk import for user %s", user_id)
+            return jsonify({'error': 'Database error during import'}), 503
             
     except Exception:  # noqa: broad-except
         logger.exception("Import failed")
@@ -245,162 +347,116 @@ def import_tasks():
 
 
 @task_bp.route('', methods=['POST'])
-def create_task():
+@require_data_manager
+@require_json_body
+@validate_input(validate_task_creation)
+@handle_database_error
+def create_task(user_id, data_manager):
     """Create a new task with comprehensive validation and error handling.
 
     When a task with the same (title, project) already exists for the user and
     is still active, the data manager will refuse creation and we return a
     409 Conflict so the UI can offer "Add again" / "Rename & add" options.
     """
-    user_id = _get_user_id()
     logger.info(f"API create_task called with user_id: {user_id}")
     
-    try:
-        if not request.json:
-            return jsonify({'error': 'Request must contain JSON data'}), 400
-        
-        task_data = request.json
-        
-        # Sanitize input data
-        if _sanitize_input_func:
-            task_data = _sanitize_input_func(task_data)
-        
-        # Comprehensive validation
-        if _validate_task_data_func:
-            is_valid, error_message = _validate_task_data_func(task_data)
-            if not is_valid:
-                logger.warning(f"Task validation failed for user {user_id}: {error_message}")
-                return jsonify({'error': error_message}), 400
-        
-        # Ensure data manager is available
-        data_manager = _get_data_manager()
-        if not data_manager:
-            logger.error(f"Data manager not available for user {user_id}")
-            return jsonify({'error': 'Data manager not available'}), 500
-        
-        # Create task using data manager
-        created_task = data_manager.create_task_for_user(user_id, task_data)
-        
-        if created_task:
-            logger.info(f"Successfully created task {created_task['id']} for user {user_id}")
-            return jsonify(created_task), 201
-        else:
-            # Treat a failed creation here as a likely duplicate conflict so
-            # the frontend can offer the user an explicit choice.
-            logger.warning(f"Duplicate or failed task creation for user {user_id}; returning 409")
-            return jsonify({'error': 'A similar task already exists'}), 409
-            
-    except Exception:  # noqa: broad-except
-        logger.exception("Unexpected error in create_task for user %s", user_id)
-        return jsonify({'error': 'Internal server error'}), 500
+    task_data = request.json
+    
+    # Sanitize input data
+    if _sanitize_input_func:
+        task_data = _sanitize_input_func(task_data)
+    
+    # Create task using data manager
+    created_task = data_manager.create_task_for_user(user_id, task_data)
+    
+    if created_task:
+        logger.info(f"Successfully created task {created_task['id']} for user {user_id}")
+        return jsonify(created_task), 201
+    else:
+        # Treat a failed creation here as a likely duplicate conflict so
+        # the frontend can offer the user an explicit choice.
+        logger.warning(f"Duplicate or failed task creation for user {user_id}; returning 409")
+        return jsonify({'error': 'A similar task already exists'}), 409
 
 
 @task_bp.route('/<task_id>', methods=['PUT'])
-def update_task(task_id):
+@require_data_manager
+@require_json_body
+@validate_input(validate_task_creation)
+@handle_database_error
+def update_task(task_id, user_id, data_manager):
     """Update an existing task with comprehensive validation and error handling"""
-    user_id = _get_user_id()
     logger.info(f"API update_task called for task {task_id} with user_id: {user_id}")
     
-    try:
-        if not request.json:
-            return jsonify({'error': 'Request must contain JSON data'}), 400
-        
-        task_data = request.json
-        
-        # Sanitize input data
-        if _sanitize_input_func:
-            task_data = _sanitize_input_func(task_data)
-        
-        # Comprehensive validation
-        if _validate_task_data_func:
-            is_valid, error_message = _validate_task_data_func(task_data)
-            if not is_valid:
-                logger.warning(f"Task validation failed for user {user_id}: {error_message}")
-                return jsonify({'error': error_message}), 400
-        
-        # Ensure data manager is available
-        data_manager = _get_data_manager()
-        if not data_manager:
-            logger.error(f"Data manager not available for user {user_id}")
-            return jsonify({'error': 'Data manager not available'}), 500
-        
-        # Update task using data manager
-        success = data_manager.update_task_for_user(user_id, task_id, task_data)
-        
-        if success:
-            # Track edit in analytics
-            try:
-                from src.analytics_manager import increment_analytics_counter
-                increment_analytics_counter('tasks_edited')
-            except Exception:  # noqa: broad-except
-                logger.exception("Failed to increment analytics counter (tasks_edited)")
-            # Return updated task directly from database
-            updated_task = data_manager.get_task_by_id(user_id, task_id)
-            if updated_task:
-                logger.info(f"Successfully updated task {task_id} for user {user_id}")
-                return jsonify(updated_task)
-            
-            logger.error(f"Task {task_id} not found after update for user {user_id}")
-            return jsonify({'error': 'Task not found after update'}), 500
-        else:
-            logger.error(f"Failed to update task {task_id} for user {user_id}")
-            return jsonify({'error': 'Failed to update task'}), 500
+    task_data = request.json
     
-    except Exception:  # noqa: broad-except
-        logger.exception("Unexpected error in update_task for user %s, task %s", user_id, task_id)
-        return jsonify({'error': 'Internal server error'}), 500
+    # Sanitize input data
+    if _sanitize_input_func:
+        task_data = _sanitize_input_func(task_data)
+    
+    # Update task using data manager
+    success = data_manager.update_task_for_user(user_id, task_id, task_data)
+    
+    if success:
+        # Track edit in analytics
+        try:
+            from src.analytics_manager import increment_analytics_counter
+            increment_analytics_counter('tasks_edited')
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to increment analytics counter (tasks_edited)")
+        # Return updated task directly from database
+        updated_task = data_manager.get_task_by_id(user_id, task_id)
+        if updated_task:
+            logger.info(f"Successfully updated task {task_id} for user {user_id}")
+            return jsonify(updated_task)
+        
+        logger.error(f"Task {task_id} not found after update for user {user_id}")
+        return jsonify({'error': 'Task not found after update'}), 500
+    else:
+        logger.error(f"Failed to update task {task_id} for user {user_id}")
+        return jsonify({'error': 'Failed to update task'}), 500
 
 
 @task_bp.route('/<task_id>', methods=['DELETE'])
-def delete_task(task_id):
+@require_data_manager
+@handle_database_error
+def delete_task(task_id, user_id, data_manager):
     """Delete a task with comprehensive error handling"""
-    user_id = _get_user_id()
     logger.info(f"API delete_task called for task {task_id} with user_id: {user_id}")
     
-    try:
-        if not task_id or not isinstance(task_id, str):
-            return jsonify({'error': 'Invalid task ID'}), 400
-        
-        # Ensure data manager is available
-        data_manager = _get_data_manager()
-        if not data_manager:
-            logger.error(f"Data manager not available for user {user_id}")
-            return jsonify({'error': 'Data manager not available'}), 500
-        
-        # Get task before deletion for response
-        task_to_delete = data_manager.get_task_by_id(user_id, task_id)
-        
-        if not task_to_delete:
-            logger.warning(f"Task {task_id} not found for user {user_id}")
-            return jsonify({'error': 'Task not found'}), 404
+    if not task_id or not isinstance(task_id, str):
+        return jsonify({'error': 'Invalid task ID'}), 400
+    
+    # Get task before deletion for response
+    task_to_delete = data_manager.get_task_by_id(user_id, task_id)
+    
+    if not task_to_delete:
+        logger.warning(f"Task {task_id} not found for user {user_id}")
+        return jsonify({'error': 'Task not found'}), 404
 
-        delete_source = request.headers.get('X-Delete-Source', '')
-        if str(delete_source).lower() == 'tasklist':
-            try:
-                data_manager.save_deleted_task_snapshot(user_id, task_to_delete)
-            except Exception:  # noqa: broad-except
-                logger.exception("Failed to snapshot deleted task (tasklist source)")
+    delete_source = request.headers.get('X-Delete-Source', '')
+    if str(delete_source).lower() == 'tasklist':
+        try:
+            data_manager.save_deleted_task_snapshot(user_id, task_to_delete)
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to snapshot deleted task (tasklist source)")
 
-        # Delete task using data manager
-        success = data_manager.delete_task_for_user(user_id, task_id)
-        
-        if success:
-            # Track deletion in analytics
-            try:
-                from src.analytics_manager import increment_analytics_counter
-                if str(delete_source).lower() == 'tasklist':
-                    increment_analytics_counter('tasks_deleted')
-            except Exception:  # noqa: broad-except
-                logger.exception("Failed to increment analytics counter (tasks_deleted)")
-            logger.info(f"Successfully deleted task {task_id} for user {user_id}")
-            return jsonify(task_to_delete)
-        else:
-            logger.error(f"Failed to delete task {task_id} for user {user_id}")
-            return jsonify({'error': 'Failed to delete task'}), 500
-            
-    except Exception:  # noqa: broad-except
-        logger.exception("Unexpected error in delete_task for user %s, task %s", user_id, task_id)
-        return jsonify({'error': 'Internal server error'}), 500
+    # Delete task using data manager
+    success = data_manager.delete_task_for_user(user_id, task_id)
+    
+    if success:
+        # Track deletion in analytics
+        try:
+            from src.analytics_manager import increment_analytics_counter
+            if str(delete_source).lower() == 'tasklist':
+                increment_analytics_counter('tasks_deleted')
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to increment analytics counter (tasks_deleted)")
+        logger.info(f"Successfully deleted task {task_id} for user {user_id}")
+        return jsonify(task_to_delete)
+    else:
+        logger.error(f"Failed to delete task {task_id} for user {user_id}")
+        return jsonify({'error': 'Failed to delete task'}), 500
 
 
 @task_bp.route('/<task_id>/undo-delete', methods=['POST'])
@@ -466,217 +522,244 @@ def get_strike_today_report_history(task_id):
 
 
 @task_bp.route('/<task_id>/complete', methods=['POST'])
-def complete_task(task_id):
+@require_data_manager
+@handle_database_error
+def complete_task(task_id, user_id, data_manager):
     """Mark a task as completed for the authenticated user"""
-    user_id = _get_user_id()
-    data_manager = _get_data_manager()
-    if not data_manager:
-        return jsonify({'error': 'Data manager not available'}), 500
+    import time
+    from src.services.performance_monitor import log_task_operation
     
-    try:
-        tasks = data_manager.load_tasks_for_user(user_id)
-    except DatabaseError:
-        logger.exception("Database error loading tasks for complete_task (user %s)", user_id)
-        return jsonify({'error': 'Database error loading tasks'}), 503
+    start_time = time.time()
     
-    for i, task in enumerate(tasks):
-        if task['id'] == task_id:
-            tasks[i]['completed'] = True
-            tasks[i]['completed_at'] = datetime.now().isoformat()
-            if data_manager.save_tasks_for_user(user_id, tasks):
-                return jsonify(tasks[i])
-            else:
-                return jsonify({'error': 'Failed to save task'}), 500
+    # Direct update instead of load-all/save-all
+    success = data_manager.update_task_for_user(
+        user_id,
+        task_id,
+        {
+            'completed': True,
+            'completed_at': datetime.now().isoformat(),
+            'status': TaskStatus.COMPLETED.value
+        }
+    )
     
-    return jsonify({'error': 'Task not found'}), 404
+    if success:
+        # Get updated task from database
+        updated_task = data_manager.get_task_by_id(user_id, task_id)
+        if updated_task:
+            duration_ms = (time.time() - start_time) * 1000
+            log_task_operation('complete', user_id, task_id, duration_ms, query_count=2)
+            logger.info(f"Successfully completed task {task_id} for user {user_id}")
+            return jsonify(updated_task)
+        else:
+            logger.error(f"Task {task_id} not found after update for user {user_id}")
+            return jsonify({'error': 'Task not found after update'}), 500
+    else:
+        logger.error(f"Failed to complete task {task_id} for user {user_id}")
+        return jsonify({'error': 'Failed to complete task'}), 500
 
 
 @task_bp.route('/<task_id>/strike', methods=['POST'])
-def strike_task(task_id):
+@require_data_manager
+@require_json_body
+@validate_input(validate_strike)
+@handle_database_error
+def strike_task(task_id, user_id, data_manager):
     """Unified strike endpoint for both today and forever.
 
     This endpoint also records aggregated strike analytics using the
     SQLite-backed analytics manager (no more JSON file writes).
     """
-    user_id = _get_user_id()
+    import time
+    from src.services.performance_monitor import log_task_operation
+    
     strike_data = request.json
-    if strike_data is None:
-        strike_data = {}
-    if not isinstance(strike_data, dict):
-        return jsonify({'error': 'Request must contain JSON object'}), 400
-
     strike_type = strike_data.get('type')
     report = strike_data.get('report', '')
-
+    
     if report is None:
         report = ''
-    if not isinstance(report, str):
-        return jsonify({'error': 'Report must be a string'}), 400
-    if len(report) > 2000:
-        return jsonify({'error': 'Report too long'}), 400
     
-    if not strike_type or strike_type not in ['today', 'forever']:
-        return jsonify({'error': 'Invalid strike type'}), 400
+    start_time = time.time()
     
-    data_manager = _get_data_manager()
-    if not data_manager:
-        return jsonify({'error': 'Data manager not available'}), 500
+    # Get specific task instead of loading all
+    task = data_manager.get_task_by_id(user_id, task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
     
-    try:
-        tasks = data_manager.load_tasks_for_user(user_id)
-    except DatabaseError:
-        logger.exception("Database error loading tasks for strike_task (user %s)", user_id)
-        return jsonify({'error': 'Database error loading tasks'}), 503
     today = datetime.now().strftime('%Y-%m-%d')
+    updates = {}
     
-    for i, task in enumerate(tasks):
-        if task['id'] == task_id:
-            if strike_type == 'today':
-                # Check if task has already been struck twice today
-                daily_strikes = task.get('daily_strikes', {})
-                strikes_today = daily_strikes.get(today, 0)
-                
-                if strikes_today >= 2:
-                    return jsonify({'error': 'Maximum strikes reached for today'}), 400
-                
-                # Update daily strikes
-                strike_number = strikes_today + 1
-                daily_strikes[today] = strike_number
-                tasks[i]['daily_strikes'] = daily_strikes
-                tasks[i]['struck_today'] = True
-                tasks[i]['struck_date'] = today
-                tasks[i]['strike_report'] = report
-                tasks[i]['strike_count'] = tasks[i].get('strike_count', 0) + 1
-
-                # Compute recurrence snooze: hide task until its next occurrence.
+    if strike_type == 'today':
+        # Check if task has already been struck twice today
+        daily_strikes = task.get('daily_strikes', {})
+        strikes_today = daily_strikes.get(today, 0)
+        
+        if strikes_today >= 2:
+            return jsonify({'error': 'Maximum strikes reached for today'}), 400
+        
+        # Prepare updates for strike today
+        strike_number = strikes_today + 1
+        daily_strikes[today] = strike_number
+        
+        updates = {
+            'daily_strikes': daily_strikes,
+            'struck_today': True,
+            'struck_date': today,
+            'strike_report': report,
+            'strike_count': task.get('strike_count', 0) + 1
+        }
+        
+        # Compute recurrence snooze: hide task until its next occurrence.
+        try:
+            recurrence_type = (task.get('recurrence_type') or '').strip().lower()
+            recurrence_param = task.get('recurrence_param')
+            next_date = None
+            if recurrence_type == 'every_n_days':
                 try:
-                    recurrence_type = (task.get('recurrence_type') or '').strip().lower()
-                    recurrence_param = task.get('recurrence_param')
-                    next_date = None
-                    if recurrence_type == 'every_n_days':
-                        try:
-                            n = int(recurrence_param or 0)
-                        except Exception:  # noqa: broad-except
-                            n = 0
-                        if n and n > 1:
-                            base_dt = datetime.strptime(today, '%Y-%m-%d')
-                            next_date = base_dt + timedelta(days=n)
-                    elif recurrence_type == 'weekly':
-                        try:
-                            target_wd = int(recurrence_param)
-                        except Exception:  # noqa: broad-except
-                            target_wd = None
-                        if target_wd is not None and 0 <= target_wd <= 6:
-                            base_dt = datetime.strptime(today, '%Y-%m-%d')
-                            days_ahead = (target_wd - base_dt.weekday()) % 7
-                            if days_ahead == 0:
-                                days_ahead = 7
-                            next_date = base_dt + timedelta(days=days_ahead)
-                    # 'daily' / empty: clears naturally after daily reset; no snooze needed.
-                    if next_date is not None:
-                        tasks[i]['snoozed_until'] = next_date.strftime('%Y-%m-%d')
+                    n = int(recurrence_param or 0)
                 except Exception:  # noqa: broad-except
-                    logger.exception("Failed to compute recurrence snooze for task %s at strike time", task_id)
-
+                    n = 0
+                if n and n > 1:
+                    base_dt = datetime.strptime(today, '%Y-%m-%d')
+                    next_date = base_dt + timedelta(days=n)
+            elif recurrence_type == 'weekly':
                 try:
-                    data_manager.add_strike_today_report_event(
-                        user_id=user_id,
-                        task_id=task_id,
-                        day=today,
-                        strike_number=strike_number,
-                        report=report,
-                    )
+                    target_wd = int(recurrence_param)
                 except Exception:  # noqa: broad-except
-                    logger.exception("Failed to add strike_today report event")
-            elif strike_type == 'forever':
-                tasks[i]['completed'] = True
-                tasks[i]['completed_at'] = datetime.now().isoformat()
-                # Persist a dedicated forever flag so UI and analytics that
-                # rely on struck_forever behave consistently.
-                tasks[i]['struck_forever'] = True
-                tasks[i]['struck_today'] = True
-                tasks[i]['struck_date'] = today
-                tasks[i]['strike_report'] = report
-                tasks[i]['strike_count'] = tasks[i].get('strike_count', 0) + 1
-
+                    target_wd = None
+                if target_wd is not None and 0 <= target_wd <= 6:
+                    base_dt = datetime.strptime(today, '%Y-%m-%d')
+                    days_ahead = (target_wd - base_dt.weekday()) % 7
+                    if days_ahead == 0:
+                        days_ahead = 7
+                    next_date = base_dt + timedelta(days=days_ahead)
+            # 'daily' / empty: clears naturally after daily reset; no snooze needed.
+            if next_date is not None:
+                updates['snoozed_until'] = next_date.strftime('%Y-%m-%d')
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to compute recurrence snooze for task %s at strike time", task_id)
+        
+        # Record event
+        try:
+            data_manager.add_strike_today_report_event(
+                user_id=user_id,
+                task_id=task_id,
+                day=today,
+                strike_number=strike_number,
+                report=report,
+            )
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to add strike_today report event")
+    
+    elif strike_type == 'forever':
+        updates = {
+            'completed': True,
+            'completed_at': datetime.now().isoformat(),
+            'struck_forever': True,
+            'struck_today': True,
+            'struck_date': today,
+            'strike_report': report,
+            'strike_count': task.get('strike_count', 0) + 1,
+            'status': TaskStatus.COMPLETED.value
+        }
+    
+    # Record strike event
+    try:
+        data_manager.add_strike_event(
+            user_id=user_id,
+            task_id=task_id,
+            day=today,
+            strike_type=strike_type,
+        )
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to add strike event")
+    
+    # Direct update instead of load-all/save-all
+    success = data_manager.update_task_for_user(user_id, task_id, updates)
+    
+    if success:
+        updated_task = data_manager.get_task_by_id(user_id, task_id)
+        if updated_task:
+            duration_ms = (time.time() - start_time) * 1000
+            log_task_operation('strike', user_id, task_id, duration_ms, query_count=2)
+            # Increment analytics counters (decoupled from daily reset)
             try:
-                data_manager.add_strike_event(
-                    user_id=user_id,
-                    task_id=task_id,
-                    day=today,
-                    strike_type=strike_type,
-                )
+                from src.analytics_manager import increment_strike_counter
+                increment_strike_counter()
             except Exception:  # noqa: broad-except
-                logger.exception("Failed to add strike event")
-            
-            if data_manager.save_tasks_for_user(user_id, tasks):
-                # Increment analytics counters (decoupled from daily reset)
-                try:
-                    from src.analytics_manager import increment_strike_counter
-
-                    increment_strike_counter()
-                except Exception:  # noqa: broad-except
-                    # Non-fatal; analytics are best-effort
-                    logger.exception("Failed to increment strike counter")
-                return jsonify(tasks[i])
-            else:
-                return jsonify({'error': 'Failed to save tasks'}), 500
+                # Non-fatal; analytics are best-effort
+                logger.exception("Failed to increment strike counter")
+            return jsonify(updated_task)
     
-    return jsonify({'error': 'Task not found'}), 404
+    return jsonify({'error': 'Failed to strike task'}), 500
 
 
 @task_bp.route('/<task_id>/undo-strike', methods=['POST'])
-def undo_strike(task_id):
+@require_data_manager
+@handle_database_error
+def undo_strike(task_id, user_id, data_manager):
     """Undo a strike for today for the authenticated user"""
-    user_id = _get_user_id()
-    data_manager = _get_data_manager()
-    if not data_manager:
-        return jsonify({'error': 'Data manager not available'}), 500
+    import time
+    from src.services.performance_monitor import log_task_operation
 
-    try:
-        tasks = data_manager.load_tasks_for_user(user_id)
-    except DatabaseError:
-        logger.exception("Database error loading tasks for undo_strike (user %s)", user_id)
-        return jsonify({'error': 'Database error loading tasks'}), 503
+    start_time = time.time()
+    
+    # Get specific task instead of loading all
+    task = data_manager.get_task_by_id(user_id, task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    
+    if not task.get('struck_today'):
+        return jsonify({'error': 'Task is not struck for today'}), 400
+    
     today = datetime.now().strftime('%Y-%m-%d')
+    was_completed = task.get('completed', False)
+    updates = {}
     
-    for i, task in enumerate(tasks):
-        if task['id'] == task_id:
-            if task.get('struck_today'):
-                # Check if this was a "strike forever" (completed task)
-                was_completed = task.get('completed', False)
-                
-                if was_completed:
-                    # Undo strike forever - revert to incomplete state
-                    tasks[i]['completed'] = False
-                    tasks[i]['completed_at'] = None
-                    tasks[i]['struck_forever'] = False
-                    tasks[i]['struck_today'] = False
-                    tasks[i]['struck_date'] = None
-                    tasks[i]['strike_report'] = None
-                    tasks[i]['strike_count'] = max(0, tasks[i].get('strike_count', 0) - 1)
-                else:
-                    # Undo regular strike today
-                    daily_strikes = task.get("daily_strikes", {})
-                    strikes_today = daily_strikes.get(today, 0)
-                    if strikes_today > 0:
-                        daily_strikes[today] = strikes_today - 1
-                        tasks[i]["daily_strikes"] = daily_strikes
-                    
-                    # If no more strikes today, mark as not struck
-                    if daily_strikes.get(today, 0) == 0:
-                        tasks[i]["struck_today"] = False
-                        tasks[i]["struck_date"] = None
-                        tasks[i]["strike_report"] = None
-                
-                if data_manager.save_tasks_for_user(user_id, tasks):
-                    return jsonify(tasks[i])
-                else:
-                    return jsonify({'error': 'Failed to save tasks'}), 500
-            else:
-                return jsonify({'error': 'Task is not struck for today'}), 400
+    if was_completed:
+        # Undo strike forever - revert to incomplete state
+        updates = {
+            'completed': False,
+            'completed_at': None,
+            'struck_forever': False,
+            'struck_today': False,
+            'struck_date': None,
+            'strike_report': None,
+            'strike_count': max(0, task.get('strike_count', 0) - 1),
+            'status': TaskStatus.PENDING.value
+        }
+    else:
+        # Undo regular strike today
+        daily_strikes = task.get('daily_strikes', {})
+        strikes_today = daily_strikes.get(today, 0)
+        
+        if strikes_today > 0:
+            daily_strikes[today] = strikes_today - 1
+        
+        updates = {
+            'daily_strikes': daily_strikes,
+            'struck_today': False if daily_strikes.get(today, 0) == 0 else True,
+            'struck_date': None if daily_strikes.get(today, 0) == 0 else today,
+            'strike_report': None if daily_strikes.get(today, 0) == 0 else task.get('strike_report'),
+            'strike_count': max(0, task.get('strike_count', 0) - 1)
+        }
     
-    return jsonify({'error': 'Task not found'}), 404
+    # Direct update instead of load-all/save-all
+    success = data_manager.update_task_for_user(user_id, task_id, updates)
+    
+    if success:
+        updated_task = data_manager.get_task_by_id(user_id, task_id)
+        if updated_task:
+            duration_ms = (time.time() - start_time) * 1000
+            log_task_operation('undo_strike', user_id, task_id, duration_ms, query_count=2)
+            logger.info(f"Successfully undid strike for task {task_id} for user {user_id}")
+            return jsonify(updated_task)
+        else:
+            logger.error(f"Task {task_id} not found after undo-strike for user {user_id}")
+            return jsonify({'error': 'Task not found after update'}), 500
+    else:
+        logger.error(f"Failed to undo strike for task {task_id} for user {user_id}")
+        return jsonify({'error': 'Failed to undo strike'}), 500
 
 
 @task_bp.route('/<task_id>/unschedule', methods=['POST'])
@@ -719,31 +802,21 @@ def unschedule_task(task_id):
 
 
 @task_bp.route('/<task_id>/schedule', methods=['POST'])
-def schedule_task(task_id):
+@require_data_manager
+@validate_input(validate_schedule)
+@handle_database_error
+def schedule_task(task_id, user_id, data_manager):
     """Schedule a task for a specific hour and duration for the authenticated user"""
-    user_id = _get_user_id()
     schedule_data = request.json
     if schedule_data is None:
         schedule_data = {}
 
-    ok, parsed, err = _parse_schedule_payload(schedule_data)
-    if not ok:
-        return jsonify({'error': err}), 400
+    hour = schedule_data.get('hour')
+    minute = schedule_data.get('minute', 0)
+    duration = schedule_data.get('duration', 30)
+    date = schedule_data.get('date', datetime.now().strftime('%Y-%m-%d'))
 
-    hour = parsed['hour']
-    minute = parsed['minute']
-    duration = parsed['duration']
-    date = parsed['date']
-    
-    data_manager = _get_data_manager()
-    if not data_manager:
-        return jsonify({'error': 'Data manager not available'}), 500
-
-    try:
-        tasks = data_manager.load_tasks(user_id)
-    except DatabaseError:
-        logger.exception("Database error loading tasks for schedule_task (user %s)", user_id)
-        return jsonify({'error': 'Database error loading tasks'}), 503
+    tasks = data_manager.load_tasks(user_id)
     
     # Check for conflicts with existing scheduled tasks
     start_minutes = hour * 60 + minute

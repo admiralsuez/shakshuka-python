@@ -1345,27 +1345,6 @@ function clearCompletedMonthFilter() {
     updateTaskStats();
 }
 
-// Export functions for use in other modules
-// Ensure DOM classes match current task flags (used after resets)
-function syncStrikeClassesFromState() {
-    try {
-        const tasks = AppState.getTasks();
-        tasks.forEach(t => {
-            const el = document.getElementById(`task-${t.id}`);
-            if (!el) return;
-            // Container classes
-            el.classList.remove('struck-today', 'struck-forever');
-            if (t.struck_today) el.classList.add('struck-today');
-            if (t.completed || t.struck_forever) el.classList.add('struck-forever');
-            // Title classes
-            const title = el.querySelector('.task-title');
-            if (title) {
-                title.classList.toggle('struck', Boolean(t.struck_today || t.completed || t.struck_forever));
-            }
-        });
-    } catch (e) { /* no-op */ }
-}
-
 // Task Search functionality
 let taskSearchQuery = '';
 

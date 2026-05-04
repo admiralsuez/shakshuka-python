@@ -6,6 +6,12 @@ import sys
 from src.exceptions import ValidationError
 from src.update_manager import UpdateIOError, UpdateIntegrityError
 
+# Import decorators
+from src.routes.route_decorators import (
+    require_json_body,
+    handle_database_error
+)
+
 logger = logging.getLogger(__name__)
 
 updates_bp = Blueprint("updates", __name__, url_prefix="/api/updates")
@@ -40,6 +46,7 @@ def _ensure_update_manager():
 
 
 @updates_bp.route('/status', methods=['GET'])
+@handle_database_error
 def get_update_status():
     """Get current update status"""
     if not _ensure_update_manager():
@@ -49,66 +56,46 @@ def get_update_status():
 
 
 @updates_bp.route('/check', methods=['POST'])
+@handle_database_error
 def check_for_updates():
     """Check for available updates"""
-    try:
-        if not _ensure_update_manager():
-            return jsonify({'error': 'Update manager not initialized'}), 500
+    if not _ensure_update_manager():
+        return jsonify({'error': 'Update manager not initialized'}), 500
 
-        update_info = _app_context.update_manager.check_for_updates()
-        if update_info:
-            return jsonify({'update_available': True, 'update_info': update_info})
+    update_info = _app_context.update_manager.check_for_updates()
+    if update_info:
+        return jsonify({'update_available': True, 'update_info': update_info})
 
-        return jsonify({'update_available': False})
-
-    except ValidationError as e:
-        logger.exception("Validation error checking for updates")
-        return jsonify({'error': str(e)}), 400
-    except UpdateIOError as e:
-        logger.exception("IO error checking for updates")
-        return jsonify({'error': str(e)}), 503
-    except UpdateIntegrityError as e:
-        logger.exception("Integrity error checking for updates")
-        return jsonify({'error': str(e)}), 502
-    except Exception:  # noqa: broad-except
-        logger.exception("Error checking for updates")
-        return jsonify({'error': 'Failed to check for updates'}), 500
+    return jsonify({'update_available': False})
 
 
 @updates_bp.route('/download', methods=['POST'])
+@require_json_body
+@handle_database_error
 def download_update():
     """Start downloading the available update in background"""
-    try:
-        if not _ensure_update_manager():
-            return jsonify({'error': 'Update manager not initialized'}), 500
+    if not _ensure_update_manager():
+        return jsonify({'error': 'Update manager not initialized'}), 500
 
-        update_info = request.json
-        if update_info is None or not isinstance(update_info, dict):
-            return jsonify({'error': 'Request must contain JSON object'}), 400
+    update_info = request.json
+    download_url = update_info.get('download_url')
+    version = update_info.get('version')
+    if not isinstance(download_url, str) or not download_url.strip():
+        return jsonify({'error': 'download_url required'}), 400
+    if not isinstance(version, str) or not version.strip():
+        return jsonify({'error': 'version required'}), 400
 
-        download_url = update_info.get('download_url')
-        version = update_info.get('version')
-        if not isinstance(download_url, str) or not download_url.strip():
-            return jsonify({'error': 'download_url required'}), 400
-        if not isinstance(version, str) or not version.strip():
-            return jsonify({'error': 'version required'}), 400
+    status = _app_context.update_manager.get_download_status()
+    if (status.get('status') or '').lower() == 'downloading':
+        return jsonify({'error': 'Download already in progress', 'status': status}), 409
 
-        status = _app_context.update_manager.get_download_status()
-        if (status.get('status') or '').lower() == 'downloading':
-            return jsonify({'error': 'Download already in progress', 'status': status}), 409
-
-        _app_context.update_manager.start_download(update_info)
-        return jsonify({'started': True}), 202
-
-    except ValidationError as e:
-        logger.exception("Validation error starting update download")
-        return jsonify({'error': str(e)}), 400
-    except Exception:  # noqa: broad-except
-        logger.exception("Error starting update download")
-        return jsonify({'error': 'Failed to start download'}), 500
+    _app_context.update_manager.start_download(update_info)
+    return jsonify({'started': True}), 202
 
 
 @updates_bp.route('/install', methods=['POST'])
+@require_json_body
+@handle_database_error
 def install_update():
     """Install downloaded update"""
     if not _ensure_update_manager():
@@ -117,8 +104,6 @@ def install_update():
     update_data = request.json
     if update_data is None:
         update_data = {}
-    if not isinstance(update_data, dict):
-        return jsonify({'error': 'Request must contain JSON object'}), 400
 
     update_file = update_data.get('update_file')
     backup_data = update_data.get('backup_before_update', True)
@@ -140,20 +125,7 @@ def install_update():
 
     update_file = str(_app_context.update_manager.update_dir / update_file)
 
-    try:
-        success = _app_context.update_manager.install_update(update_file, backup_data)
-    except ValidationError as e:
-        logger.exception("Validation error installing update")
-        return jsonify({'error': str(e)}), 400
-    except UpdateIOError as e:
-        logger.exception("IO error installing update")
-        return jsonify({'error': str(e)}), 500
-    except UpdateIntegrityError as e:
-        logger.exception("Integrity error installing update")
-        return jsonify({'error': str(e)}), 500
-    except Exception:  # noqa: broad-except
-        logger.exception("Error installing update")
-        return jsonify({'error': 'Failed to install update'}), 500
+    success = _app_context.update_manager.install_update(update_file, backup_data)
 
     if success:
         return jsonify({'success': True, 'message': 'Update installed successfully. Please restart the application.'})
@@ -163,6 +135,7 @@ def install_update():
 
 
 @updates_bp.route('/progress', methods=['GET'])
+@handle_database_error
 def get_download_progress():
     """Get current download/install progress."""
     if not _ensure_update_manager():
@@ -172,6 +145,7 @@ def get_download_progress():
 
 
 @updates_bp.route('/cancel', methods=['POST'])
+@handle_database_error
 def cancel_update_download():
     """Cancel current update download if in progress."""
     if not _ensure_update_manager():
@@ -182,6 +156,7 @@ def cancel_update_download():
 
 
 @updates_bp.route('/config', methods=['GET'])
+@handle_database_error
 def get_update_config():
     """Get update configuration"""
     if not _ensure_update_manager():
@@ -191,6 +166,8 @@ def get_update_config():
 
 
 @updates_bp.route('/config', methods=['PUT'])
+@require_json_body
+@handle_database_error
 def update_update_config():
     """Update update configuration"""
     if not _ensure_update_manager():

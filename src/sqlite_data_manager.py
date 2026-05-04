@@ -741,6 +741,42 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.error(f"Migration 025 failed: {e}")
             raise
+    
+    def _migration_026_mobile_sync_requests(self, conn) -> List[Dict[str, Any]]:
+        """Migration 026: Create mobile_sync_requests table for persistent sync state"""
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            conn.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS mobile_sync_requests (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    requested_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    consumed_at TEXT,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_mobile_sync_requests_user_expires ON mobile_sync_requests (user_id, expires_at)')
+            
+            # Add sequence_num to mobile_inbox for deterministic ordering
+            cursor = conn.execute("PRAGMA table_info(mobile_inbox)")
+            inbox_cols = [row[1] for row in cursor.fetchall()]
+            if 'sequence_num' not in inbox_cols:
+                conn.execute("ALTER TABLE mobile_inbox ADD COLUMN sequence_num INTEGER DEFAULT 0")
+                self.logger.info("Added sequence_num column to mobile_inbox table")
+            
+            migrations_applied.append({
+                'version': 26,
+                'description': 'Created mobile_sync_requests table and added sequence_num to mobile_inbox',
+                'sql': 'CREATE TABLE mobile_sync_requests'
+            })
+            
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 026 failed: {e}")
+            raise
         
     def _run_migrations(self):
         """Run database migrations with comprehensive error handling and rollback"""
@@ -862,6 +898,14 @@ class SQLiteDataManager:
                     # Migration 25: Add owner column to tasks
                     if migration_version < 25:
                         migrations_applied.extend(self._migration_025_owner_column(conn))
+                    
+                    # Migration 26: Add mobile_sync_requests table and sequence_num to mobile_inbox
+                    if migration_version < 26:
+                        migrations_applied.extend(self._migration_026_mobile_sync_requests(conn))
+                    
+                    # Migration 27: Add missing indexes for common queries
+                    if migration_version < 27:
+                        migrations_applied.extend(self._migration_027_add_missing_indexes(conn))
                     
                     # Update migration version
                     if migrations_applied:
@@ -1895,7 +1939,7 @@ class SQLiteDataManager:
             )
     
     def save_tasks_for_user(self, user_id: str, tasks: List[Dict[str, Any]]) -> bool:
-        """Save tasks for a specific user to database with atomic transaction and failsafes"""
+        """Save tasks for a specific user to database with UPSERT pattern and atomic transaction"""
         max_retries = 3
         retry_delay = 0.1
         
@@ -1914,57 +1958,33 @@ class SQLiteDataManager:
                         conn.execute('BEGIN IMMEDIATE TRANSACTION')
 
                         try:
-                            backup_tasks = []
-                            cursor = conn.execute('SELECT * FROM tasks WHERE user_id = ?', (user_id,))
-                            for row in cursor.fetchall():
-                                backup_tasks.append(self._row_to_task_dict(row))
+                            # Use UPSERT (INSERT OR REPLACE) instead of DELETE+INSERT
+                            # This is more efficient and safer
+                            for task in tasks_normalized:
+                                task_row = self._task_dict_to_row(task, user_id)
+                                conn.execute('''
+                                    INSERT OR REPLACE INTO tasks (
+                                        id, user_id, title, description, project, owner, priority, status,
+                                        completed, completed_at, due_date, estimated_duration, scheduled_hour,
+                                        scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
+                                        daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ''', task_row)
 
-                            conn.execute('DELETE FROM tasks WHERE user_id = ?', (user_id,))
-
-                            task_rows = [self._task_dict_to_row(task, user_id) for task in tasks_normalized]
-                            conn.executemany('''
-                                INSERT INTO tasks (
-                                    id, user_id, title, description, project, owner, priority, status,
-                                    completed, completed_at, due_date, estimated_duration, scheduled_hour,
-                                    scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                                    daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', task_rows)
-
+                            # Verify count matches
                             count_cursor = conn.execute('SELECT COUNT(*) FROM tasks WHERE user_id = ?', (user_id,))
                             inserted_count = count_cursor.fetchone()[0]
 
                             if inserted_count != len(tasks_normalized):
-                                raise Exception(f"Insertion verification failed: expected {len(tasks_normalized)}, got {inserted_count}")
+                                raise Exception(f"Count verification failed: expected {len(tasks_normalized)}, got {inserted_count}")
 
                             conn.commit()
-                            self.logger.info(f"Successfully saved {len(tasks_normalized)} tasks for user {user_id}")
+                            self.logger.info(f"Successfully saved {len(tasks_normalized)} tasks for user {user_id} using UPSERT")
                             return True
 
                         except Exception as inner_e:
                             conn.rollback()
                             self.logger.error(f"Transaction failed for user {user_id}, attempt {attempt + 1}: {inner_e}")
-
-                            if attempt == max_retries - 1 and backup_tasks:
-                                try:
-                                    self.logger.warning(f"Restoring backup for user {user_id} after final failure")
-                                    conn.execute('BEGIN IMMEDIATE TRANSACTION')
-                                    conn.execute('DELETE FROM tasks WHERE user_id = ?', (user_id,))
-                                    backup_rows = [self._task_dict_to_row(task, user_id) for task in backup_tasks]
-                                    conn.executemany('''
-                                        INSERT INTO tasks (
-                                            id, user_id, title, description, project, owner, priority, status,
-                                            completed, completed_at, due_date, estimated_duration, scheduled_hour,
-                                            scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
-                                            daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    ''', backup_rows)
-                                    conn.commit()
-                                    self.logger.info(f"Backup restored for user {user_id}")
-                                except Exception as restore_e:
-                                    conn.rollback()
-                                    self.logger.error(f"Failed to restore backup for user {user_id}: {restore_e}")
-
                             raise
 
             except Exception as e:
@@ -2158,22 +2178,17 @@ class SQLiteDataManager:
 
                         backup_row = None
                         try:
+                            # Single query: Get full task and check existence
                             cursor = conn.execute(
-                                '''
-                                SELECT id FROM tasks WHERE id = ? AND user_id = ?
-                                ''',
-                                (task_id, user_id),
+                                'SELECT * FROM tasks WHERE id = ? AND user_id = ?',
+                                (task_id, user_id)
                             )
-
-                            if not cursor.fetchone():
+                            backup_row = cursor.fetchone()
+                            
+                            if not backup_row:
                                 self.logger.error(f"Task {task_id} not found for user {user_id}")
                                 conn.rollback()
                                 return False
-
-                            backup_cursor = conn.execute('SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id))
-                            backup_row = backup_cursor.fetchone()
-                            if not backup_row:
-                                raise Exception('Task disappeared during update')
 
                             existing_task = self._row_to_task_dict(backup_row)
                             merged_task = {**existing_task, **(task_data or {})}
@@ -3600,6 +3615,131 @@ class SQLiteDataManager:
         except Exception as e:
             self.logger.exception("Error loading mobile inbox status for user %s submission %s", user_id, submission_id)
             raise DatabaseError(message="Error loading mobile inbox status", details={'user_id': user_id, 'submission_id': submission_id}, cause=e)
+    
+    def save_mobile_sync_request(self, user_id: str, request_id: str, expires_at_iso: str) -> None:
+        """Save a mobile sync request with TTL (5 minutes)"""
+        try:
+            self._ensure_user_exists(user_id)
+            requested_at = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                conn.execute(
+                    '''
+                    INSERT OR REPLACE INTO mobile_sync_requests (
+                        id, user_id, requested_at, expires_at, consumed_at
+                    ) VALUES (?, ?, ?, ?, NULL)
+                    ''',
+                    (request_id, user_id, requested_at, expires_at_iso),
+                )
+                conn.commit()
+        except Exception as e:
+            self.logger.exception("Error saving mobile sync request for user %s", user_id)
+            raise DatabaseError(message="Error saving mobile sync request", details={'user_id': user_id}, cause=e)
+    
+    def get_and_consume_mobile_sync_request(self, user_id: str) -> bool:
+        """Atomically check and consume a mobile sync request. Returns True if request existed."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                
+                # Check if request exists and not yet consumed
+                cur = conn.execute(
+                    '''
+                    SELECT id FROM mobile_sync_requests
+                    WHERE user_id = ? AND consumed_at IS NULL AND expires_at > ?
+                    LIMIT 1
+                    ''',
+                    (user_id, datetime.now().isoformat()),
+                )
+                row = cur.fetchone()
+                
+                if not row:
+                    conn.commit()
+                    return False
+                
+                # Mark as consumed
+                request_id = row['id']
+                conn.execute(
+                    '''
+                    UPDATE mobile_sync_requests
+                    SET consumed_at = ?
+                    WHERE id = ?
+                    ''',
+                    (datetime.now().isoformat(), request_id),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.exception("Error consuming mobile sync request for user %s", user_id)
+            raise DatabaseError(message="Error consuming mobile sync request", details={'user_id': user_id}, cause=e)
+    
+    def cleanup_expired_sync_requests(self) -> int:
+        """Delete expired sync requests. Returns count deleted."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                cur = conn.execute(
+                    '''
+                    DELETE FROM mobile_sync_requests
+                    WHERE expires_at < ?
+                    ''',
+                    (datetime.now().isoformat(),),
+                )
+                count = cur.rowcount
+                conn.commit()
+                if count > 0:
+                    self.logger.info(f"Cleaned up {count} expired sync requests")
+                return count
+        except Exception as e:
+            self.logger.exception("Error cleaning up expired sync requests")
+            raise DatabaseError(message="Error cleaning up sync requests", cause=e)
+    
+    def cleanup_stale_submissions(self, hours_old: int = 24) -> int:
+        """Auto-reject submissions older than specified hours. Returns count rejected."""
+        try:
+            cutoff = (datetime.now() - timedelta(hours=hours_old)).isoformat()
+            with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE TRANSACTION')
+                cur = conn.execute(
+                    '''
+                    UPDATE mobile_inbox
+                    SET status = 'expired', processed_at = ?
+                    WHERE status = 'pending' AND created_at < ?
+                    ''',
+                    (datetime.now().isoformat(), cutoff),
+                )
+                count = cur.rowcount
+                conn.commit()
+                if count > 0:
+                    self.logger.info(f"Auto-rejected {count} stale submissions")
+                return count
+        except Exception as e:
+            self.logger.exception("Error cleaning up stale submissions")
+            raise DatabaseError(message="Error cleaning up submissions", cause=e)
+    
+    def _migration_027_add_missing_indexes(self, conn) -> List[Dict[str, Any]]:
+        """Migration 027: Add missing indexes for common queries"""
+        migrations_applied = []
+        try:
+            # Add indexes for frequently queried columns
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_user_struck_forever ON tasks (user_id, struck_forever)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_user_struck_today ON tasks (user_id, struck_today)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_user_scheduled_date ON tasks (user_id, scheduled_date)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_user_project ON tasks (user_id, project)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_notes_user_created ON notes (user_id, created_at)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_notes_user_folder ON notes (user_id, folder_id)')
+            
+            migrations_applied.append({
+                'version': 27,
+                'description': 'Added missing indexes for common queries (struck_forever, struck_today, scheduled_date, project, notes)',
+                'sql': 'CREATE INDEX ...'
+            })
+            
+            self.logger.info("Migration 027 completed: Added 6 missing indexes")
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 027 failed: {e}")
+            raise
     
     # User Management Methods
     def create_user(self, user_id: str, username: str = None, password_hash: str = None) -> bool:

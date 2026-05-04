@@ -16,6 +16,13 @@ from src.exceptions import DatabaseError
 from src.routes.api_utils import get_json_object, register_api_error_handlers
 from src.exceptions import ValidationError
 
+# Import decorators
+from src.routes.route_decorators import (
+    require_data_manager,
+    require_json_body,
+    handle_database_error
+)
+
 logger = logging.getLogger(__name__)
 
 notes_bp = Blueprint("notes", __name__, url_prefix="/api/notes")
@@ -58,15 +65,11 @@ def _get_data_manager():
 
 
 @notes_bp.route("", methods=["GET"])
-def get_notes():
+@require_data_manager
+@handle_database_error
+def get_notes(user_id, data_manager):
     """Return all notes for the current user."""
-    user_id = _get_user_id()
-    if _ensure_data_manager_func and not _ensure_data_manager_func():
-        raise DatabaseError(message='Data manager not initialized')
-    dm = _get_data_manager()
-    if not dm:
-        raise DatabaseError(message='Data manager not available')
-    notes = dm.load_notes(user_id)
+    notes = data_manager.load_notes(user_id)
     # Ensure JSON doesn't HTML-escape strings
     from flask import make_response
     import json
@@ -76,10 +79,12 @@ def get_notes():
 
 
 @notes_bp.route("", methods=["POST"])
-def create_note():
+@require_data_manager
+@require_json_body
+@handle_database_error
+def create_note(user_id, data_manager):
     """Create a new note for the current user."""
-    user_id = _get_user_id()
-    note_data: Dict[str, Any] = get_json_object(required=True)
+    note_data: Dict[str, Any] = request.json
     if _sanitize_input_func:
         note_data = _sanitize_input_func(note_data)
 
@@ -92,11 +97,7 @@ def create_note():
     pinned = bool(note_data.get("pinned", False))
     archived = bool(note_data.get("archived", False))
 
-    dm = _get_data_manager()
-    if not dm:
-        raise DatabaseError(message='Data manager not available')
-
-    created = dm.create_note_for_user(
+    created = data_manager.create_note_for_user(
         user_id,
         {"title": title, "content": content, "folder": folder, "pinned": pinned, "archived": archived},
     )
@@ -106,30 +107,27 @@ def create_note():
 
 
 @notes_bp.route("/<note_id>", methods=["PUT"])
-def update_note(note_id: str):
+@require_data_manager
+@require_json_body
+@handle_database_error
+def update_note(note_id: str, user_id, data_manager):
     """Update title/content/folder of a note."""
-    user_id = _get_user_id()
-    note_data: Dict[str, Any] = get_json_object(required=True)
+    note_data: Dict[str, Any] = request.json
     if _sanitize_input_func:
         note_data = _sanitize_input_func(note_data)
-    dm = _get_data_manager()
-    if not dm:
-        raise DatabaseError(message='Data manager not available')
 
-    updated = dm.update_note_for_user(user_id, note_id, note_data)
+    updated = data_manager.update_note_for_user(user_id, note_id, note_data)
     if not updated:
         return jsonify({"error": "Note not found"}), 404
     return jsonify(updated), 200
 
 
 @notes_bp.route("/<note_id>", methods=["DELETE"])
-def delete_note(note_id: str):
+@require_data_manager
+@handle_database_error
+def delete_note(note_id: str, user_id, data_manager):
     """Delete a note for the current user."""
-    user_id = _get_user_id()
-    dm = _get_data_manager()
-    if not dm:
-        raise DatabaseError(message='Data manager not available')
-    success = dm.delete_note_for_user(user_id, note_id)
+    success = data_manager.delete_note_for_user(user_id, note_id)
     if not success:
         return jsonify({"error": "Note not found"}), 404
     return jsonify({"success": True}), 200

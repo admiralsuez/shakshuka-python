@@ -1,3 +1,35 @@
+## Version 27.4 - Startup Performance & Sync System Overhaul
+Release Date: 2026-05-04
+
+### Performance
+- **Fixed UpdateManager initialization**: Resolved `'UpdateManager' object has no attribute '_auto_update_check_worker'` warning during startup by replacing deprecated daemon thread methods with scheduler-based auto-update checking and weekly backups.
+- **Improved loading screen task display**: Loading animation now waits for API to be healthy (up to 5 seconds with 250ms retry intervals) before fetching actual task titles, ensuring real tasks display during startup instead of placeholders.
+- **Better error logging**: Added console warnings for API failures during loading screen to help diagnose connectivity issues.
+- **Dead code cleanup**: Removed unused `start_auto_update_check()` method and duplicate `syncStrikeClassesFromState()` function definition.
+- **Companion sync overhaul**: Replaced polling-based sync with on-demand fetch. When user clicks "Sync" on desktop, tasks are fetched immediately instead of waiting up to 90 seconds. Eliminated constant polling that drained battery on mobile devices.
+
+### Bug Fixes
+- **TaskStatus import fix**: Resolved `NameError: name 'TaskStatus' is not defined` in strike_task endpoint by adding proper import statement.
+- **Sync race conditions fixed**: Fixed 4 critical race conditions:
+  - Sync request lost on app restart (now persisted in database)
+  - Concurrent approve/reject on same submission (now protected by locks)
+  - Sync request consumed by multiple mobiles (now atomic operation)
+  - Orphaned submissions blocking queue (now auto-rejected after 24 hours)
+
+### Sync System Improvements
+- **Database-backed sync state**: Sync requests now stored in database with 5-minute TTL instead of in-memory dict. Survives app restart.
+- **Atomic operations**: All sync request operations use `BEGIN IMMEDIATE TRANSACTION` to prevent race conditions.
+- **Submission-level locks**: Concurrent approve/reject operations on same submission are now mutually exclusive.
+- **Automatic cleanup jobs**: Expired sync requests cleaned up hourly, stale submissions auto-rejected every 6 hours.
+- **On-demand sync fetch**: Removed polling loop. Desktop now fetches tasks immediately when user clicks Sync button.
+- **Timeout guards**: 30-second timeout prevents sync checks from hanging indefinitely.
+
+### Code Quality
+- **Dead code analysis**: Identified and documented unused utility functions (`throttle`, `generateId`) for future cleanup. See `DEAD_CODE_ANALYSIS.md` for details.
+- **Sync logic deep analysis**: Comprehensive multi-document review of companion app sync architecture identified 8 critical race conditions and 14 total issues. See `SYNC_LOGIC_ANALYSIS.md`, `SYNC_DEEP_ANALYSIS.md`, `SYNC_RACE_CONDITIONS.md`, and `SYNC_ISSUES_SUMMARY.md`.
+- **Sync implementation complete**: All critical fixes implemented. See `SYNC_IMPLEMENTATION_COMPLETE.md` for details on database migration, new methods, and testing checklist.
+
+---
 ## Version 27.3 - Task Owner Field & Excel Export Enhancement
 Release Date: 2026-05-04
 

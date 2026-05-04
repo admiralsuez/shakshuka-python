@@ -15,6 +15,13 @@ from src.constants import DEFAULT_USER_ID
 from src.exceptions import AutostartError, DatabaseError, SettingsError, ValidationError
 from src.routes.api_utils import get_json_object, register_api_error_handlers
 
+# Import decorators
+from src.routes.route_decorators import (
+    require_data_manager,
+    require_json_body,
+    handle_database_error
+)
+
 logger = logging.getLogger(__name__)
 
 # Blueprint definition
@@ -66,6 +73,7 @@ def _validate_time_format(time_str: str) -> bool:
 
 
 @settings_bp.route('/autostart', methods=['GET'])
+@handle_database_error
 def get_autostart_status():
     """Get autostart status"""
     ctx = _get_app_context()
@@ -78,19 +86,17 @@ def get_autostart_status():
 
 
 @settings_bp.route('', methods=['GET'])
-def get_settings():
+@require_data_manager
+@handle_database_error
+def get_settings(user_id, data_manager):
     """Get application settings for the authenticated user"""
-    user_id = _get_user_id()
-    
-    ctx = _get_app_context()
-    if not ctx or not ctx.data_manager:
-        raise DatabaseError(message='Data manager not available')
-
     settings = _load_settings_with_retry(user_id)
 
     # Add autostart status
     try:
-        settings['autostart_enabled'] = ctx.autostart_manager.is_autostart_enabled()
+        ctx = _get_app_context()
+        if ctx and ctx.autostart_manager:
+            settings['autostart_enabled'] = ctx.autostart_manager.is_autostart_enabled()
     except Exception as e:
         logger.warning(f"Failed to get autostart status: {e}")
         settings['autostart_enabled'] = False
@@ -103,62 +109,55 @@ def get_settings():
 
 
 @settings_bp.route('', methods=['PUT'])
-def update_settings():
+@require_data_manager
+@require_json_body
+@handle_database_error
+def update_settings(user_id, data_manager):
     """Update application settings for the authenticated user"""
-    user_id = _get_user_id()
+    settings_data = request.json
+    if not settings_data:
+        settings_data = {}
     
-    settings_data = get_json_object(required=True)
+    # Load current settings
+    current_settings = _load_settings_with_retry(user_id)
     
-    if not _app_context or not _app_context.data_manager:
-        raise DatabaseError(message='Data manager not available')
+    # Validate and merge updates
+    validated_updates, daily_reset_time_changed = _validate_and_merge_updates(
+        settings_data, current_settings
+    )
     
+    # Handle autostart setting separately
+    if 'autostart' in settings_data:
+        _handle_autostart_update(settings_data['autostart'])
+    
+    # Save settings
+    if not _save_settings_with_retry(user_id, current_settings):
+        raise DatabaseError(message='Failed to save settings after multiple attempts')
+    
+    # Record settings change event
     try:
-        # Load current settings
-        current_settings = _load_settings_with_retry(user_id)
-        
-        # Validate and merge updates
-        validated_updates, daily_reset_time_changed = _validate_and_merge_updates(
-            settings_data, current_settings
-        )
-        
-        # Handle autostart setting separately
-        if 'autostart' in settings_data:
-            _handle_autostart_update(settings_data['autostart'])
-        
-        # Save settings
-        if not _save_settings_with_retry(user_id, current_settings):
-            raise DatabaseError(message='Failed to save settings after multiple attempts')
-        
-        # Record settings change event
-        try:
+        ctx = _get_app_context()
+        if ctx and ctx.data_manager:
             ctx.data_manager.add_settings_change_event(user_id)
-        except DatabaseError:
-            logger.exception("Database error recording settings change event")
-        except Exception:  # noqa: broad-except
-            logger.exception("Error recording settings change event")
-        
-        # Reschedule daily reset if time changed
-        if daily_reset_time_changed:
-            _reschedule_daily_reset(validated_updates.get('daily_reset_time'))
-        
-        # Add autostart status to response
-        try:
+    except DatabaseError:
+        logger.exception("Database error recording settings change event")
+    except Exception:  # noqa: broad-except
+        logger.exception("Error recording settings change event")
+    
+    # Reschedule daily reset if time changed
+    if daily_reset_time_changed:
+        _reschedule_daily_reset(validated_updates.get('daily_reset_time'))
+    
+    # Add autostart status to response
+    try:
+        ctx = _get_app_context()
+        if ctx and ctx.autostart_manager:
             current_settings['autostart_enabled'] = ctx.autostart_manager.is_autostart_enabled()
-        except Exception:  # noqa: broad-except
-            logger.exception("Failed to get autostart status")
-            current_settings['autostart_enabled'] = False
-        logger.info(f"Successfully updated settings for user {user_id}")
-        return jsonify(current_settings), 200
-        
-    except AutostartError as e:
-        logger.error(f"Autostart error for user {user_id}: {e}")
-        return jsonify({'error': 'Failed to update autostart setting'}), 500
-    except SettingsError as e:
-        logger.exception("Settings error updating settings for user %s", user_id)
-        raise DatabaseError(message=str(e), cause=e)
-    except ValidationError:
-        logger.exception("Validation error updating settings for user %s", user_id)
-        raise
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to get autostart status")
+        current_settings['autostart_enabled'] = False
+    logger.info(f"Successfully updated settings for user {user_id}")
+    return jsonify(current_settings), 200
 
 
 def _get_default_settings():

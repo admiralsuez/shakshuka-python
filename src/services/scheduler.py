@@ -909,6 +909,36 @@ def get_notes_export_dir() -> str:
     return os.path.join(get_user_data_dir(), 'notes_export')
 
 
+def _cleanup_mobile_sync_requests_job() -> None:
+    """Clean up expired mobile sync requests (TTL: 5 minutes)."""
+    try:
+        data_manager = _get_data_manager()
+        if not data_manager:
+            logger.warning("Data manager not available for sync request cleanup")
+            return
+        
+        count = data_manager.cleanup_expired_sync_requests()
+        if count > 0:
+            logger.info(f"Cleaned up {count} expired mobile sync requests")
+    except Exception:  # noqa: broad-except
+        logger.exception("Error cleaning up mobile sync requests")
+
+
+def _cleanup_stale_submissions_job() -> None:
+    """Auto-reject mobile inbox submissions older than 24 hours."""
+    try:
+        data_manager = _get_data_manager()
+        if not data_manager:
+            logger.warning("Data manager not available for submission cleanup")
+            return
+        
+        count = data_manager.cleanup_stale_submissions(hours_old=24)
+        if count > 0:
+            logger.info(f"Auto-rejected {count} stale mobile inbox submissions")
+    except Exception:  # noqa: broad-except
+        logger.exception("Error cleaning up stale submissions")
+
+
 def _setup_weekly_maintenance_jobs() -> None:
     """Register weekly background maintenance jobs (e.g., empty-notes cleaner, notes export)."""
     try:
@@ -927,7 +957,19 @@ def _setup_weekly_maintenance_jobs() -> None:
                 'export_all_notes',
                 export_all_notes_job,
             ).tag('weekly_maintenance')
-        logger.info("✅ Weekly maintenance jobs scheduled (empty-notes cleaner, notes export)")
+            # Mobile sync cleanup: run every hour
+            schedule.every().hour.do(
+                _run_job_with_correlation,
+                'cleanup_mobile_sync_requests',
+                _cleanup_mobile_sync_requests_job,
+            ).tag('weekly_maintenance')
+            # Stale submission cleanup: run every 6 hours
+            schedule.every(6).hours.do(
+                _run_job_with_correlation,
+                'cleanup_stale_submissions',
+                _cleanup_stale_submissions_job,
+            ).tag('weekly_maintenance')
+        logger.info("✅ Weekly maintenance jobs scheduled (empty-notes cleaner, notes export, mobile sync cleanup)")
     except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
         logger.exception("Error setting up weekly maintenance jobs")
 

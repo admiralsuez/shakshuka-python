@@ -592,8 +592,8 @@ def initialize_data_manager():
             os.makedirs(user_data_dir, exist_ok=True)
 
             app_context.update_manager = UpdateManager(app_dir=app_root, data_dir=user_data_dir)
-            app_context.update_manager.start_auto_update_check()
-            app_context.update_manager.schedule_weekly_backup()
+            app_context.update_manager._setup_auto_update_scheduler()
+            app_context.update_manager._setup_weekly_backup_scheduler()
             logger.info("Update manager initialized successfully")
         except Exception as update_error:
             logger.warning(f"Update manager initialization failed: {update_error}")

@@ -5,6 +5,9 @@
     let pollingTimer = null;
     let pollingInFlight = false;
     let operationInProgress = false;
+    let inboxPollingInterval = 10000;  // Start at 10 seconds
+    let inboxNextCheckTime = 0;
+    let inboxPollingTimer = null;
 
     function getEl(id) {
         return document.getElementById(id);
@@ -411,11 +414,7 @@
 
     async function pollInboxOnce() {
         if (pollingInFlight) return;
-        
-        // Skip polling if page is hidden/minimized to prevent freezing in background
-        if (document.hidden) {
-            return;
-        }
+        if (document.hidden) return;
         
         pollingInFlight = true;
 
@@ -423,6 +422,8 @@
             const data = await fetchJson('/api/mobile/inbox/pending', { cacheTTL: 0 });
             if (!data || !data.success) {
                 updateInboxIndicator(0);
+                // Exponential backoff on error
+                inboxPollingInterval = Math.min(inboxPollingInterval * 1.5, 30000);
                 return;
             }
 
@@ -430,8 +431,13 @@
             if (!pending || !pending.id) {
                 currentPendingSubmissionId = null;
                 updateInboxIndicator(0);
+                // Exponential backoff when no pending
+                inboxPollingInterval = Math.min(inboxPollingInterval * 1.5, 30000);
                 return;
             }
+
+            // Found pending submission - reset interval
+            inboxPollingInterval = 10000;
 
             // Update indicator with task and note count
             const payload = pending.payload || {};
@@ -448,6 +454,8 @@
             open('mobile-inbox-modal');
         } catch (e) {
             updateInboxIndicator(0);
+            // Exponential backoff on error
+            inboxPollingInterval = Math.min(inboxPollingInterval * 1.5, 30000);
         } finally {
             pollingInFlight = false;
         }
@@ -576,11 +584,32 @@
         }
     }
 
+    function startInboxPolling() {
+        if (inboxPollingTimer) return;
+        
+        inboxPollingTimer = window.setInterval(() => {
+            const now = Date.now();
+            
+            // Exponential backoff: 10s → 15s → 22s → 30s
+            if (now >= inboxNextCheckTime) {
+                pollInboxOnce();
+                inboxNextCheckTime = now + inboxPollingInterval;
+            }
+        }, 1000);  // Check every 1 second if it's time
+        
+        pollInboxOnce();  // Check immediately
+    }
+
+    function stopInboxPolling() {
+        if (inboxPollingTimer) {
+            clearInterval(inboxPollingTimer);
+            inboxPollingTimer = null;
+        }
+        inboxPollingInterval = 10000;  // Reset
+    }
+
     function startPolling() {
-        if (pollingTimer) return;
-        // Poll every 10 seconds instead of 2.5 to reduce load and prevent freezing
-        pollingTimer = window.setInterval(pollInboxOnce, 10000);
-        pollInboxOnce();
+        startInboxPolling();
     }
 
     function bindUi() {

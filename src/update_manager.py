@@ -934,125 +934,97 @@ class UpdateManager:
         backups.sort(key=lambda x: x["created_at"], reverse=True)
         return backups
     
-    def start_auto_update_check(self):
-        """Start automatic update checking in background"""
-        if self.update_check_thread and self.update_check_thread.is_alive():
-            return
-        
-        self.update_check_enabled = True
-        self.update_check_thread = threading.Thread(target=self._auto_update_check_worker, daemon=True)
-        self.update_check_thread.start()
-    
     def stop_auto_update_check(self):
-        """Stop automatic update checking"""
+        """Stop automatic update checking (deprecated - scheduler handles this)"""
         self.update_check_enabled = False
         if self.update_check_thread:
             self.update_check_thread.join(timeout=5)
     
-    def _auto_update_check_worker(self):
-        """Background worker for automatic update checking and installation"""
-        while self.update_check_enabled:
-            try:
-                # Check for updates
-                update_info = self.check_for_updates()
-                
-                if update_info:
-                    self.logger.info(f"Update available: {update_info['version']}")
-                    
-                    # Check if auto-install is enabled
-                    if self.update_config.get("auto_install_enabled", False):
-                        self.logger.info(f"Auto-install enabled. Starting download and installation of version {update_info['version']}")
-                        
-                        # Start download in background
-                        self.start_download(update_info)
-                        
-                        # Wait for download to complete (with timeout)
-                        max_wait_time = 600  # 10 minutes
-                        wait_interval = 2  # Check every 2 seconds
-                        waited = 0
-                        
-                        while waited < max_wait_time:
-                            status = self.get_download_status()
-                            if status['status'] == 'ready':
-                                # Download complete, install it
-                                self.logger.info(f"Download complete. Installing update {update_info['version']}")
-                                update_file = status.get('update_file_path')
-                                if update_file:
-                                    backup = self.update_config.get("backup_before_update", True)
-                                    install_success = self.install_update_platform_specific(update_file, backup)
-                                    if install_success:
-                                        self.logger.info(f"Update {update_info['version']} installed successfully")
-                                    else:
-                                        self.logger.error(f"Failed to install update {update_info['version']}")
-                                break
-                            elif status['status'] == 'failed':
-                                self.logger.error(f"Download failed: {status.get('error', 'Unknown error')}")
-                                break
-                            elif status['status'] == 'canceled':
-                                self.logger.info("Download was canceled")
-                                break
-                            
-                            time.sleep(wait_interval)
-                            waited += wait_interval
-                        
-                        if waited >= max_wait_time:
-                            self.logger.warning("Download timeout. Update will be installed on next check.")
-                    else:
-                        # Just log that update is available
-                        self.logger.info(f"Update available but auto-install is disabled. User can install manually.")
-                
-                # Sleep for check interval
-                sleep_time = self.update_config.get("check_interval_hours", 24) * 3600
-                time.sleep(sleep_time)
-                
-            except UpdateIOError as e:
-                self.logger.error(f"Auto update check IO error: {e}")
-                time.sleep(3600)  # Sleep for 1 hour on error
-            except UpdateIntegrityError as e:
-                self.logger.error(f"Auto update check integrity error: {e}")
-                time.sleep(3600)  # Sleep for 1 hour on error
-            except ValidationError as e:
-                self.logger.error(f"Auto update check validation error: {e}")
-                time.sleep(3600)  # Sleep for 1 hour on error
-            except Exception as e:
-                self.logger.exception("Error in auto update check")
-                time.sleep(3600)  # Sleep for 1 hour on error
+    def _setup_auto_update_scheduler(self):
+        """Setup auto-update checking with scheduler instead of daemon thread"""
+        try:
+            from src.services.scheduler import scheduler_service
+            
+            check_interval_hours = self.update_config.get("check_interval_hours", 24)
+            
+            # Schedule update check every N hours
+            scheduler_service.schedule_job(
+                'auto_update_check',
+                job_func=self._check_and_install_update,
+                trigger='interval',
+                hours=check_interval_hours,
+                replace_existing=True
+            )
+            
+            self.logger.info(f"Auto-update check scheduled every {check_interval_hours} hours")
+        except Exception as e:
+            self.logger.exception("Failed to setup auto-update scheduler: %s", e)
     
-    def schedule_weekly_backup(self):
-        """Schedule weekly automatic backups"""
-        def backup_worker():
-            while True:
-                try:
-                    # Check if it's time for weekly backup
-                    last_backup = self.update_config.get("last_weekly_backup")
-                    if last_backup:
-                        last_backup_time = datetime.fromisoformat(last_backup)
-                        if datetime.now() - last_backup_time < timedelta(days=7):
-                            time.sleep(3600)  # Sleep for 1 hour
-                            continue
-                    
-                    # Create weekly backup
-                    backup_name = self.create_backup("weekly")
-                    self.update_config["last_weekly_backup"] = datetime.now().isoformat()
-                    self.update_config["last_weekly_backup_name"] = backup_name
-                    self._save_update_config(self.update_config)
-                    self.logger.info("Weekly backup created successfully: %s", backup_name)
-                    
-                    # Sleep for 24 hours
-                    time.sleep(24 * 3600)
-                    
-                except UpdateManagerError as e:
-                    self.logger.error(f"Error in weekly backup: {e}")
-                    time.sleep(3600)  # Sleep for 1 hour on error
-                except ValidationError as e:
-                    self.logger.error(f"Error in weekly backup: {e}")
-                    time.sleep(3600)  # Sleep for 1 hour on error
-                except Exception:  # noqa: broad-except
-                    self.logger.exception("Error in weekly backup")
-                    time.sleep(3600)  # Sleep for 1 hour on error
-        
-        backup_thread = threading.Thread(target=backup_worker, daemon=True)
-        backup_thread.start()
+    def _check_and_install_update(self):
+        """Check for updates and install if auto-install enabled"""
+        try:
+            update_info = self.check_for_updates()
+            
+            if not update_info:
+                self.logger.debug("No updates available")
+                return
+            
+            self.logger.info(f"Update available: {update_info['version']}")
+            
+            if not self.update_config.get("auto_install_enabled", False):
+                self.logger.info("Auto-install disabled, skipping")
+                return
+            
+            # Start download in background (non-blocking)
+            self.start_download(update_info)
+            self.logger.info(f"Download started for version {update_info['version']}")
+            
+            # Don't wait for download - let it complete asynchronously
+            # The download status endpoint will handle progress
+            
+        except UpdateIOError as e:
+            self.logger.error(f"Auto update check IO error: {e}")
+        except UpdateIntegrityError as e:
+            self.logger.error(f"Auto update check integrity error: {e}")
+        except ValidationError as e:
+            self.logger.error(f"Auto update check validation error: {e}")
+        except Exception as e:
+            self.logger.exception("Error in auto update check")
+    
+    def _setup_weekly_backup_scheduler(self):
+        """Setup weekly backup with scheduler instead of daemon thread"""
+        try:
+            from src.services.scheduler import scheduler_service
+            
+            # Schedule backup every Sunday at 2 AM
+            scheduler_service.schedule_job(
+                'weekly_backup',
+                job_func=self._perform_weekly_backup,
+                trigger='cron',
+                day_of_week='sun',
+                hour=2,
+                minute=0,
+                replace_existing=True
+            )
+            
+            self.logger.info("Weekly backup scheduled for Sundays at 2:00 AM")
+        except Exception as e:
+            self.logger.exception("Failed to setup weekly backup scheduler: %s", e)
+    
+    def _perform_weekly_backup(self):
+        """Perform weekly backup"""
+        try:
+            backup_name = self.create_backup("weekly")
+            self.update_config["last_weekly_backup"] = datetime.now().isoformat()
+            self.update_config["last_weekly_backup_name"] = backup_name
+            self._save_update_config(self.update_config)
+            self.logger.info("Weekly backup created successfully: %s", backup_name)
+        except UpdateManagerError as e:
+            self.logger.error(f"Error in weekly backup: {e}")
+        except ValidationError as e:
+            self.logger.error(f"Error in weekly backup: {e}")
+        except Exception:  # noqa: broad-except
+            self.logger.exception("Error in weekly backup")
     
     def get_update_status(self) -> Dict:
         """Get current update status"""

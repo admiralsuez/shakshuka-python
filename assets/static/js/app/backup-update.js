@@ -4,6 +4,105 @@ let updatePollInterval = null;
 let isUpdateDownloading = false;
 let lastUpdateStatus = null;
 
+// UpdateProgressPoller class for exponential backoff polling
+class UpdateProgressPoller {
+    constructor() {
+        this.pollingTimer = null;
+        this.isPolling = false;
+        this.pollInterval = 800;  // Start at 800ms
+        this.nextCheckTime = Date.now();
+        this.maxInterval = 4000;  // Max 4 seconds
+        this.maxWaitTime = 600000;  // 10 minutes
+        this.startTime = Date.now();
+    }
+    
+    start() {
+        if (this.pollingTimer) return;
+        
+        this.pollingTimer = setInterval(() => {
+            this.checkProgress();
+        }, 100);  // Check every 100ms if it's time
+    }
+    
+    async checkProgress() {
+        const now = Date.now();
+        
+        // Skip if not time yet
+        if (now < this.nextCheckTime) return;
+        
+        // Skip if already polling
+        if (this.isPolling) return;
+        
+        // Give up if exceeded max wait time
+        if (now - this.startTime > this.maxWaitTime) {
+            this.stop();
+            return;
+        }
+        
+        this.isPolling = true;
+        
+        try {
+            const res = await fetch('/api/updates/progress');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            const status = await res.json();
+            const st = (status.status || '').toLowerCase();
+            
+            if (st === 'downloading') {
+                const pct = Math.max(0, Math.min(100, status.progress || 0));
+                const progressFill = document.getElementById('github-progress-fill');
+                const progressText = document.getElementById('github-progress-text');
+                
+                if (progressFill) progressFill.style.width = pct + '%';
+                if (progressText) {
+                    const downloadedMB = ((status.downloaded || 0) / (1024 * 1024)).toFixed(1);
+                    const totalMB = status.total ? ((status.total) / (1024 * 1024)).toFixed(1) : '...';
+                    progressText.textContent = `Downloading update... ${pct}% (${downloadedMB} / ${totalMB} MB)`;
+                }
+                
+                // Reset interval on progress
+                this.pollInterval = 800;
+                this.nextCheckTime = now + this.pollInterval;
+            } else if (st === 'ready') {
+                // Download complete
+                this.stop();
+                const progressFill = document.getElementById('github-progress-fill');
+                const progressText = document.getElementById('github-progress-text');
+                if (progressFill) progressFill.style.width = '100%';
+                if (progressText) progressText.textContent = 'Download complete.';
+            } else if (st === 'failed' || st === 'canceled') {
+                this.stop();
+                const progressText = document.getElementById('github-progress-text');
+                if (progressText) progressText.textContent = st === 'failed' ? 'Download failed.' : 'Download canceled.';
+            } else {
+                // Exponential backoff: 800ms → 1.2s → 1.8s → 2.7s → 4s
+                this.pollInterval = Math.min(
+                    this.pollInterval * 1.5,
+                    this.maxInterval
+                );
+                this.nextCheckTime = now + this.pollInterval;
+            }
+        } catch (e) {
+            console.error('Progress poll error:', e);
+            // Exponential backoff on error
+            this.pollInterval = Math.min(
+                this.pollInterval * 1.5,
+                this.maxInterval
+            );
+            this.nextCheckTime = now + this.pollInterval;
+        } finally {
+            this.isPolling = false;
+        }
+    }
+    
+    stop() {
+        if (this.pollingTimer) {
+            clearInterval(this.pollingTimer);
+            this.pollingTimer = null;
+        }
+    }
+}
+
 // Unified update check handler for the Settings "Check for Updates" button.
 // This now delegates to the GitHub-based check so that any newer version
 // published on GitHub will surface via the GitHub update modal.
@@ -183,6 +282,8 @@ async function maybeAutoCheckForUpdatesWeekly() {
     }
 }
 
+let updateProgressPoller = null;
+
 async function downloadGitHubUpdate() {
     try {
         const branchElement = document.getElementById('github-branch');
@@ -199,19 +300,9 @@ async function downloadGitHubUpdate() {
             progressText.textContent = 'Starting download...';
         }
 
-        // Simple front-end progress simulation while the download request runs.
-        // This does not reflect exact bytes, but gives visual feedback.
-        let fakePct = 0;
-        let progressTimer = null;
-        if (progressDiv && progressFill && progressText) {
-            progressTimer = setInterval(() => {
-                if (fakePct < 95) {
-                    fakePct += 3;
-                    progressFill.style.width = Math.min(fakePct, 95) + '%';
-                    progressText.textContent = 'Downloading update...';
-                }
-            }, 500);
-        }
+        // Start polling with exponential backoff
+        updateProgressPoller = new UpdateProgressPoller();
+        updateProgressPoller.start();
 
         let result = null;
         if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
@@ -238,17 +329,8 @@ async function downloadGitHubUpdate() {
             result = await response.json();
         }
 
-        if (progressTimer) {
-            clearInterval(progressTimer);
-            progressTimer = null;
-        }
-
         if (result.success) {
             const path = result.installer_path || 'the downloaded installer file';
-            if (progressDiv && progressFill && progressText) {
-                progressFill.style.width = '100%';
-                progressText.textContent = 'Download complete.';
-            }
             // Short success snack about the update itself
             showNotification('Update installer downloaded. Please close Shakshuka and run the installer to finish updating.', 'success');
 
@@ -281,6 +363,9 @@ async function downloadGitHubUpdate() {
             try { closeUpdateModal(); } catch (_) {}
             try { closeGitHubUpdateModal(); } catch (_) {}
         } else {
+            if (updateProgressPoller) {
+                updateProgressPoller.stop();
+            }
             if (progressDiv && progressText) {
                 progressText.textContent = 'Download failed.';
             }
@@ -288,6 +373,9 @@ async function downloadGitHubUpdate() {
         }
     } catch (error) {
         console.error('Error downloading GitHub update:', error);
+        if (updateProgressPoller) {
+            updateProgressPoller.stop();
+        }
         const progressText = document.getElementById('github-progress-text');
         if (progressText) {
             progressText.textContent = 'Download failed.';

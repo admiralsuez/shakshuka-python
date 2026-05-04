@@ -66,20 +66,38 @@ async function startLoadingTasksAnimation() {
     ];
 
     try {
-        const resp = await fetch('/api/tasks');
-        if (resp.ok) {
+        // Wait for API to be healthy before fetching tasks
+        let retries = 0;
+        const maxRetries = 20; // 20 * 250ms = 5 seconds max wait
+        let resp = null;
+        
+        while (retries < maxRetries) {
+            try {
+                resp = await fetch('/api/tasks', { timeout: 2000 });
+                if (resp.ok) break;
+            } catch (e) {
+                // API not ready yet
+            }
+            retries++;
+            await new Promise(resolve => setTimeout(resolve, 250));
+        }
+        
+        if (resp && resp.ok) {
             const data = await resp.json();
-            if (Array.isArray(data)) {
+            if (Array.isArray(data) && data.length > 0) {
                 const activeTasks = data.filter(t => !t.completed && !t.struck_forever && !t.struck_today);
-                if (activeTasks.length) {
+                if (activeTasks.length > 0) {
                     lines = activeTasks
                         .map(t => (t.title || '').trim())
                         .filter(Boolean)
                         .slice(0, 7);
                 }
             }
+        } else {
+            console.warn('Loading screen: Failed to fetch tasks after retries');
         }
     } catch (e) {
+        console.warn('Loading screen: Failed to fetch tasks:', e.message);
         // keep placeholder lines on failure
     }
 
