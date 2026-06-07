@@ -4,22 +4,22 @@ let heartbeatInterval = null;
 let autoRefreshInterval = null;
 
 function startHeartbeat() {
-    // Send heartbeat every 1 minute (60000 ms)
-    if (heartbeatInterval) clearInterval(heartbeatInterval);
-    heartbeatInterval = setInterval(async () => {
-        try {
-            if (typeof fetch === 'function') {
-                await fetch('/api/analytics/heartbeat', {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                }).catch(() => {});
-            }
-        } catch (e) {
-            // Silently ignore heartbeat failures
-        }
-    }, 60000); // 1 minute
+    // Heartbeat disabled - no longer tracking active users
+    // if (heartbeatInterval) clearInterval(heartbeatInterval);
+    // heartbeatInterval = setInterval(async () => {
+    //     try {
+    //         if (typeof fetch === 'function') {
+    //             await fetch('/api/analytics/heartbeat', {
+    //                 method: 'POST',
+    //                 credentials: 'include',
+    //                 headers: { 'Content-Type': 'application/json' },
+    //                 body: JSON.stringify({})
+    //             }).catch(() => {});
+    //         }
+    //     } catch (e) {
+    //         // Silently ignore heartbeat failures
+    //     }
+    // }, 60000); // 1 minute
 }
 
 function stopHeartbeat() {
@@ -35,7 +35,7 @@ function startAutoRefresh() {
     autoRefreshInterval = setInterval(() => {
         if (autoRefreshEnabled) {
             updateDashboardStats();
-            updateActiveUsersCount();
+            // updateActiveUsersCount(); // Disabled - no longer tracking active users
         }
     }, 60000); // 1 minute
 }
@@ -47,56 +47,64 @@ function stopAutoRefresh() {
     }
 }
 
-async function updateActiveUsersCount() {
-    try {
-        let response = null;
-        if (typeof fetchWithFallback === 'function') {
-            response = await fetchWithFallback('/api/analytics/active-users', {
-                fallbackValue: { active_users: 0 },
-                cacheTTL: 0,
-                showError: false
-            });
-        } else if (typeof apiCall === 'function') {
-            const resp = await apiCall('/api/analytics/active-users');
-            response = await resp.json().catch(() => ({ active_users: 0 }));
-        } else {
-            const resp = await fetch('/api/analytics/active-users', { credentials: 'include' });
-            response = await resp.json().catch(() => ({ active_users: 0 }));
-        }
-        
-        const el = document.getElementById('active-users-now');
-        if (el && response) {
-            el.textContent = response.active_users || 0;
-        }
-    } catch (e) {
-        // Silently ignore active users errors
-    }
+// DISABLED: Active users tracking endpoint
+// async function updateActiveUsersCount() {
+//     try {
+//         let response = null;
+//         if (typeof fetchWithFallback === 'function') {
+//             response = await fetchWithFallback('/api/analytics/active-users', {
+//                 fallbackValue: { active_users: 0 },
+//                 cacheTTL: 0,
+//                 showError: false
+//             });
+//         } else if (typeof apiCall === 'function') {
+//             const resp = await apiCall('/api/analytics/active-users');
+//             response = await resp.json().catch(() => ({ active_users: 0 }));
+//         } else {
+//             const resp = await fetch('/api/analytics/active-users', { credentials: 'include' });
+//             response = await resp.json().catch(() => ({ active_users: 0 }));
+//         }
+//         
+//         const el = document.getElementById('active-users-now');
+//         if (el && response) {
+//             el.textContent = response.active_users || 0;
+//         }
+//     } catch (e) {
+//         // Silently ignore active users errors
+//     }
+// }
+function updateActiveUsersCount() {
+    // Disabled - no longer tracking active users
 }
 
-async function updateInstalledUsersCount() {
-    try {
-        let response = null;
-        if (typeof fetchWithFallback === 'function') {
-            response = await fetchWithFallback('/api/analytics/installed-users', {
-                fallbackValue: { installed_users: 0 },
-                cacheTTL: 300000, // Cache for 5 minutes (data doesn't change often)
-                showError: false
-            });
-        } else if (typeof apiCall === 'function') {
-            const resp = await apiCall('/api/analytics/installed-users');
-            response = await resp.json().catch(() => ({ installed_users: 0 }));
-        } else {
-            const resp = await fetch('/api/analytics/installed-users', { credentials: 'include' });
-            response = await resp.json().catch(() => ({ installed_users: 0 }));
-        }
-        
-        const el = document.getElementById('installed-users-total');
-        if (el && response) {
-            el.textContent = response.installed_users || 0;
-        }
-    } catch (e) {
-        // Silently ignore installed users errors
-    }
+// DISABLED: Installed users tracking endpoint
+// async function updateInstalledUsersCount() {
+//     try {
+//         let response = null;
+//         if (typeof fetchWithFallback === 'function') {
+//             response = await fetchWithFallback('/api/analytics/installed-users', {
+//                 fallbackValue: { installed_users: 0 },
+//                 cacheTTL: 300000, // Cache for 5 minutes (data doesn't change often)
+//                 showError: false
+//             });
+//         } else if (typeof apiCall === 'function') {
+//             const resp = await apiCall('/api/analytics/installed-users');
+//             response = await resp.json().catch(() => ({ installed_users: 0 }));
+//         } else {
+//             const resp = await fetch('/api/analytics/installed-users', { credentials: 'include' });
+//             response = await resp.json().catch(() => ({ installed_users: 0 }));
+//         }
+//         
+//         const el = document.getElementById('installed-users-total');
+//         if (el && response) {
+//             el.textContent = response.installed_users || 0;
+//         }
+//     } catch (e) {
+//         // Silently ignore installed users errors
+//     }
+// }
+function updateInstalledUsersCount() {
+    // Disabled - no longer tracking installed users
 }
 
 async function updateDashboardStats() {
@@ -315,10 +323,10 @@ function calculateProductivityScore() {
     return Math.round((completedTasks / totalTasks) * 100);
 }
 
-// Initialize analytics page with heartbeat and auto-refresh
+// Initialize analytics page with auto-refresh
 function initializeAnalyticsPage() {
-    // Start heartbeat immediately (every 1 minute)
-    startHeartbeat();
+    // Heartbeat disabled - no longer tracking active users
+    // startHeartbeat();
     
     // Set up auto-refresh toggle
     const toggleEl = document.getElementById('analytics-auto-refresh');
@@ -335,7 +343,7 @@ function initializeAnalyticsPage() {
             if (autoRefreshEnabled) {
                 // When enabling, do an immediate refresh then start interval
                 updateDashboardStats();
-                updateActiveUsersCount();
+                // updateActiveUsersCount(); // Disabled - no longer tracking active users
                 startAutoRefresh();
             } else {
                 stopAutoRefresh();
@@ -348,21 +356,21 @@ function initializeAnalyticsPage() {
         }
     }
     
-    // Load active users count immediately
-    updateActiveUsersCount();
+    // Active users tracking disabled
+    // updateActiveUsersCount();
     
-    // Load installed users count immediately (doesn't need to refresh often)
-    updateInstalledUsersCount();
+    // Installed users tracking disabled
+    // updateInstalledUsersCount();
 }
 
-// Hook into page visibility to stop heartbeat when tab is hidden
+// Hook into page visibility to stop auto-refresh when tab is hidden
 if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
-            stopHeartbeat();
+            // stopHeartbeat(); // Disabled - no longer tracking active users
             stopAutoRefresh();
         } else {
-            startHeartbeat();
+            // startHeartbeat(); // Disabled - no longer tracking active users
             if (autoRefreshEnabled) {
                 startAutoRefresh();
             }

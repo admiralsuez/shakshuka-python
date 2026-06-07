@@ -121,6 +121,16 @@
     height: calc(21px * var(--dpi-scale));
 }
 
+/* Make the fullscreen toggle compact */
+#notes-fullscreen-toggle-btn.btn-icon {
+    width: calc(42px * var(--dpi-scale));
+    height: calc(42px * var(--dpi-scale));
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .notes-tab-title {
     flex: 1 1 auto;
     overflow: hidden;
@@ -514,4 +524,159 @@
     background: rgba(220, 53, 69, 0.1);
     color: #c82333;
 }
+
+/* Fullscreen mode */
+body.notes-fullscreen-active {
+    overflow: hidden !important;
+}
+
+body.notes-fullscreen-active #sidebar,
+body.notes-fullscreen-active #navbar,
+body.notes-fullscreen-active .sidebar,
+body.notes-fullscreen-active .navbar,
+body.notes-fullscreen-active .header,
+body.notes-fullscreen-active #header,
+body.notes-fullscreen-active .main-content > .page:not(#notes-page) {
+    display: none !important;
+}
+
+body.notes-fullscreen-active .main-content {
+    margin-left: 0 !important;
+    padding: 0 !important;
+    height: 100vh;
+    width: 100vw;
+}
+
+body.notes-fullscreen-active #notes-page {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    z-index: 9999 !important;
+    background: var(--bg-color);
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column;
+}
+
+#notes-page.notes-fullscreen {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 9999 !important;
+    background: var(--bg-color);
+    overflow: hidden;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    flex-direction: column;
+}
+
+#notes-page.notes-fullscreen .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+#notes-page.notes-fullscreen .notes-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: 0;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+}
+
+#notes-page.notes-fullscreen .notes-dashboard-view {
+    display: none !important;
+}
+
+#notes-page.notes-fullscreen .notes-editor-view {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    overflow: hidden !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0.5rem !important;
+}
+
+#notes-page.notes-fullscreen #notes-editor-view {
+    display: flex !important;
+}
+
+#notes-page.notes-fullscreen .notes-explorer {
+    display: none !important;
+}
+
+#notes-page.notes-fullscreen .notes-tabs-bar {
+    flex-shrink: 0 !important;
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 0.5rem;
+    width: 100%;
+}
+
+#notes-page.notes-fullscreen .notes-editor-search {
+    flex-shrink: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+    position: relative !important;
+    margin-bottom: 0.5rem !important;
+    width: 100%;
+    padding: 0 0.5rem;
+}
+
+#notes-page.notes-fullscreen .notes-editors {
+    flex: 1 1 auto !important;
+    overflow: hidden !important;
+    min-height: 0 !important;
+    padding: 0.5rem !important;
+    gap: 0.75rem !important;
+    display: flex !important;
+    flex-direction: row !important;
+    width: 100% !important;
+}
+
+#notes-page.notes-fullscreen .notes-editor {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    flex: 1 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: auto !important;
+}
+
+#notes-page.notes-fullscreen #notes-editor-primary {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 1rem !important;
+    margin: 0 !important;
+    border: none !important;
+}
+
+/* Ensure editor view container has proper layout outside fullscreen */
+#notes-page .notes-editor-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
+
 

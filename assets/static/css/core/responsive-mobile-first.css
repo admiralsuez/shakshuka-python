@@ -188,7 +188,6 @@
 @media print {
     .sidebar,
     .nav-menu,
-    .layout-toggle,
     button,
     .btn {
         display: none !important;

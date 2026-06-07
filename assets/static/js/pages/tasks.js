@@ -515,6 +515,75 @@ if (response.ok) {
     }
 }
 
+async function strikeTaskTillDays(taskId) {
+    const daysInput = document.getElementById('strike-till-days');
+    const days = daysInput ? parseInt(daysInput.value, 10) : NaN;
+
+    if (!Number.isFinite(days) || days < 1 || days > 365) {
+        Utils.safeShowNotification('Enter a number of days from 1 to 365', 'error');
+        if (daysInput) daysInput.focus();
+        return;
+    }
+
+    try {
+        const response = await apiCall(`/api/tasks/${taskId}/strike`, {
+            method: 'POST',
+            body: JSON.stringify({ type: 'till_days', days })
+        });
+
+        if (response.ok) {
+            closeStrikeModal();
+            loadTasks();
+            try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
+            Utils.safeShowNotification(`Task struck for ${days} day${days === 1 ? '' : 's'}!`, 'success');
+        } else {
+            const error = await response.json();
+            Utils.safeShowNotification(error.error || 'Failed to strike task', 'error');
+        }
+    } catch (error) {
+        Logger.error('Failed to strike task till days:', error);
+        Utils.safeShowNotification('Failed to strike task', 'error');
+    }
+}
+
+async function refreshTask(taskId) {
+    const tasks = AppState.getTasks();
+    const task = tasks.find(t => t.id === taskId);
+    
+    if (!task) {
+        Utils.safeShowNotification('Task not found', 'error');
+        return;
+    }
+    
+    // Only allow refresh for temporarily struck tasks (not forever)
+    if (!task.struck_today || task.struck_forever) {
+        Utils.safeShowNotification('This task cannot be refreshed', 'error');
+        return;
+    }
+    
+    if (!confirm('Bring this task back to active list?')) {
+        return;
+    }
+    
+    try {
+        const response = await apiCall(`/api/tasks/${taskId}/refresh`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            loadTasks();
+            try { if (window.NavbarScheduleCard && typeof window.NavbarScheduleCard.update === 'function') { window.NavbarScheduleCard.update(); } } catch(e) {}
+            Utils.safeShowNotification('Task refreshed and moved to active list!', 'success');
+        } else {
+            const error = await response.json();
+            Utils.safeShowNotification(error.error || 'Failed to refresh task', 'error');
+        }
+    } catch (error) {
+        Logger.error('Failed to refresh task:', error);
+        Utils.safeShowNotification('Failed to refresh task', 'error');
+    }
+}
+
 // Task form handling
 function getTaskFormData() {
     const title = document.getElementById('task-title')?.value.trim();
@@ -680,13 +749,17 @@ function closeQuickAddModal() {
 }
 
 // Task rendering
-function renderTasks() {
+function renderTasks(filterParam) {
     const tasks = AppState.getTasks();
-    const sortedTasks = sortTasksForDisplay(tasks);
-    const filter = AppState.get('currentFilter') || 'active';
+    const filter = filterParam || AppState.get('currentFilter') || 'active';
     const projectFilter = AppState.get('projectFilter') || 'all';
     const completedMonthFilter = (AppState && AppState.get) ? (AppState.get('completedMonthFilter') || null) : null;
-    let filteredTasks = filterTasks(sortedTasks, filter);
+    
+    // Filter first, then sort
+    let filteredTasks = filterTasks(tasks, filter);
+    if (!Array.isArray(filteredTasks)) {
+        filteredTasks = [];
+    }
 
     // If coming from Analytics "Completed by Month", further filter completed tasks by month key (YYYY-MM)
     if (filter === 'completed' && completedMonthFilter) {
@@ -710,26 +783,119 @@ function renderTasks() {
         });
     }
 
+    // Sort based on filter type
+    if (filter === 'completed') {
+        // Completed filter: sort by struck/completed date (most recent first)
+        const sortBy = (AppState && AppState.get) ? AppState.get('taskSort') || 'default' : 'default';
+        
+        // Helper to parse dates consistently
+        const parseDate = (dateStr) => {
+            if (!dateStr) return 0;
+            // If it's a date-only string (YYYY-MM-DD), append time to ensure proper parsing
+            if (typeof dateStr === 'string' && dateStr.length === 10 && !dateStr.includes('T')) {
+                return new Date(dateStr + 'T23:59:59Z').getTime();
+            }
+            return new Date(dateStr).getTime();
+        };
+        
+        // Sort completed tasks by struck/completed date (most recent first)
+        if (sortBy === 'default') {
+            filteredTasks.sort((a, b) => {
+                // Use struck_date if available, otherwise completed_at, otherwise created_at
+                const aDate = a?.struck_date ? parseDate(a.struck_date) : 
+                             (a?.completed_at ? parseDate(a.completed_at) : 
+                              (a?.created_at ? parseDate(a.created_at) : 0));
+                const bDate = b?.struck_date ? parseDate(b.struck_date) : 
+                             (b?.completed_at ? parseDate(b.completed_at) : 
+                              (b?.created_at ? parseDate(b.created_at) : 0));
+                return bDate - aDate; // newest first
+            });
+        } else if (sortBy === 'title') {
+            filteredTasks.sort((a, b) => (a?.title || '').localeCompare(b?.title || ''));
+        } else if (sortBy === 'title-desc') {
+            filteredTasks.sort((a, b) => (b?.title || '').localeCompare(a?.title || ''));
+        } else if (sortBy === 'priority') {
+            const priorityOrder = { high: 1, medium: 2, low: 3 };
+            filteredTasks.sort((a, b) => {
+                const aPrio = priorityOrder[a?.priority] || 4;
+                const bPrio = priorityOrder[b?.priority] || 4;
+                return aPrio - bPrio;
+            });
+        } else if (sortBy === 'due-date') {
+            filteredTasks.sort((a, b) => {
+                const aDate = a?.due_date ? new Date(a.due_date).getTime() : Infinity;
+                const bDate = b?.due_date ? new Date(b.due_date).getTime() : Infinity;
+                return aDate - bDate;
+            });
+        } else if (sortBy === 'created') {
+            filteredTasks.sort((a, b) => {
+                const aDate = a?.created_at ? new Date(a.created_at).getTime() : 0;
+                const bDate = b?.created_at ? new Date(b.created_at).getTime() : 0;
+                return bDate - aDate; // newest first
+            });
+        } else if (sortBy === 'created-asc') {
+            filteredTasks.sort((a, b) => {
+                const aDate = a?.created_at ? new Date(a.created_at).getTime() : 0;
+                const bDate = b?.created_at ? new Date(b.created_at).getTime() : 0;
+                return aDate - bDate; // oldest first
+            });
+        }
+    } else {
+        // For all other filters, apply the general sort
+        filteredTasks = sortTasksForDisplay(filteredTasks);
+    }
+
     const tasksContainer = document.getElementById('tasks-list');
     if (!tasksContainer) return;
 
     tasksContainer.innerHTML = '';
 
-    if (filteredTasks.length === 0) {
-        tasksContainer.innerHTML = `
-            <div class="no-tasks">
-                <i class="fas fa-clipboard-list"></i>
-                <h3>No tasks found</h3>
-                <p>Add some tasks to get started!</p>
-            </div>
+    // For completed filter, show archived button even if no regular tasks
+    if (filter === 'completed') {
+        if (filteredTasks.length === 0) {
+            tasksContainer.innerHTML = `
+                <div class="no-tasks">
+                    <i class="fas fa-clipboard-list"></i>
+                    <h3>No completed tasks</h3>
+                    <p>Your completed tasks will appear here.</p>
+                </div>
+            `;
+        } else {
+            // List and Grid layouts
+            filteredTasks.forEach(task => {
+                const taskElement = createTaskElement(task);
+                tasksContainer.appendChild(taskElement);
+            });
+        }
+        
+        // Always add "Show Archived Tasks" button for completed filter
+        const archivedButton = document.createElement('div');
+        archivedButton.className = 'show-archived-button-container';
+        archivedButton.innerHTML = `
+            <button id="show-archived-tasks-btn" class="show-archived-button" onclick="loadAndShowArchivedTasks()">
+                <i class="fas fa-archive"></i> Show Archived Tasks
+            </button>
         `;
-        return;
-    }
+        tasksContainer.appendChild(archivedButton);
+    } else {
+        // For other filters, show no-tasks message if empty
+        if (filteredTasks.length === 0) {
+            tasksContainer.innerHTML = `
+                <div class="no-tasks">
+                    <i class="fas fa-clipboard-list"></i>
+                    <h3>No tasks found</h3>
+                    <p>Add some tasks to get started!</p>
+                </div>
+            `;
+            return;
+        }
 
-    filteredTasks.forEach(task => {
-        const taskElement = createTaskElement(task);
-        tasksContainer.appendChild(taskElement);
-    });
+        // List and Grid layouts
+        filteredTasks.forEach(task => {
+            const taskElement = createTaskElement(task);
+            tasksContainer.appendChild(taskElement);
+        });
+    }
 
     // Re-attach drag and drop listeners
     setupDragAndDrop();
@@ -747,12 +913,15 @@ function syncStrikeClassesFromState() {
     tasks.forEach(task => {
         const taskEl = document.getElementById(`task-${task.id}`);
         if (taskEl) {
-            // Remove old strike classes
-            taskEl.classList.remove('struck-today', 'struck-forever');
+            // Remove all old strike classes
+            taskEl.classList.remove('struck-today', 'completed', 'struck-forever');
             
-            // Re-apply based on current task state
-            if (task.struck_today) taskEl.classList.add('struck-today');
-            if (task.completed || task.struck_forever) taskEl.classList.add('struck-forever');
+            // Re-apply based on current task state - mutually exclusive
+            if (task.completed || task.struck_forever) {
+                taskEl.classList.add('completed');
+            } else if (task.struck_today) {
+                taskEl.classList.add('struck-today');
+            }
             
             // Update title class
             const titleEl = taskEl.querySelector('.task-title');
@@ -776,9 +945,19 @@ function createTaskElement(task) {
     taskDiv.setAttribute('data-task-id', task.id);
     taskDiv.draggable = true;
 
-    if (task.struck_today) taskDiv.classList.add('struck-today');
-    // Treat completed as a persistent strike for styling purposes
-    if (task.completed || task.struck_forever) taskDiv.classList.add('struck-forever');
+    // Remove any existing strike classes first
+    taskDiv.classList.remove('struck-today', 'struck-forever', 'completed');
+    
+    // Add ONLY ONE class based on task state
+    if (task.completed || task.struck_forever) {
+        taskDiv.classList.add('completed');
+    } else if (task.struck_today) {
+        taskDiv.classList.add('struck-today');
+    }
+
+    // Count children for this task (for nesting support)
+    const allTasks = AppState.getTasks() || [];
+    const childCount = allTasks.filter(t => t.parent_id === task.id).length;
 
     taskDiv.innerHTML = `
         <div class="task-project-tag">
@@ -786,6 +965,7 @@ function createTaskElement(task) {
                 ${task.project || 'No Project'}
             </span>
             ${task.owner ? `<span class="owner-tag">${Utils.sanitizeHTML(task.owner)}</span>` : ''}
+            ${childCount > 0 ? `<span class="child-count-badge" title="This task has ${childCount} child task${childCount !== 1 ? 's' : ''}">${childCount}</span>` : ''}
         </div>
 
         <div class="task-content">
@@ -827,6 +1007,16 @@ function createTaskElement(task) {
             <button class="task-action" onclick="openStrikeReportHistoryModal('${task.id}')" title="Report History">
                 <i class="fas fa-clipboard-list"></i>
             </button>
+            ${(task.struck_today && !task.struck_forever) ? `
+                <button class="task-action refresh-btn" onclick="refreshTask('${task.id}')" title="Refresh Now">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            ` : ''}
+            ${(task.completed || task.struck_forever) ? `
+                <button class="task-action archive-btn" onclick="archiveTask('${task.id}')" title="Archive Task">
+                    <i class="fas fa-archive"></i>
+                </button>
+            ` : ''}
             <button class="task-action danger" onclick="deleteTask('${task.id}')" title="Delete Task">
                 <i class="fas fa-trash"></i>
             </button>
@@ -837,7 +1027,7 @@ function createTaskElement(task) {
 }
 
 function sortTasksForDisplay(tasks) {
-    // Keep original order for non-struck tasks, move struck ones to the end
+    // Apply user-selected sort to all tasks without separating struck tasks
     if (!Array.isArray(tasks)) {
         return [];
     }
@@ -845,51 +1035,39 @@ function sortTasksForDisplay(tasks) {
     const sortBy = (AppState && AppState.get) ? AppState.get('taskSort') || 'default' : 'default';
     const tasksCopy = [...tasks];
 
-    // Separate struck and non-struck tasks
-    const activeTasksList = tasksCopy.filter(t => !t?.struck_today && !t?.completed && !t?.struck_forever);
-    const struckTasksList = tasksCopy.filter(t => t?.struck_today || t?.completed || t?.struck_forever);
+    // Apply user-selected sort
+    if (sortBy === 'title') {
+        tasksCopy.sort((a, b) => (a?.title || '').localeCompare(b?.title || ''));
+    } else if (sortBy === 'title-desc') {
+        tasksCopy.sort((a, b) => (b?.title || '').localeCompare(a?.title || ''));
+    } else if (sortBy === 'priority') {
+        const priorityOrder = { high: 1, medium: 2, low: 3 };
+        tasksCopy.sort((a, b) => {
+            const aPrio = priorityOrder[a?.priority] || 4;
+            const bPrio = priorityOrder[b?.priority] || 4;
+            return aPrio - bPrio;
+        });
+    } else if (sortBy === 'due-date') {
+        tasksCopy.sort((a, b) => {
+            const aDate = a?.due_date ? new Date(a.due_date).getTime() : Infinity;
+            const bDate = b?.due_date ? new Date(b.due_date).getTime() : Infinity;
+            return aDate - bDate;
+        });
+    } else if (sortBy === 'created') {
+        tasksCopy.sort((a, b) => {
+            const aDate = a?.created_at ? new Date(a.created_at).getTime() : 0;
+            const bDate = b?.created_at ? new Date(b.created_at).getTime() : 0;
+            return bDate - aDate; // newest first
+        });
+    } else if (sortBy === 'created-asc') {
+        tasksCopy.sort((a, b) => {
+            const aDate = a?.created_at ? new Date(a.created_at).getTime() : 0;
+            const bDate = b?.created_at ? new Date(b.created_at).getTime() : 0;
+            return aDate - bDate; // oldest first
+        });
+    }
 
-    // Apply user-selected sort to both groups
-    const applySorting = (list) => {
-        if (sortBy === 'title') {
-            list.sort((a, b) => (a?.title || '').localeCompare(b?.title || ''));
-        } else if (sortBy === 'title-desc') {
-            list.sort((a, b) => (b?.title || '').localeCompare(a?.title || ''));
-        } else if (sortBy === 'priority') {
-            const priorityOrder = { high: 1, medium: 2, low: 3 };
-            list.sort((a, b) => {
-                const aPrio = priorityOrder[a?.priority] || 4;
-                const bPrio = priorityOrder[b?.priority] || 4;
-                return aPrio - bPrio;
-            });
-        } else if (sortBy === 'due-date') {
-            list.sort((a, b) => {
-                const aDate = a?.due_date ? new Date(a.due_date).getTime() : Infinity;
-                const bDate = b?.due_date ? new Date(b.due_date).getTime() : Infinity;
-                return aDate - bDate;
-            });
-        } else if (sortBy === 'created') {
-            list.sort((a, b) => {
-                const aDate = a?.created_at ? new Date(a.created_at).getTime() : 0;
-                const bDate = b?.created_at ? new Date(b.created_at).getTime() : 0;
-                return bDate - aDate; // newest first
-            });
-        } else if (sortBy === 'created-asc') {
-            list.sort((a, b) => {
-                const aDate = a?.created_at ? new Date(a.created_at).getTime() : 0;
-                const bDate = b?.created_at ? new Date(b.created_at).getTime() : 0;
-                return aDate - bDate; // oldest first
-            });
-        }
-        return list;
-    };
-
-    // Apply sorting to both groups
-    applySorting(activeTasksList);
-    applySorting(struckTasksList);
-
-    // Return active tasks first, then struck tasks
-    return [...activeTasksList, ...struckTasksList];
+    return tasksCopy;
 }
 
 // Task filtering
@@ -923,7 +1101,7 @@ function setActiveFilter(filter) {
     }
 
     // Re-render tasks with the new status filter and current project filter
-    renderTasks();
+    renderTasks(filter);
 }
 
 function setTaskSort(sortValue) {
@@ -936,7 +1114,8 @@ function setTaskSort(sortValue) {
     }
 
     // Re-render tasks with the new sort order
-    renderTasks();
+    const currentFilter = AppState.get('currentFilter') || 'active';
+    renderTasks(currentFilter);
 }
 
 function setProjectFilter(filterValue) {
@@ -950,9 +1129,11 @@ function setProjectFilter(filterValue) {
 
     // Pass project filter directly into global renderTasks so it cannot be lost
     if (typeof renderTasks === 'function') {
-        renderTasks(undefined, value);
+        const currentFilter = AppState.get('currentFilter') || 'active';
+        renderTasks(currentFilter, value);
     } else if (window.Tasks && typeof window.Tasks.renderTasks === 'function') {
-        window.Tasks.renderTasks();
+        const currentFilter = AppState.get('currentFilter') || 'active';
+        window.Tasks.renderTasks(currentFilter);
     }
 }
 
@@ -1332,7 +1513,8 @@ function openCompletedTasksForMonth(monthKey) {
     if (typeof window.navigateToPage === 'function') {
         window.navigateToPage('tasks');
     }
-    renderTasks();
+    const currentFilter = AppState.get('currentFilter') || 'active';
+    renderTasks(currentFilter);
     updateTaskStats();
 }
 
@@ -1341,7 +1523,8 @@ function clearCompletedMonthFilter() {
         AppState.set('completedMonthFilter', null);
     } catch (e) { /* no-op */ }
     updateCompletedMonthBanner();
-    renderTasks();
+    const currentFilter = AppState.get('currentFilter') || 'active';
+    renderTasks(currentFilter);
     updateTaskStats();
 }
 
@@ -1427,6 +1610,45 @@ function filterTasksBySearch() {
     });
 }
 
+// Load and display archived tasks on-demand
+async function loadAndShowArchivedTasks() {
+    try {
+        const btn = document.getElementById('show-archived-tasks-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+        }
+
+        let archivedTasks = null;
+        if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+            archivedTasks = await window.Utils.apiRequestJson('/api/tasks/archived', {}, { expectObject: false, retries: 3, retryDelayMs: 750 });
+        } else {
+            const response = await apiCall('/api/tasks/archived');
+            if (!response.ok) {
+                throw new Error(`Failed to load archived tasks (${response.status})`);
+            }
+            archivedTasks = await response.json();
+        }
+
+        if (!Array.isArray(archivedTasks)) {
+            archivedTasks = [];
+        }
+
+        // Merge archived tasks with current tasks in AppState
+        const currentTasks = AppState.getTasks() || [];
+        const merged = [...currentTasks, ...archivedTasks];
+        await AppState.setTasks(merged);
+
+        // Re-render completed filter to show archived tasks
+        renderTasks('completed');
+
+        Utils.Logger.info(`Loaded ${archivedTasks.length} archived tasks`);
+    } catch (error) {
+        Utils.Logger.error('Failed to load archived tasks:', error);
+        Utils.safeShowNotification('Failed to load archived tasks', 'error');
+    }
+}
+
 // Initialize search on page load
 document.addEventListener('DOMContentLoaded', initTaskSearch);
 
@@ -1449,6 +1671,8 @@ window.Tasks = {
     deleteTask,
     strikeTaskToday,
     strikeTaskForever,
+    strikeTaskTillDays,
+    refreshTask,
     getTaskFormData,
     getQuickTaskFormData,
     openTaskModal,
@@ -1482,6 +1706,7 @@ window.Tasks = {
     updateTaskStats,
     sortTasksForDisplay,
     syncStrikeClassesFromState,
+    loadAndShowArchivedTasks,
     initTaskSearch,
     openTaskSearch,
     closeTaskSearch,
@@ -1492,3 +1717,4 @@ window.Tasks = {
 
 window.openCompletedTasksForMonth = openCompletedTasksForMonth;
 window.clearCompletedMonthFilter = clearCompletedMonthFilter;
+window.refreshTask = refreshTask;

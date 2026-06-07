@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 import logging
 import secrets
 import hashlib
+import base64
 import json
 import uuid
 import socket
@@ -527,14 +528,55 @@ def approve_inbox(submission_id: str):
                     continue
                 
                 title = (n.get("title") or "").strip() or "Untitled"
-                content = n.get("content", "")
+                # Decode any split-encoded content (e.g., __SHAKSHUKA_SPLIT_B64_V1__...)
+                # before storing. If content looks like a split blob, extract the primary content.
+                raw_content = n.get("content", "")
+                content = raw_content
+                if isinstance(raw_content, str) and raw_content.startswith('__SHAKSHUKA_SPLIT'):
+                    # Attempt to decode split content blob
+                    try:
+                        if raw_content.startswith('__SHAKSHUKA_SPLIT_B64_V1__'):
+                            b64_payload = raw_content[len('__SHAKSHUKA_SPLIT_B64_V1__'):]
+                            decoded_json = base64.b64decode(b64_payload).decode('utf-8')
+                            parsed = json.loads(decoded_json)
+                            content = parsed.get('primary', '') if isinstance(parsed, dict) else raw_content
+                        else:
+                            # Legacy format, use raw content as-is
+                            content = raw_content
+                    except Exception:
+                        # If decoding fails, use the raw content
+                        content = raw_content
                 
-                created_note = dm.create_note_for_user(user_id, {"title": title, "content": content})
-                if created_note:
-                    created_notes.append(created_note)
-                    created_notes_count += 1
+                # Check if a note with this client_note_id already exists locally
+                # to avoid duplication when notes are sent multiple times
+                existing_notes = dm.get_all_notes_for_user(user_id)
+                existing_note = None
+                if isinstance(existing_notes, list):
+                    for note in existing_notes:
+                        if note and note.get("client_note_id") == client_note_id:
+                            existing_note = note
+                            break
+                
+                if existing_note:
+                    # Merge: update existing note instead of creating a duplicate
+                    existing_id = existing_note.get("id")
+                    if existing_id:
+                        updated_note = dm.update_note_for_user(user_id, existing_id, {"title": title, "content": content})
+                        if updated_note:
+                            created_notes.append(updated_note)
+                            created_notes_count += 1
+                        else:
+                            skipped.append({"client_note_id": client_note_id, "error": "Update failed"})
+                    else:
+                        skipped.append({"client_note_id": client_note_id, "error": "Existing note has no ID"})
                 else:
-                    skipped.append({"client_note_id": client_note_id, "error": "Create failed"})
+                    # New note: create it
+                    created_note = dm.create_note_for_user(user_id, {"title": title, "content": content, "client_note_id": client_note_id})
+                    if created_note:
+                        created_notes.append(created_note)
+                        created_notes_count += 1
+                    else:
+                        skipped.append({"client_note_id": client_note_id, "error": "Create failed"})
 
             now = datetime.now().isoformat()
             result = {

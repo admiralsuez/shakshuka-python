@@ -122,6 +122,38 @@ def update_note(note_id: str, user_id, data_manager):
     return jsonify(updated), 200
 
 
+@notes_bp.route("/<note_id>", methods=["PATCH"])
+@require_data_manager
+@handle_database_error
+def patch_note(note_id: str, user_id, data_manager):
+    """Partially update a note (supports parent_id for nesting)."""
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 400
+    
+    note_data: Dict[str, Any] = request.json
+    if not note_data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    if _sanitize_input_func:
+        note_data = _sanitize_input_func(note_data)
+    
+    # Validate parent_id if provided (must be a valid note or None)
+    if 'parent_id' in note_data:
+        parent_id = note_data.get('parent_id')
+        if parent_id is not None:
+            parent_note = data_manager.get_note_by_id(user_id, parent_id)
+            if not parent_note:
+                return jsonify({"error": f"Parent note {parent_id} not found"}), 404
+            # Prevent circular references (note cannot be its own parent)
+            if parent_id == note_id:
+                return jsonify({"error": "A note cannot be its own parent"}), 400
+    
+    updated = data_manager.update_note_for_user(user_id, note_id, note_data)
+    if not updated:
+        return jsonify({"error": "Note not found"}), 404
+    return jsonify(updated), 200
+
+
 @notes_bp.route("/<note_id>", methods=["DELETE"])
 @require_data_manager
 @handle_database_error

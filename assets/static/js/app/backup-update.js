@@ -148,14 +148,14 @@ function loadProjectsForFilter() {
     // Fetch tasks from API to get current projects
     window.Utils.apiRequestJson('/api/tasks')
         .then(response => {
-            if (!response || !response.tasks) {
+            if (!response || !Array.isArray(response)) {
                 projectList.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem;">No projects found.</p>';
                 return;
             }
-            
+
             // Get unique projects from tasks
             const projects = new Set();
-            response.tasks.forEach(task => {
+            response.forEach(task => {
                 if (task.project && task.project.trim()) {
                     projects.add(task.project.trim());
                 }

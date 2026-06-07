@@ -240,7 +240,8 @@ async function strikeTaskToday() {
         // If currently on tasks page, re-render immediately
         try {
             if (AppState.get && AppState.get('currentPage') === 'tasks') {
-                renderTasks();
+                const currentFilter = AppState.get('currentFilter') || 'active';
+                renderTasks(currentFilter);
             }
         } catch (e) { /* noop */ }
         
@@ -319,7 +320,8 @@ async function strikeTaskForever() {
         
         try {
             if (AppState.get && AppState.get('currentPage') === 'tasks') {
-                renderTasks();
+                const currentFilter = AppState.get('currentFilter') || 'active';
+                renderTasks(currentFilter);
             }
         } catch (e) { /* noop */ }
         

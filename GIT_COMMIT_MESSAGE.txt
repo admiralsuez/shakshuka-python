@@ -1,0 +1,49 @@
+v33.0 - Strike Till Days, Refresh Task, & Notes Fixes
+
+FEATURES:
+- Strike Till Days: Strike tasks for 1-365 custom days with auto-expiration
+- Refresh Now: Immediately unstrike temporarily struck tasks without losing history
+- Database Structure: Comprehensive verification of integrity and backward compatibility
+
+FIXES:
+- Fixed split-encoded note content displaying as __SHAKSHUKA_SPLIT_B64_V1__ blobs
+- Improved note search with partial/fuzzy matching (search "note 5" finds "note-5")
+- Fixed duplicate modals appearing during mobile sync
+- Fixed duplicate notes when sending from mobile to PC multiple times
+
+TECHNICAL:
+- New /api/tasks/<id>/refresh endpoint for unstrike operations
+- Enhanced /api/tasks/<id>/strike with type='till_days' support (1-365 days)
+- Notes content decoding on import and display
+- Note deduplication using client_note_id
+- Multi-term search algorithm for notes
+
+DATABASE:
+- No schema changes required (reuses existing columns)
+- Schema version remains v17
+- All changes backward compatible
+- Verified FK constraints, user partitioning, WAL mode, and migrations
+
+FILES MODIFIED:
+Backend:
+  - src/routes/task_routes.py
+  - src/routes/mobile_routes.py
+
+Frontend:
+  - assets/static/js/pages/tasks.js
+  - assets/static/js/pages/notes.js
+  - assets/static/js/app/app.js
+  - assets/static/js/app/companion-sync.js
+  - assets/static/js/app/mobile-inbox.js
+  - assets/templates/partials/modals/strike_modal.html
+
+Config:
+  - config/changelog.txt
+
+TESTING:
+- All features tested and working
+- No breaking changes
+- Backward compatible with v32 and earlier
+- Safe for production deployment
+
+Co-Authored-By: Oz <oz-agent@warp.dev>

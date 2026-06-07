@@ -326,7 +326,6 @@
 .kill-app-item:hover span {
     color: #c82333;
 }
-.layout-btn i,
 .nav-item i,
 .sidebar-toggle i {
     font-family: "Font Awesome 6 Free" !important;
@@ -336,28 +335,4 @@
     opacity: 1 !important;
     width: auto !important;
     height: auto !important;
-}
-
-/* Force layout toggle icons to maintain Font Awesome icons at all screen sizes */
-.layout-toggle .layout-btn i {
-    font-family: "Font Awesome 6 Free" !important;
-    font-weight: 900 !important;
-    display: inline-block !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    width: auto !important;
-    height: auto !important;
-}
-
-/* Specific icon fixes for layout toggle */
-.layout-btn[data-layout="list"] i::before {
-    content: "\f03a" !important; /* fa-list */
-    font-family: "Font Awesome 6 Free" !important;
-    font-weight: 900 !important;
-}
-
-.layout-btn[data-layout="grid"] i::before {
-    content: "\f00a" !important; /* fa-th */
-    font-family: "Font Awesome 6 Free" !important;
-    font-weight: 900 !important;
 }

@@ -171,161 +171,25 @@ function showCompanionSyncModal(pending) {
     const payload = pending.payload || {};
     const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
     const notes = Array.isArray(payload.notes) ? payload.notes : [];
-    const deviceName = pending.device_name || payload.device_name || 'Phone';
-    const totalItems = tasks.length + notes.length;
     
-    // Create or reuse modal
-    let modal = document.getElementById('companion-sync-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'companion-sync-modal';
-        modal.className = 'modal';
-        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
-        document.body.appendChild(modal);
-    }
-    
-    const selectedTaskIds = new Set();
-    const selectedNoteIds = new Set();
-    
-    modal.innerHTML = '';
-    const content = document.createElement('div');
-    content.className = 'modal-content';
-    content.style.cssText = 'background:var(--surface-color);border-radius:12px;padding:2rem;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,0.3);';
-    
-    // Header
-    const header = document.createElement('div');
-    header.style.cssText = 'margin-bottom:1.5rem;';
-    const title = document.createElement('h2');
-    title.textContent = `New from ${deviceName}`;
-    title.style.cssText = 'margin:0 0 0.5rem 0;';
-    header.appendChild(title);
-    const subtitle = document.createElement('p');
-    const itemLabels = [];
-    if (tasks.length) itemLabels.push(`${tasks.length} task${tasks.length > 1 ? 's' : ''}`);
-    if (notes.length) itemLabels.push(`${notes.length} note${notes.length > 1 ? 's' : ''}`);
-    subtitle.textContent = `Select ${itemLabels.join(' and ')} to import`;
-    subtitle.style.cssText = 'margin:0;color:var(--text-secondary);font-size:0.9rem;';
-    header.appendChild(subtitle);
-    content.appendChild(header);
-    
-    // Item list with checkboxes
-    const listContainer = document.createElement('div');
-    listContainer.style.cssText = 'margin-bottom:1.5rem;max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:0.5rem;';
-    
-    tasks.forEach(task => {
-        const id = String(task.client_task_id || task.id || '').trim();
-        if (!id) return;
-        selectedTaskIds.add(id);
-        
-        const label = document.createElement('label');
-        label.style.cssText = 'display:flex;align-items:flex-start;gap:0.75rem;padding:0.75rem;border:1px solid var(--border-color);border-radius:6px;cursor:pointer;';
-        
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.checked = true;
-        checkbox.style.cssText = 'margin-top:0.3rem;cursor:pointer;flex-shrink:0;';
-        checkbox.addEventListener('change', (e) => {
-            if (e.target.checked) selectedTaskIds.add(id); else selectedTaskIds.delete(id);
-            updateImportBtn();
-        });
-        label.appendChild(checkbox);
-        
-        const info = document.createElement('div');
-        const taskTitle = document.createElement('div');
-        taskTitle.textContent = task.title || task.name || 'Untitled Task';
-        taskTitle.style.cssText = 'font-weight:500;';
-        info.appendChild(taskTitle);
-        if (task.project) {
-            const meta = document.createElement('div');
-            meta.textContent = task.project;
-            meta.style.cssText = 'font-size:0.8rem;color:var(--text-secondary);';
-            info.appendChild(meta);
-        }
-        label.appendChild(info);
-        listContainer.appendChild(label);
-    });
-    
-    notes.forEach(note => {
-        const id = String(note.client_note_id || note.id || '').trim();
-        if (!id) return;
-        selectedNoteIds.add(id);
-        
-        const label = document.createElement('label');
-        label.style.cssText = 'display:flex;align-items:flex-start;gap:0.75rem;padding:0.75rem;border:1px solid var(--border-color);border-radius:6px;cursor:pointer;';
-        
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.checked = true;
-        checkbox.style.cssText = 'margin-top:0.3rem;cursor:pointer;flex-shrink:0;';
-        checkbox.addEventListener('change', (e) => {
-            if (e.target.checked) selectedNoteIds.add(id); else selectedNoteIds.delete(id);
-            updateImportBtn();
-        });
-        label.appendChild(checkbox);
-        
-        const info = document.createElement('div');
-        const noteTitle = document.createElement('div');
-        noteTitle.textContent = (note.title || 'Untitled Note') + ' (note)';
-        noteTitle.style.cssText = 'font-weight:500;';
-        info.appendChild(noteTitle);
-        label.appendChild(info);
-        listContainer.appendChild(label);
-    });
-    content.appendChild(listContainer);
-    
-    // Buttons
-    const buttons = document.createElement('div');
-    buttons.style.cssText = 'display:flex;gap:0.75rem;justify-content:flex-end;';
-    
-    const cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'btn-secondary';
-    cancelBtn.textContent = 'Skip';
-    cancelBtn.addEventListener('click', async () => {
-        modal.style.display = 'none';
-        _syncModalOpen = false;
-        // Reject the submission so it doesn't block newer submissions from appearing
-        try {
-            await fetch(`/api/mobile/inbox/${submissionId}/reject`, {
-                method: 'POST',
-                credentials: 'include',
-            });
-            if (window.showNotification) {
-                window.showNotification('Submission skipped', 'info');
-            }
-        } catch (e) {
-            console.debug('Failed to reject skipped submission:', e);
-            if (window.showNotification) {
-                window.showNotification('Failed to skip submission', 'error');
+    // Use the official mobile-inbox-modal instead of creating a custom one
+    // The mobile-inbox.js module handles rendering and interaction
+    // Just delegate to it by exposing the pending submission for rendering
+    if (typeof window.showMobileInboxModal === 'function') {
+        window.showMobileInboxModal(pending);
+        _syncModalOpen = false; // Let mobile-inbox.js manage modal state
+    } else {
+        // Fallback: try to trigger the modal directly
+        const modal = document.getElementById('mobile-inbox-modal');
+        if (modal) {
+            // Store the pending submission for mobile-inbox.js to render
+            window._companionPendingSubmission = pending;
+            if (typeof window.open === 'function') {
+                window.open('mobile-inbox-modal');
             }
         }
-        // Check if there are more pending submissions
-        setTimeout(() => checkCompanionTasksSync(false), 300);
-    });
-    buttons.appendChild(cancelBtn);
-    
-    const importBtn = document.createElement('button');
-    importBtn.type = 'button';
-    importBtn.className = 'btn-primary';
-    importBtn.style.cssText = 'padding:0.6rem 1.2rem;';
-    
-    function updateImportBtn() {
-        const count = selectedTaskIds.size + selectedNoteIds.size;
-        importBtn.textContent = `Import ${count} item${count === 1 ? '' : 's'}`;
-        importBtn.disabled = count === 0;
-    }
-    updateImportBtn();
-    
-    importBtn.addEventListener('click', async () => {
-        modal.style.display = 'none';
         _syncModalOpen = false;
-        await importCompanionTasks(submissionId, Array.from(selectedTaskIds), Array.from(selectedNoteIds), payload);
-    });
-    buttons.appendChild(importBtn);
-    content.appendChild(buttons);
-    
-    modal.appendChild(content);
-    modal.style.display = 'flex';
+    }
 }
 
 async function importCompanionTasks(submissionId, taskIds, noteIds, pendingPayload) {
@@ -348,10 +212,14 @@ async function importCompanionTasks(submissionId, taskIds, noteIds, pendingPaylo
                 const payload = pendingPayload || {};
                 const importedTasks = (Array.isArray(payload.tasks) ? payload.tasks : [])
                     .filter(t => taskIds.includes(String(t.client_task_id || t.id || '')));
+                const now = new Date().toISOString();
+                const formattedTime = typeof window.TimestampFormatter !== 'undefined'
+                    ? window.TimestampFormatter.format(now)
+                    : now;
                 window.DailyResetLog.addCompanionSync({
                     count: totalImported,
                     deviceName: payload.device_name || 'Phone',
-                    timestamp: new Date().toLocaleTimeString(),
+                    timestamp: formattedTime,
                     tasks: importedTasks,
                 });
             }

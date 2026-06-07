@@ -533,6 +533,24 @@ init_github_update_routes(
 app.register_blueprint(github_update_bp)
 
 
+# Add cache-control headers to prevent browser caching of static files
+@app.after_request
+def add_cache_control_headers(response):
+    """Add cache-control headers to prevent caching of static files"""
+    # For static files with version query params, allow caching
+    if request.path.startswith('/static/') and '?v=' in request.url:
+        response.cache_control.max_age = 31536000  # 1 year
+        response.cache_control.public = True
+    else:
+        # For everything else, no caching
+        response.cache_control.no_cache = True
+        response.cache_control.no_store = True
+        response.cache_control.must_revalidate = True
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
+
 def initialize_data_manager():
     """Initialize data manager without password"""
     try:

@@ -17,6 +17,7 @@
     let currentFolderFilter = null;  // null = All notes, otherwise folder name
     let explorerSortMode = 'updated';
     let explorerFilterText = '';
+    let fullscreenEnabled = false;
 
     const SPLIT_CONTENT_PREFIX = '__SHAKSHUKA_SPLIT_V1__';
     const SPLIT_CONTENT_PREFIX_B64 = '__SHAKSHUKA_SPLIT_B64_V1__';
@@ -1111,13 +1112,9 @@
         const primaryNote = getActiveNote();
         if (!primary || !secondary || !primaryNote) return;
 
-        // Safety: if the note content still contains the raw split-encoded blob,
-        // decode it now before rendering. This handles edge cases where
-        // ensureNoteHasSplitFields wasn't called (e.g. version restore, server reload).
-        if (typeof primaryNote.content === 'string' &&
-            (primaryNote.content.startsWith(SPLIT_CONTENT_PREFIX_B64) || primaryNote.content.startsWith(SPLIT_CONTENT_PREFIX))) {
-            ensureNoteHasSplitFields(primaryNote);
-        }
+        // Safety: Always ensure split fields are properly decoded before rendering.
+        // This handles all cases: initial load, server reload, and split-encoded content.
+        ensureNoteHasSplitFields(primaryNote);
 
         // Primary editor always shows the active note.
         primary.value = primaryNote.content || '';
@@ -1134,6 +1131,8 @@
         }
 
         if (secondaryNote) {
+            // Ensure secondary note is also decoded before displaying
+            ensureNoteHasSplitFields(secondaryNote);
             secondary.value = secondaryNote.content || '';
             secondary.dataset.noteId = secondaryNote.id;
             secondary.removeAttribute('title');
@@ -1152,18 +1151,30 @@
         const dash = document.getElementById('notes-dashboard-view');
         const editorView = document.getElementById('notes-editor-view');
         const splitBtn = document.getElementById('notes-split-toggle-btn');
+        const viewListBtn = document.getElementById('notes-view-list-btn');
         if (dash) dash.style.display = '';
         if (editorView) editorView.style.display = 'none';
         if (splitBtn) splitBtn.style.display = 'none';
+        // Update button text when showing dashboard
+        if (viewListBtn) {
+            viewListBtn.innerHTML = '<i class="fas fa-book-open"></i>';
+            viewListBtn.title = 'View all notes';
+        }
     }
 
     function showNoteEditorView() {
         const dash = document.getElementById('notes-dashboard-view');
         const editorView = document.getElementById('notes-editor-view');
         const splitBtn = document.getElementById('notes-split-toggle-btn');
+        const viewListBtn = document.getElementById('notes-view-list-btn');
         if (dash) dash.style.display = 'none';
         if (editorView) editorView.style.display = '';
         if (splitBtn) splitBtn.style.display = '';
+        // Update button text when showing editor
+        if (viewListBtn) {
+            viewListBtn.innerHTML = '<i class="fas fa-arrow-left"></i> Back to all notes';
+            viewListBtn.title = 'Back to all notes';
+        }
         scrollEditorsIntoView();
     }
 
@@ -1556,6 +1567,8 @@
     }
 
     function render() {
+        const explorer = document.getElementById('notes-explorer');
+        if (explorer) explorer.style.display = '';
         renderNotesExplorer();
         renderTabs();
         renderEditors();
@@ -1863,6 +1876,58 @@
         }
     }
 
+    function toggleFullscreen() {
+        fullscreenEnabled = !fullscreenEnabled;
+        const notesPage = document.getElementById('notes-page');
+        const fullscreenBtn = document.getElementById('notes-fullscreen-toggle-btn');
+        const body = document.body;
+        const editorView = document.getElementById('notes-editor-view');
+        const dashboardView = document.getElementById('notes-dashboard-view');
+        
+        if (fullscreenEnabled) {
+            // Add fullscreen classes
+            notesPage.classList.add('notes-fullscreen');
+            body.classList.add('notes-fullscreen-active');
+            if (fullscreenBtn) {
+                fullscreenBtn.classList.add('active');
+                // Update icon: expand -> compress
+                const icon = fullscreenBtn.querySelector('i');
+                if (icon) icon.className = 'fas fa-compress';
+            }
+            
+            // Hide scrollbar when fullscreen
+            body.style.overflow = 'hidden';
+            
+            // Hide dashboard and show editor (override normal display rules)
+            if (dashboardView) dashboardView.style.display = 'none';
+            if (editorView) editorView.style.display = 'flex';
+            
+            if (window.showNotification) {
+                window.showNotification('Fullscreen mode enabled (press Esc to exit)', 'info');
+            }
+        } else {
+            // Remove fullscreen classes
+            notesPage.classList.remove('notes-fullscreen');
+            body.classList.remove('notes-fullscreen-active');
+            if (fullscreenBtn) {
+                fullscreenBtn.classList.remove('active');
+                // Update icon: compress -> expand
+                const icon = fullscreenBtn.querySelector('i');
+                if (icon) icon.className = 'fas fa-expand';
+            }
+            
+            // Restore scrollbar
+            body.style.overflow = '';
+            
+            // Keep editor view visible, just exit fullscreen overlay
+            // Do NOT go back to dashboard - stay in the current editor note
+            if (editorView) editorView.style.display = 'flex';
+            if (dashboardView) dashboardView.style.display = 'none';
+        }
+        
+        saveNotes();
+    }
+
     function getFocusedEditor() {
         if (lastFocusedEditor === 'secondary' && splitViewEnabled) {
             return document.getElementById('notes-editor-secondary') || document.getElementById('notes-editor-primary');
@@ -1926,9 +1991,14 @@
             }
         }
 
-        // Escape should close the command menu when open
-        if (e.key === 'Escape' && commandMenuEl) {
-            closeCommandMenu();
+        // Escape should close the command menu when open, or exit fullscreen
+        if (e.key === 'Escape') {
+            if (commandMenuEl && commandMenuEl.style.display === 'flex') {
+                closeCommandMenu();
+            } else if (fullscreenEnabled) {
+                // Exit fullscreen
+                toggleFullscreen();
+            }
         }
 
         // Auto-continue numbered/bullet lists on Enter
@@ -2246,6 +2316,9 @@
                 break;
             case 'clear':
                 clearFormatting(editor);
+                break;
+            case 'fullscreen':
+                toggleFullscreen();
                 break;
             default:
                 break;
@@ -2709,7 +2782,7 @@
         menu.style.top = top + 'px';
     }
 
-    function openCommandMenu(editor) {
+    function openCommandMenu(editor, clientX, clientY) {
         commandMenuEditor = editor;
         const menu = ensureCommandMenu();
         menu.innerHTML = '';
@@ -2718,7 +2791,8 @@
             { label: 'Bullet list',   type: 'bullet' },
             { label: 'Numbered list', type: 'numbered' },
             { label: 'Large header',  type: 'header' },
-            { label: 'Clear',         type: 'clear' }
+            { label: 'Clear',         type: 'clear' },
+            { label: fullscreenEnabled ? 'Exit fullscreen' : 'Fullscreen', type: 'fullscreen' }
         ];
 
         const buttons = [];
@@ -2768,35 +2842,51 @@
             menu.appendChild(btn);
         });
 
-        // Approximate caret position inside the textarea so the menu appears near the cursor
-        const rect = editor.getBoundingClientRect();
-        const value = editor.value;
-        const pos = editor.selectionStart || 0;
-        const before = value.slice(0, pos);
-        const lines = before.split('\n');
-        const lineIndex = lines.length - 1;
-        const colIndex = lines[lines.length - 1].length;
-
-        const style = window.getComputedStyle(editor);
-        const fontSize = parseFloat(style.fontSize) || 14;
-        const lineHeight = parseFloat(style.lineHeight) || fontSize * 1.4;
-        const paddingTop = parseFloat(style.paddingTop) || 0;
-        const paddingLeft = parseFloat(style.paddingLeft) || 0;
-        const charWidth = fontSize * 0.6; // rough monospace approximation
-
-        const caretX = rect.left + window.scrollX + paddingLeft + colIndex * charWidth - editor.scrollLeft;
-        const caretY = rect.top  + window.scrollY + paddingTop + lineIndex * lineHeight - editor.scrollTop;
-
         menu.style.display = 'flex';
         const menuRect = menu.getBoundingClientRect();
+        const padding = 8;
 
-        let top  = caretY + lineHeight + 4; // just below the current line
-        let left = caretX;
+        // Use provided mouse coordinates if available (from right-click context menu)
+        // Otherwise, calculate from caret position (when triggered from other sources)
+        let left = clientX !== undefined ? clientX : null;
+        let top = clientY !== undefined ? clientY : null;
 
-        // Clamp to viewport / editor bounds a bit
-        const maxLeft = rect.left + window.scrollX + rect.width - menuRect.width - 8;
-        if (left > maxLeft) left = maxLeft;
-        if (left < rect.left + window.scrollX + 4) left = rect.left + window.scrollX + 4;
+        if (left === null || top === null) {
+            // Fallback to caret-based positioning
+            const rect = editor.getBoundingClientRect();
+            const value = editor.value;
+            const pos = editor.selectionStart || 0;
+            const before = value.slice(0, pos);
+            const lines = before.split('\n');
+            const lineIndex = lines.length - 1;
+            const colIndex = lines[lines.length - 1].length;
+
+            const style = window.getComputedStyle(editor);
+            const fontSize = parseFloat(style.fontSize) || 14;
+            const lineHeight = parseFloat(style.lineHeight) || fontSize * 1.4;
+            const paddingTop = parseFloat(style.paddingTop) || 0;
+            const paddingLeft = parseFloat(style.paddingLeft) || 0;
+            const charWidth = fontSize * 0.6; // rough monospace approximation
+
+            const caretX = rect.left + window.scrollX + paddingLeft + colIndex * charWidth - editor.scrollLeft;
+            const caretY = rect.top  + window.scrollY + paddingTop + lineIndex * lineHeight - editor.scrollTop;
+
+            top  = caretY + lineHeight + 4; // just below the current line
+            left = caretX;
+
+            // Clamp to viewport / editor bounds a bit
+            const maxLeft = rect.left + window.scrollX + rect.width - menuRect.width - 8;
+            if (left > maxLeft) left = maxLeft;
+            if (left < rect.left + window.scrollX + 4) left = rect.left + window.scrollX + 4;
+        } else {
+            // Clamp mouse-based positioning to viewport
+            const maxLeft = window.innerWidth - menuRect.width - padding;
+            const maxTop = window.innerHeight - menuRect.height - padding;
+            if (left > maxLeft) left = maxLeft;
+            if (top > maxTop) top = maxTop;
+            if (left < padding) left = padding;
+            if (top < padding) top = padding;
+        }
 
         menu.style.top  = `${top}px`;
         menu.style.left = `${left}px`;
@@ -2816,12 +2906,21 @@
         commandMenuEl.style.display = 'none';
     }
 
-    async function _createSingleTask(title, silent) {
+    function _stripLinePrefix(line) {
+        return line
+            .replace(/^\s*[-*]\s+/, '')
+            .replace(/^\s*\d+\.\s+/, '')
+            .replace(/^\s*\[\s*[xX\s]\s*\]\s+/, '')
+            .trim();
+    }
+
+    async function _createSingleTask(title, silent, taskDetails = {}) {
         const taskPayload = {
             title,
-            description: '',
-            project: '',
-            estimated_duration: 60
+            description: taskDetails.description || '',
+            project: taskDetails.project || '',
+            owner: taskDetails.owner || '',
+            estimated_duration: taskDetails.estimated_duration || 60
         };
         try {
             if (typeof window.createTask === 'function') {
@@ -2844,6 +2943,122 @@
             }
             return false;
         }
+    }
+
+    function _showTaskDetailsDialog(title, currentIndex = null, totalCount = null) {
+        return new Promise((resolve) => {
+            const existing = document.getElementById('notes-task-details-modal');
+            if (existing) existing.remove();
+
+            // Parse comma-separated format: "Project, Assignee, Task Title"
+            let parsedProject = '';
+            let parsedAssignee = '';
+            let parsedTitle = title;
+            
+            const parts = title.split(',').map(p => p.trim());
+            if (parts.length >= 3) {
+                parsedProject = parts[0];
+                parsedAssignee = parts[1];
+                parsedTitle = parts.slice(2).join(',').trim();
+            } else if (parts.length === 2) {
+                parsedProject = parts[0];
+                parsedTitle = parts[1];
+            }
+
+            const modal = document.createElement('div');
+            modal.id = 'notes-task-details-modal';
+            modal.className = 'modal';
+            modal.style.display = 'flex';
+
+            const titlePreview = parsedTitle.length > 100 ? parsedTitle.slice(0, 100) + '…' : parsedTitle;
+            
+            // Build progress indicator
+            const progressHtml = currentIndex !== null && totalCount !== null 
+                ? `<div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.5rem;">${currentIndex}/${totalCount}</div>`
+                : '';
+            
+            // Build progress bar
+            const progressBarHtml = currentIndex !== null && totalCount !== null
+                ? `<div style="width:100%;height:4px;background:var(--border-color);border-radius:2px;margin-bottom:1rem;overflow:hidden;"><div style="height:100%;background:var(--primary-color);width:${(currentIndex / totalCount) * 100}%;transition:width 0.3s ease;"></div></div>`
+                : '';
+
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width:500px;">
+                    <div class="modal-header">
+                        <h2>Create Task from Selection</h2>
+                        <button class="modal-close" type="button" data-action="cancel">&times;</button>
+                    </div>
+                    ${progressHtml}
+                    <div class="modal-body">
+                        ${progressBarHtml}
+                        <div style="margin-bottom:1rem;">
+                            <label style="display:block;font-weight:500;margin-bottom:0.3rem;color:var(--text-primary);">Task Name</label>
+                            <input type="text" id="notes-task-title-input" value="${titlePreview.replace(/"/g, '&quot;')}" style="width:100%;padding:0.5rem;border:1px solid var(--border-color);border-radius:4px;font-size:0.95rem;box-sizing:border-box;" />
+                        </div>
+                        <div style="margin-bottom:1rem;">
+                            <label style="display:block;font-weight:500;margin-bottom:0.3rem;color:var(--text-primary);">Project (optional)</label>
+                            <input type="text" id="notes-task-project-input" value="${parsedProject.replace(/"/g, '&quot;')}" placeholder="e.g., Work, Personal" style="width:100%;padding:0.5rem;border:1px solid var(--border-color);border-radius:4px;font-size:0.95rem;box-sizing:border-box;" />
+                        </div>
+                        <div style="margin-bottom:1rem;">
+                            <label style="display:block;font-weight:500;margin-bottom:0.3rem;color:var(--text-primary);">Assignee (optional)</label>
+                            <input type="text" id="notes-task-assignee-input" value="${parsedAssignee.replace(/"/g, '&quot;')}" placeholder="e.g., John Doe" style="width:100%;padding:0.5rem;border:1px solid var(--border-color);border-radius:4px;font-size:0.95rem;box-sizing:border-box;" />
+                        </div>
+                        <div style="margin-bottom:1rem;">
+                            <label style="display:block;font-weight:500;margin-bottom:0.3rem;color:var(--text-primary);">Estimated Duration (minutes)</label>
+                            <input type="number" id="notes-task-duration-input" value="60" min="5" max="480" style="width:100%;padding:0.5rem;border:1px solid var(--border-color);border-radius:4px;font-size:0.95rem;box-sizing:border-box;" />
+                        </div>
+                    </div>
+                    <div class="modal-footer" style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                        <button class="btn-secondary" type="button" data-action="cancel">Cancel</button>
+                        <button class="btn-primary" type="button" data-action="create">Create Task</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            modal.classList.add('active');
+
+            const titleInput = document.getElementById('notes-task-title-input');
+            if (titleInput) titleInput.focus();
+
+            const cleanup = (result) => {
+                modal.classList.remove('active');
+                modal.style.display = 'none';
+                modal.remove();
+                resolve(result);
+            };
+
+            modal.addEventListener('click', (e) => {
+                const btn = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+                if (!btn) {
+                    if (e.target === modal) cleanup(null);
+                    return;
+                }
+                const action = btn.getAttribute('data-action');
+                if (action === 'create') {
+                    const finalTitle = (document.getElementById('notes-task-title-input')?.value || '').trim();
+                    if (!finalTitle) {
+                        if (window.showNotification) window.showNotification('Task name cannot be empty', 'warning');
+                        return;
+                    }
+                    cleanup({
+                        title: finalTitle,
+                        project: (document.getElementById('notes-task-project-input')?.value || '').trim(),
+                        owner: (document.getElementById('notes-task-assignee-input')?.value || '').trim(),
+                        estimated_duration: parseInt(document.getElementById('notes-task-duration-input')?.value || '60', 10)
+                    });
+                } else if (action === 'cancel') {
+                    cleanup(null);
+                }
+            });
+
+            modal.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && e.target.id === 'notes-task-title-input') {
+                    const btn = modal.querySelector('[data-action="create"]');
+                    if (btn) btn.click();
+                }
+            });
+        });
     }
 
     function _showAddTasksChoiceDialog(lines, fullText) {
@@ -2922,28 +3137,43 @@
             return;
         }
 
-        // Split into non-empty lines
-        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        // Split into non-empty lines (count before stripping)
+        const rawLines = text.split('\n')
+            .map(l => l.trim())
+            .filter(l => l.length > 0);
+        
+        // Now strip prefixes
+        const lines = rawLines.map(l => _stripLinePrefix(l));
 
-        if (lines.length <= 1) {
-            // Single-line: original confirm + create behavior
-            const preview = text.length > 120 ? text.slice(0, 120) + '\u2026' : text;
-            const ok = window.confirm ? window.confirm(`Make this selection a task?\n\n"${preview}"`) : true;
-            if (!ok) return;
-            await _createSingleTask(text, false);
+        if (rawLines.length <= 1) {
+            // Single-line: show task details dialog
+            const taskDetails = await _showTaskDetailsDialog(lines[0] || text);
+            if (!taskDetails) return;
+            await _createSingleTask(taskDetails.title, false, taskDetails);
             return;
         }
 
         // Multi-line: show choice dialog
+        console.log('Showing choice dialog for', lines.length, 'lines');
         const choice = await _showAddTasksChoiceDialog(lines, text);
+        console.log('Choice dialog result:', choice);
         if (!choice) return; // cancelled
 
         if (choice === 'one') {
-            await _createSingleTask(text, false);
+            console.log('Creating single task from all lines');
+            const taskDetails = await _showTaskDetailsDialog(text);
+            if (!taskDetails) return;
+            await _createSingleTask(taskDetails.title, false, taskDetails);
         } else if (choice === 'per-line') {
+            console.log('Creating', lines.length, 'tasks per line');
             let successCount = 0;
-            for (const line of lines) {
-                const ok = await _createSingleTask(line, true);
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                console.log('Showing modal for line:', line, `(${i + 1}/${lines.length})`);
+                const taskDetails = await _showTaskDetailsDialog(line, i + 1, lines.length);
+                console.log('Task details returned:', taskDetails);
+                if (!taskDetails) continue; // user cancelled this line
+                const ok = await _createSingleTask(taskDetails.title, true, taskDetails);
                 if (ok) successCount++;
             }
             if (window.showNotification) {
@@ -3085,6 +3315,7 @@
 
     function attachEventHandlers() {
         const viewListBtn = document.getElementById('notes-view-list-btn');
+        const fullscreenToggleBtn = document.getElementById('notes-fullscreen-toggle-btn');
         const splitToggleBtn = document.getElementById('notes-split-toggle-btn');
         const addSelectionBtn = document.getElementById('notes-add-selection-task-btn');
         const newTabBtn = document.getElementById('notes-tab-new');
@@ -3103,6 +3334,10 @@
         if (viewListBtn) {
             // "View all notes" brings you back to the dashboard view.
             viewListBtn.addEventListener('click', function () {
+                // If in fullscreen mode, exit it first before showing dashboard
+                if (fullscreenEnabled) {
+                    toggleFullscreen();
+                }
                 showNotesDashboard();
             });
         }
@@ -3138,6 +3373,9 @@
                 }
             });
         }
+        if (fullscreenToggleBtn) {
+            fullscreenToggleBtn.addEventListener('click', toggleFullscreen);
+        }
         if (splitToggleBtn) {
             splitToggleBtn.addEventListener('click', toggleSplitView);
         }
@@ -3171,11 +3409,18 @@
                     return;
                 }
                 editorSearchDebounce = setTimeout(() => {
+                    // Improved search: support partial matching by treating spaces as wildcards
+                    // e.g., "note 5" matches "note-5" and "Note 5 Details"
+                    const searchTerms = q.split(/\s+/).filter(t => t.length > 0);
                     const matches = notes.filter(n => {
                         if (!n || n.deleted_at) return false;
                         const title = (n.title || '').toLowerCase();
                         const content = (n.content || '').toLowerCase();
-                        return title.includes(q) || content.includes(q);
+                        
+                        // All search terms must match somewhere (title or content)
+                        return searchTerms.every(term => 
+                            title.includes(term) || content.includes(term)
+                        );
                     }).slice(0, 10);
                     editorSearchResults.innerHTML = '';
                     if (!matches.length) {
@@ -3248,12 +3493,20 @@
             primary.addEventListener('focus', function () { lastFocusedEditor = 'primary'; });
             primary.addEventListener('keydown', function (e) { handleEditorKeydown(e, primary); });
             primary.addEventListener('click', function (e) { handleNoteLinkClick(primary, e); });
+            primary.addEventListener('contextmenu', function (e) {
+                e.preventDefault();
+                openCommandMenu(primary, e.clientX, e.clientY);
+            });
         }
         if (secondary) {
             secondary.addEventListener('input', function () { handleEditorInput(secondary); });
             secondary.addEventListener('focus', function () { lastFocusedEditor = 'secondary'; });
             secondary.addEventListener('keydown', function (e) { handleEditorKeydown(e, secondary); });
             secondary.addEventListener('click', function (e) { handleNoteLinkClick(secondary, e); });
+            secondary.addEventListener('contextmenu', function (e) {
+                e.preventDefault();
+                openCommandMenu(secondary, e.clientX, e.clientY);
+            });
         }
 
         // Close command and context menus on outside click
@@ -3834,7 +4087,9 @@
     window.Notes = {
         init,
         addSelectionToTask,
-        showDashboard: showNotesDashboard
+        showDashboard: showNotesDashboard,
+        render,
+        decodeSplitContent: decodeSplitContent  // Used by mobile inbox to decode split-encoded note content
     };
 
     // Initialize when DOM is ready so that navigating to Notes works on first open
@@ -3843,6 +4098,14 @@
     } else {
         init();
     }
+
+    // Global Escape key handler for fullscreen exit (works regardless of focus)
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && fullscreenEnabled) {
+            e.preventDefault();
+            toggleFullscreen();
+        }
+    }, { capture: true });
 
     // Keyboard shortcuts for Notes page
     document.addEventListener('keydown', function (e) {

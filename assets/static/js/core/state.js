@@ -6,7 +6,6 @@ const AppState = (() => {
         currentDate: new Date(),
         editingTaskId: null,
         currentSettings: {},
-        currentLayout: 'list',
         dailyResetTimer: null,
         developerLogs: [],
         currentFilter: 'active',

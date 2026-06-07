@@ -1,19 +1,3 @@
-// Layout Functions
-function setLayout(layout) {
-    AppState.set('currentLayout', layout);
-    
-    // Update active button
-    document.querySelectorAll('.layout-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    document.querySelector(`[data-layout="${layout}"]`).classList.add('active');
-    
-    // Re-render tasks with new layout
-    if (AppState.get('currentPage') === 'tasks') {
-        renderTasks();
-    }
-}
-
 // Sidebar Functions
 function toggleSidebar() {
     const sidebar = document.querySelector('.sidebar');

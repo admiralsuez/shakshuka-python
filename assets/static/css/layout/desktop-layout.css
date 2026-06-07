@@ -26,20 +26,6 @@
     flex-direction: column;
 }
 
-/* Desktop Grid Layout */
-.tasks-container .tasks-grid {
-    display: grid !important;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)) !important;
-    gap: calc(1.5rem * var(--dpi-scale));
-    padding: calc(1rem * var(--dpi-scale));
-}
-
-@media (min-width: 769px) {
-    .tasks-container .tasks-grid {
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)) !important;
-    }
-}
-
 /* Desktop Planner Layout */
 .planner-container {
     display: grid;
@@ -124,12 +110,6 @@
         width: 100%;
         justify-content: space-between;
     }
-    /* Mobile Grid Layout */
-    .tasks-container .tasks-grid {
-        grid-template-columns: 1fr !important;
-        gap: calc(1rem * var(--dpi-scale));
-        padding: calc(0.5rem * var(--dpi-scale));
-    }
     /* Mobile Task Cards */
     .task-card {
         min-height: calc(150px * var(--dpi-scale));
@@ -144,26 +124,5 @@
     .main-content {
         margin-left: calc(240px * var(--dpi-scale));
         padding-top: calc(1.5rem * var(--dpi-scale));
-    }
-    
-    /* Ensure layout toggle remains visible and functional on desktop */
-    .layout-toggle {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-    }
-    
-    .layout-btn {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-    }
-    
-    .layout-btn i {
-        font-family: "Font Awesome 6 Free" !important;
-        font-weight: 900 !important;
-        display: inline-block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
     }
 }

@@ -111,69 +111,6 @@
     flex-direction: column;
 }
 
-/* Layout Toggle - visible on all screens */
-.layout-toggle {
-    display: flex !important;
-    gap: calc(0.3rem * var(--dpi-scale));
-    background: var(--surface-color);
-    padding: calc(0.3rem * var(--dpi-scale));
-    border-radius: calc(12px * var(--dpi-scale));
-    backdrop-filter: blur(10px);
-    border: 1px solid var(--border-color);
-    visibility: visible !important;
-    opacity: 1 !important;
-    position: relative !important;
-    z-index: 10 !important;
-}
-
-.layout-btn {
-    background: none;
-    border: none;
-    padding: calc(0.6rem * var(--dpi-scale)) calc(0.8rem * var(--dpi-scale));
-    border-radius: calc(8px * var(--dpi-scale));
-    cursor: pointer;
-    transition: all 0.3s ease;
-    color: var(--text-secondary);
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-    min-width: calc(40px * var(--dpi-scale));
-    min-height: calc(40px * var(--dpi-scale));
-    visibility: visible !important;
-    opacity: 1 !important;
-    position: relative !important;
-    z-index: 11 !important;
-}
-
-.layout-btn i {
-    font-size: calc(1rem * var(--dpi-scale));
-    display: inline-block !important;
-    width: auto !important;
-    height: auto !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    font-family: "Font Awesome 6 Free" !important;
-    font-weight: 900 !important;
-}
-
-.layout-btn.active {
-    background: var(--primary-gradient);
-    color: white;
-    box-shadow: 0 calc(2px * var(--dpi-scale)) calc(8px * var(--dpi-scale)) var(--shadow-color);
-}
-
-.layout-btn:hover:not(.active) {
-    background: var(--border-color);
-}
-
-/* Grid Layout for desktop */
-.tasks-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(calc(320px * var(--dpi-scale)), 1fr));
-    gap: calc(1.5rem * var(--dpi-scale));
-    padding: calc(1rem * var(--dpi-scale));
-}
-
 /* Better drag and drop cursors */
 .draggable-task {
     cursor: grab;
@@ -294,10 +231,6 @@ body[data-compact="on"] .task-card .task-description {
     font-size: calc(0.78rem * var(--dpi-scale));
 }
 
-body[data-compact="on"] .tasks-grid {
-    gap: calc(0.45rem * var(--dpi-scale));
-}
-
 /* ── Compact: buttons ── */
 body[data-compact="on"] .btn-primary,
 body[data-compact="on"] .btn-secondary,
@@ -407,12 +340,6 @@ body[data-compact="on"] .notes-folder-item {
 
     .main-content {
         margin-left: 0;
-    }
-
-    .tasks-grid {
-        grid-template-columns: 1fr;
-        gap: calc(1rem * var(--dpi-scale));
-        padding: calc(0.5rem * var(--dpi-scale));
     }
 
     .page-header {

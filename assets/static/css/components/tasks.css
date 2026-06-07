@@ -292,6 +292,27 @@ body[data-theme="speedy"] .task-item::after {
     z-index: 3;
 }
 
+.child-count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent-color, #ff9500);
+    color: white;
+    padding: calc(4px * var(--dpi-scale, 1)) calc(8px * var(--dpi-scale, 1));
+    border-radius: calc(4px * var(--dpi-scale, 1));
+    font-size: calc(0.65rem * var(--dpi-scale, 1));
+    font-weight: 700;
+    margin-left: calc(6px * var(--dpi-scale, 1));
+    position: relative;
+    z-index: 3;
+    cursor: help;
+    transition: opacity 0.2s ease;
+}
+
+.child-count-badge:hover {
+    opacity: 0.8;
+}
+
 /* Task content in the center */
  .task-content {
     flex: 1;
@@ -342,8 +363,6 @@ body[data-theme="speedy"] .task-item::after {
 }
 
 /* legacy classes kept for backward compatibility but unused in list layout */
-.task-description--clamped {}
-.task-readmore {}
 
 /* Compact metadata row under title/description (due date, etc.) */
 .task-meta-row {
@@ -795,6 +814,42 @@ body[data-theme="speedy"] .task-item::after {
     outline: none;
     border-color: var(--accent-color);
     box-shadow: 0 0 0 calc(2px * var(--dpi-scale)) rgba(255, 140, 66, 0.1);
+}
+
+/* Show Archived Tasks Button */
+.show-archived-button-container {
+    display: flex;
+    justify-content: center;
+    padding: calc(2rem * var(--dpi-scale)) calc(1rem * var(--dpi-scale));
+    margin-top: calc(1rem * var(--dpi-scale));
+    border-top: 1px solid var(--border-color);
+}
+
+.show-archived-button {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(0.5rem * var(--dpi-scale));
+    padding: calc(0.75rem * var(--dpi-scale)) calc(1.5rem * var(--dpi-scale));
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    border-radius: calc(6px * var(--dpi-scale));
+    font-size: calc(0.95rem * var(--dpi-scale));
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(255, 140, 66, 0.2);
+}
+
+.show-archived-button:hover:not(:disabled) {
+    background: var(--accent-color-hover, #ff7a3d);
+    box-shadow: 0 6px 16px rgba(255, 140, 66, 0.3);
+    transform: translateY(-2px);
+}
+
+.show-archived-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 /* Responsive Task Layout */

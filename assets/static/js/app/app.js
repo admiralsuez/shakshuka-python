@@ -370,7 +370,7 @@ async function resetDailyStrikes() {
                     if (currentPage === 'tasks') {
                         AppState.set('currentFilter', 'active');
                         if (typeof renderTasks === 'function') {
-                            renderTasks();
+                            renderTasks('active');
                         }
                         // Update filter tab UI to show 'active' is selected
                         const filterTabs = document.querySelectorAll('.filter-tab');
@@ -524,7 +524,8 @@ function setupEventListeners() {
                 // Refresh UI depending on current page
                 const page = AppState.get('currentPage');
                 if (page === 'tasks') {
-                    renderTasks();
+                    const currentFilter = AppState.get('currentFilter') || 'active';
+                    renderTasks(currentFilter);
                 } else if (page === 'planner') {
                     try {
                         if (window.DailyPlannerV2 && typeof window.DailyPlannerV2.loadAvailableTasks === 'function') {
@@ -555,7 +556,7 @@ function setupEventListeners() {
         tab.addEventListener('click', function() {
             const filter = this.dataset.filter;
             setActiveFilter(filter);
-            filterTasks(filter);
+            renderTasks(filter);
         });
     });
 
@@ -592,7 +593,7 @@ function setupEventListeners() {
     
     // Strike modal
     safeAddEventListener('close-strike-modal', 'click', closeStrikeModal);
-    safeAddEventListener('cancel-strike', 'click', closeStrikeModal);
+    safeAddEventListener('strike-till-btn', 'click', strikeTaskTillDays);
     safeAddEventListener('strike-today-btn', 'click', strikeTaskToday);
     safeAddEventListener('strike-forever-btn', 'click', strikeTaskForever);
     safeAddEventListener('close-strike-report-history-modal', 'click', closeStrikeReportHistoryModal);
@@ -620,14 +621,6 @@ function setupEventListeners() {
     safeAddEventListener('close-schedule-modal', 'click', closeScheduleModal);
     safeAddEventListener('cancel-schedule', 'click', closeScheduleModal);
     safeAddEventListener('confirm-schedule', 'click', confirmSchedule);
-
-    // Layout toggle
-    document.querySelectorAll('.layout-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const layout = this.dataset.layout;
-            setLayout(layout);
-        });
-    });
 
     // Password modal
     safeAddEventListener('close-password-modal', 'click', closePasswordModal);
@@ -665,15 +658,6 @@ function setupEventListeners() {
     // Quick actions
     safeAddEventListener('focus-mode-btn', 'click', () => navigateToPage('planner'));
     safeAddEventListener('schedule-btn', 'click', () => navigateToPage('planner'));
-    
-    // Layout buttons
-    document.querySelectorAll('.layout-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const layout = btn.getAttribute('data-layout');
-            console.log('Layout button clicked:', layout);
-            setLayout(layout);
-        });
-    });
 
     // Sidebar toggle
     safeAddEventListener('sidebar-toggle', 'click', toggleSidebar);
@@ -991,6 +975,11 @@ const _renderTasksSchedule = (cb) => {
 function _renderTasksNow(filter, projectFilterArg) {
     const tasksList = document.getElementById('tasks-list');
 
+    // Safety: ensure filter is never undefined/null
+    if (!filter) {
+        filter = (typeof AppState !== 'undefined' && AppState.get) ? AppState.get('currentFilter') || 'active' : 'active';
+    }
+
     const projectFilter = (typeof projectFilterArg !== 'undefined' && projectFilterArg !== null)
         ? projectFilterArg
         : ((typeof AppState !== 'undefined' && AppState.get) ? AppState.get('projectFilter') || 'all' : 'all');
@@ -998,7 +987,6 @@ function _renderTasksNow(filter, projectFilterArg) {
     console.log('renderTasks called with:', {
         filter,
         projectFilter,
-        currentLayout: AppState.get('currentLayout'),
         tasksLength: AppState.getTasks() ? AppState.getTasks().length : 'tasks is null/undefined',
         isAuthenticated: AppState.get('isAuthenticated'),
         passwordSet: AppState.get('passwordSet')
@@ -1085,93 +1073,23 @@ function _renderTasksNow(filter, projectFilterArg) {
         return;
     }
 
-    if (AppState.get('currentLayout') === 'grid') {
-        Utils.Logger.log('Rendering grid layout with', sortedTasks.length, 'tasks');
-        const gridHTML = `
-            <div class="tasks-grid">
-                ${sortedTasks.map(task => {
-                    const maxStrikes = 8;
-                    const currentStrikes = task.strike_count || 0;
-                    const progressPercentage = task.completed ? 100 : Math.min((currentStrikes / maxStrikes) * 100, 100);
-                    const progressStep = task.completed ? maxStrikes : Math.min(currentStrikes + 1, maxStrikes);
-                    
-                    console.log(`Rendering task ${task.title}: struck_today=${task.struck_today}, completed=${task.completed}, strike_count=${task.strike_count}`);
-                    
-                    const isTaskExpired = window.TaskHelpers && typeof window.TaskHelpers.isExpired === 'function' ? window.TaskHelpers.isExpired(task) : false;
-                    
-                    return `
-                        <div class="task-card ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${(task.struck_today && task.strike_count > 1) ? 'restrike' : ''}" data-task-id="${task.id}">
-                            <div class="task-actions-top-left">
-                                ${task.struck_today && !task.completed ? `
-                                    <button class="task-action undo-action" onclick="undoStrike('${task.id}')" title="Undo Strike">
-                                        <i class="fas fa-undo"></i>
-                                    </button>
-                                ` : ''}
-                                ${isTaskExpired && !task.completed ? `
-                                    <button class="task-action retry-btn" onclick="retryTask('${task.id}')" title="Retry Task">
-                                        <i class="fas fa-redo"></i>
-                                    </button>
-                                    <button class="task-action strike-btn" onclick="openStrikeModal('${task.id}')" title="Strike Task">
-                                        <i class="fas fa-check"></i>
-                                    </button>
-                                ` : !task.completed && canStrikeTask(task) ? `
-                                    <button class="task-action strike-btn" onclick="openStrikeModal('${task.id}')" title="Strike Task">
-                                        <i class="fas fa-check"></i>
-                                    </button>
-                                ` : !task.completed ? `
-                                    <button class="task-action strike-btn disabled" title="Maximum strikes reached for today" disabled>
-                                        <i class="fas fa-check"></i>
-                                    </button>
-                                ` : ''}
-                                <button class="task-action" onclick="openStrikeReportHistoryModal('${task.id}')" title="Report History">
-                                    <i class="fas fa-clipboard-list"></i>
-                                </button>
-                                <button class="task-action" onclick="editTask('${task.id}')" title="Edit">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                <button class="task-action" onclick="deleteTask('${task.id}')" title="Delete">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
-                            
-                            <div class="task-project-top-right">
-                                ${task.project ? `<span class="task-project-badge">${sanitizeHTML(task.project)}</span>` : ''}
-                            </div>
-                            
-                            <div class="task-content-main">
-                                <h3 class="task-title-main ${task.struck_today ? 'struck-today' : ''}">
-                                    ${sanitizeHTML(task.title)}
-                                    ${typeof RefreshedBadgeHelper !== 'undefined' ? RefreshedBadgeHelper.getBadgeHTML(task) : ''}
-                                </h3>
-                                ${task.description ? `<p class="task-description-main">${sanitizeHTML(task.description)}</p>` : ''}
-                            </div>
-                            
-                            <div class="task-meta-bottom-right">
-                                ${task.due_date ? `<span class="task-due-pill${isDueToday(task.due_date) ? ' task-due-today' : ''}">${sanitizeHTML(formatDueDateLabel(task.due_date))}</span>` : ''}
-                                <span class="task-duration-badge">${task.estimated_duration || task.duration || 60} min</span>
-                                ${Array.isArray(task.subtasks) && task.subtasks.length > 0 ? `<span class="task-subtasks-chip" onclick="event.stopPropagation(); if(typeof openSubtasksModal==='function') openSubtasksModal('${task.id}');" title="Subtasks" style="cursor:pointer;background:var(--accent-color);color:#fff;border-radius:999px;padding:2px 8px;font-size:0.7rem;font-weight:700;">${task.subtasks.filter(s => s && s.done).length}/${task.subtasks.length}</span>` : ''}
-                            </div>
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
-        Utils.Logger.log('Generated grid HTML');
-        tasksList.innerHTML = gridHTML;
-    } else {
-        const listHTML = sortedTasks.map(task => {
+    const listHTML = sortedTasks.map(task => {
             const hasDueDate = !!task.due_date;
             const dueLabel = hasDueDate ? formatDueDateLabel(task.due_date) : '';
             const dueTodayClass = hasDueDate && isDueToday(task.due_date) ? ' task-due-today' : '';
             const hasDescription = !!(task.description && task.description.trim());
 
+            // Mutually exclusive classes: prioritize completed/struck_forever over struck_today
+            const strikeClass = (task.completed || task.struck_forever) ? 'completed' : (task.struck_today ? 'struck-today' : '');
+            const titleClass = (task.struck_today || task.completed || task.struck_forever) ? 'struck' : '';
+            
             return `
-        <div class="task-item ${task.completed ? 'completed' : ''} ${task.struck_today ? 'struck-today' : ''} ${(task.struck_today && task.strike_count > 1) ? 'restrike' : ''}" data-task-id="${task.id}">
+        <div class="task-item ${strikeClass}" data-task-id="${task.id}">
             <div class="task-project-tag">
                 ${task.project ? `<span class="project-tag">${sanitizeHTML(task.project)}</span>` : '<span class="project-tag project-tag--no-project no-project">No Project</span>'}
             </div>
             <div class="task-content">
-                <h3 class="task-title ${task.struck_today ? 'struck-today' : ''}">
+                <h3 class="task-title ${titleClass}">
                     ${sanitizeHTML(task.title)}
                     ${hasDescription ? `<button class="task-title-more" onclick="openTaskDetailsModal('${task.id}')" title="View details"><i class="fas fa-chevron-right"></i></button>` : ''}
                 </h3>
@@ -1216,13 +1134,13 @@ function _renderTasksNow(filter, projectFilterArg) {
                 <button class="task-action" onclick="deleteTask('${task.id}')" title="Delete">
                     <i class="fas fa-trash"></i>
                 </button>
-                ${Array.isArray(task.subtasks) && task.subtasks.length > 0 ? `<span class="task-subtasks-chip" onclick="event.stopPropagation(); if(typeof openSubtasksModal==='function') openSubtasksModal('${task.id}');" title="Subtasks" style="cursor:pointer;background:var(--accent-color);color:#fff;border-radius:999px;padding:2px 8px;font-size:0.7rem;font-weight:700;">${task.subtasks.filter(s => s && s.done).length}/${task.subtasks.length}</span>` : ''}
+                <!-- Subtasks feature disabled - UI modal not implemented -->
+                <!-- ${Array.isArray(task.subtasks) && task.subtasks.length > 0 ? `<span class="task-subtasks-chip" onclick="event.stopPropagation(); if(typeof openSubtasksModal==='function') openSubtasksModal('${task.id}');" title="Subtasks" style="cursor:pointer;background:var(--accent-color);color:#fff;border-radius:999px;padding:2px 8px;font-size:0.7rem;font-weight:700;">${task.subtasks.filter(s => s && s.done).length}/${task.subtasks.length}</span>` : ''} -->
             </div>
         </div>
     `;
-        }).join('');
-        tasksList.innerHTML = listHTML;
-    }
+    }).join('');
+    tasksList.innerHTML = listHTML;
 }
 
 // Public entry: schedule render work into the next animation frame
@@ -1312,10 +1230,13 @@ function renderRecentTasks() {
         return;
     }
 
-    recentTasksList.innerHTML = recentTasks.map(task => `
-        <div class="task-item ${task.completed ? 'completed' : ''}" data-task-id="${task.id}">
+    recentTasksList.innerHTML = recentTasks.map(task => {
+        const strikeClass = (task.completed || task.struck_forever) ? 'completed' : (task.struck_today ? 'struck-today' : '');
+        const titleClass = (task.struck_today || task.completed || task.struck_forever) ? 'struck' : '';
+        return `
+        <div class="task-item ${strikeClass}" data-task-id="${task.id}">
             <div class="task-header">
-                <h4 class="task-title ${task.struck_today ? 'struck-today' : ''}">${task.title}</h4>
+                <h4 class="task-title ${titleClass}">${task.title}</h4>
                 ${task.project ? `<span class="task-project">${task.project}</span>` : ''}
             </div>
             <div class="task-meta">
@@ -1330,7 +1251,8 @@ function renderRecentTasks() {
                 `}
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 }
 
 // Remove the old filterTasksByType function - it's duplicated below
@@ -2138,6 +2060,51 @@ async function saveQuickTask() {
 // Analytics dashboard updater
 
 // Account Management Functions
+
+// ========================================
+// TASK ARCHIVING FUNCTION
+// ========================================
+async function archiveTask(taskId) {
+    try {
+        const response = await apiCall(`/api/tasks/${taskId}/archive`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+            showNotification('Task archived successfully', 'success');
+            
+            // Remove task from UI
+            const taskEl = document.getElementById(`task-${taskId}`);
+            if (taskEl) {
+                taskEl.style.opacity = '0.5';
+                taskEl.style.pointerEvents = 'none';
+                setTimeout(() => {
+                    taskEl.remove();
+                }, 300);
+            }
+            
+            // Update AppState
+            const tasks = AppState.getTasks();
+            const updatedTasks = tasks.filter(t => t.id !== taskId);
+            AppState.set('tasks', updatedTasks);
+            
+            // Re-render tasks
+            if (typeof renderTasks === 'function') {
+                renderTasks();
+            }
+        } else {
+            const errorData = await response.json().catch(() => ({}));
+            showNotification(errorData.error || 'Failed to archive task', 'error');
+        }
+    } catch (error) {
+        Utils.Logger.error('Error archiving task:', error);
+        showNotification('Error archiving task', 'error');
+    }
+}
+
+// Make archiveTask globally accessible
+window.archiveTask = archiveTask;
 
 // ========================================
 // GLOBAL API CALL HELPER WITH CREDENTIALS

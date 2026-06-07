@@ -184,50 +184,51 @@ def save_daily_recap_feedback():
         return jsonify({'success': False, 'error': 'Error saving recap feedback'}), 500
 
 
-@analytics_bp.route('/heartbeat', methods=['POST'])
-def record_user_activity():
-    """Record user heartbeat to track active users. Call every 1 minute."""
-    user_id = _get_user_id()
-    ensure_data_manager()
-
-    try:
-        _app_context.data_manager.record_user_heartbeat(user_id)
-        return jsonify({'success': True}), 200
-    except DatabaseError:
-        logger.exception("Database error recording user heartbeat for user %s", user_id)
-        return jsonify({'success': False, 'error': 'Database error'}), 503
-    except Exception as e:
-        logger.error("Error recording heartbeat for user %s: %s", user_id, e)
-        return jsonify({'success': False, 'error': 'Heartbeat error'}), 500
-
-
-@analytics_bp.route('/active-users', methods=['GET'])
-def get_active_users():
-    """Get count of users active in the last 2 minutes."""
-    ensure_data_manager()
-
-    try:
-        active_count = _app_context.data_manager.count_active_users(minutes=2)
-        return jsonify({'success': True, 'active_users': active_count}), 200
-    except DatabaseError:
-        logger.exception("Database error counting active users")
-        return jsonify({'success': False, 'error': 'Database error', 'active_users': 0}), 503
-    except Exception as e:
-        logger.error("Error counting active users: %s", e)
-        return jsonify({'success': False, 'error': 'Error', 'active_users': 0}), 500
-
-
-@analytics_bp.route('/installed-users', methods=['GET'])
-def get_installed_users():
-    """Get total count of all users who have installed/accessed the app."""
-    ensure_data_manager()
-
-    try:
-        installed_count = _app_context.data_manager.count_installed_users()
-        return jsonify({'success': True, 'installed_users': installed_count}), 200
-    except DatabaseError:
-        logger.exception("Database error counting installed users")
-        return jsonify({'success': False, 'error': 'Database error', 'installed_users': 0}), 503
-    except Exception as e:
-        logger.error("Error counting installed users: %s", e)
-        return jsonify({'success': False, 'error': 'Error', 'installed_users': 0}), 500
+# DISABLED: Heartbeat and installed users analytics endpoints
+# @analytics_bp.route('/heartbeat', methods=['POST'])
+# def record_user_activity():
+#     """Record user heartbeat to track active users. Call every 1 minute."""
+#     user_id = _get_user_id()
+#     ensure_data_manager()
+#
+#     try:
+#         _app_context.data_manager.record_user_heartbeat(user_id)
+#         return jsonify({'success': True}), 200
+#     except DatabaseError:
+#         logger.exception("Database error recording user heartbeat for user %s", user_id)
+#         return jsonify({'success': False, 'error': 'Database error'}), 503
+#     except Exception as e:
+#         logger.error("Error recording heartbeat for user %s: %s", user_id, e)
+#         return jsonify({'success': False, 'error': 'Heartbeat error'}), 500
+#
+#
+# @analytics_bp.route('/active-users', methods=['GET'])
+# def get_active_users():
+#     """Get count of users active in the last 2 minutes."""
+#     ensure_data_manager()
+#
+#     try:
+#         active_count = _app_context.data_manager.count_active_users(minutes=2)
+#         return jsonify({'success': True, 'active_users': active_count}), 200
+#     except DatabaseError:
+#         logger.exception("Database error counting active users")
+#         return jsonify({'success': False, 'error': 'Database error', 'active_users': 0}), 503
+#     except Exception as e:
+#         logger.error("Error counting active users: %s", e)
+#         return jsonify({'success': False, 'error': 'Error', 'active_users': 0}), 500
+#
+#
+# @analytics_bp.route('/installed-users', methods=['GET'])
+# def get_installed_users():
+#     """Get total count of all users who have installed/accessed the app."""
+#     ensure_data_manager()
+#
+#     try:
+#         installed_count = _app_context.data_manager.count_installed_users()
+#         return jsonify({'success': True, 'installed_users': installed_count}), 200
+#     except DatabaseError:
+#         logger.exception("Database error counting installed users")
+#         return jsonify({'success': False, 'error': 'Database error', 'installed_users': 0}), 503
+#     except Exception as e:
+#         logger.error("Error counting installed users: %s", e)
+#         return jsonify({'success': False, 'error': 'Error', 'installed_users': 0}), 500

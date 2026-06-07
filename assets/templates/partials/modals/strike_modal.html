@@ -18,7 +18,14 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn-secondary" id="cancel-strike">Cancel</button>
+                <div class="strike-till-control">
+                    <label for="strike-till-days" class="sr-only">Strike for days</label>
+                    <input type="number" id="strike-till-days" min="1" max="365" value="3" inputmode="numeric" aria-label="Number of days to strike task">
+                    <button type="button" class="btn-secondary" id="strike-till-btn">
+                        <i class="fas fa-hourglass-half"></i>
+                        Strike till...
+                    </button>
+                </div>
                 <button type="button" class="btn-warning" id="strike-today-btn">
                     <i class="fas fa-calendar-day"></i>
                     Strike for Today

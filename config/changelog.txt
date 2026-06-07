@@ -1,3 +1,121 @@
+## Version 33.0 - Strike Till Days, Refresh Task, & Database Stability
+Release Date: 2026-06-07
+
+### Tasks - Strike Management
+- **Strike Till Days**: Strike tasks for a custom number of days (1-365). New "Strike till..." button in the strike modal lets you temporarily hide tasks for a set duration. Task automatically returns to active status after the days expire.
+- **Refresh Now**: Temporarily struck tasks can now be moved back to active status immediately with a "Refresh Now" button. Bypasses the snooze timer and clears the temporary strike flags while preserving the strike count for audit purposes.
+
+### Database & Reliability
+- **Database Structure Verification**: Confirmed comprehensive database design with proper separation of concerns - main tables (users, tasks, notes, settings), strike analytics (strike_events, strike_today_report_history, daily_reset_log), and archive tables (deleted_tasks, archived_tasks).
+- **Data Integrity**: Verified foreign key constraints with ON DELETE CASCADE, proper user-based partitioning, and WAL mode for concurrent access. All strikes and refreshes properly persist with transaction safety.
+- **Migration System**: Schema version v17 with safe, backward-compatible migrations. Auto-initialization on startup via `_init_database()` ensures schema stays synchronized.
+
+### Technical Improvements
+- **Backend**: New `/api/tasks/<task_id>/refresh` POST endpoint clears temporary strike flags while preserving audit trail. Updated `/api/tasks/<task_id>/strike` to support `type='till_days'` parameter.
+- **Frontend**: Global `refreshTask()` function with confirmation dialog. Strike modal reorganized with new day input control. All syntax validated (JavaScript and Python).
+- **Database**: Reuses existing `snoozed_until` and strike columns; no schema migration needed. Refresh properly nullifies temporary strike flags without breaking audit logs.
+
+---
+
+## Version 33.0 - Strike Till Days, Refresh Task, & Database Stability
+Release Date: 2026-06-07
+
+### Tasks - Strike Management
+- **Strike Till Days**: Strike tasks for a custom number of days (1-365). New "Strike till..." button in the strike modal lets you temporarily hide tasks for a set duration. Task automatically returns to active status after the days expire.
+- **Refresh Now**: Temporarily struck tasks can now be moved back to active status immediately with a "Refresh Now" button. Bypasses the snooze timer and clears the temporary strike flags while preserving the strike count for audit purposes.
+
+### Database & Reliability
+- **Database Structure Verification**: Confirmed comprehensive database design with proper separation of concerns - main tables (users, tasks, notes, settings), strike analytics (strike_events, strike_today_report_history, daily_reset_log), and archive tables (deleted_tasks, archived_tasks).
+- **Data Integrity**: Verified foreign key constraints with ON DELETE CASCADE, proper user-based partitioning, and WAL mode for concurrent access. All strikes and refreshes properly persist with transaction safety.
+- **Migration System**: Schema version v17 with safe, backward-compatible migrations. Auto-initialization on startup via `_init_database()` ensures schema stays synchronized.
+
+### Notes
+- **Fixed split-view content encoding issue**: Notes with split-view content are no longer saved with the `__SHAKSHUKA_SPLIT_B64_V1__` blob prefix when sent to PC or imported from mobile. Content is now properly decoded before display.
+- **Improved note search**: Search now supports partial/fuzzy matching instead of exact substring match. Searching "note 5" now finds "note-5", "Note 5 Details", etc.
+- **Mobile inbox deduplication**: Fixed duplicate modal appearing when syncing tasks from mobile. Only the official mobile-inbox-modal now displays.
+- **Note import merging**: When notes are sent from mobile to PC multiple times, they now update existing notes instead of creating duplicates.
+
+### Technical Improvements
+- **Backend**: New `/api/tasks/<task_id>/refresh` POST endpoint clears temporary strike flags while preserving audit trail. Updated `/api/tasks/<task_id>/strike` to support `type='till_days'` parameter. Notes endpoint now decodes split-encoded content before storing.
+- **Frontend**: Global `refreshTask()` function with confirmation dialog. Strike modal reorganized with new day input control. Notes search split into multi-term matching. Split content is decoded whenever notes are rendered.
+- **Database**: Reuses existing `snoozed_until` and strike columns for strike-till feature; no schema migration needed. Refresh properly nullifies temporary strike flags without breaking audit logs.
+
+---
+
+## Version 32.0 - Notes Fullscreen Mode Refinements
+Release Date: 2026-06-03
+
+### Notes Fullscreen
+- **Fixed viewport bleeding**: Notes editor no longer extends off the right edge or leaves empty space on the left - now properly fills 100% of viewport width in fullscreen mode.
+- **Fixed fullscreen exit behavior**: Exiting fullscreen now stays in the editor view instead of returning to notes dashboard, preserving your workflow.
+- **Compact fullscreen button**: Fullscreen toggle button is now more compact and sized consistently with other header buttons.
+- **Proper layout hierarchy**: Fixed app shell margin/padding overrides that were preventing fullscreen from truly occupying the full viewport.
+
+### Technical Improvements
+- **CSS viewport fixes**: Override `.main-content` margin and padding to 0 when fullscreen is active, ensuring full viewport coverage.
+- **Editor sizing enforcement**: Added explicit width/height and max-width rules to prevent editor from overflowing or leaving gaps.
+
+---
+
+## Version 31.3 - Notes UI Improvements & Fullscreen Mode
+Release Date: 2026-05-25
+
+### Notes
+- **Dynamic "Back to all notes" button**: The "View all notes" button now changes text based on context. In dashboard view it shows the icon only, and in editor view it displays "← Back to all notes" with a back arrow for clear navigation.
+- **Fullscreen mode for notes editor**: New fullscreen button (next to split view) maximizes the notes editor to fill the entire screen, hiding sidebar and header chrome. Press Escape or click the button again to exit fullscreen mode. Perfect for distraction-free writing.
+- **Inline note search with content matching**: The search bar in the notes editor now searches both note titles and content, allowing quick navigation between notes without returning to the dashboard.
+
+### UI/UX
+- **Improved fullscreen overlay**: Fullscreen uses proper fixed positioning with proper z-index management to ensure clean full-viewport coverage without layout conflicts.
+
+---
+
+## Version 28.6 - Cleanup & Bug Fixes
+Release Date: 2026-05-06
+
+### Cleanup
+- **Removed Paranoid Mode**: Fully removed Paranoid Mode feature (workflow/outline view for tasks and notes) along with all associated JavaScript modules, CSS files, HTML controls, and settings toggles.
+- **Removed Grid Layout**: Removed grid layout toggle and all grid-related UI components. Tasks now display only in list view.
+- **Codebase simplification**: Deleted 4 files (paranoid-mode.js, notes-paranoid-mode.js, paranoid-mode.css, notes-paranoid-mode.css) and cleaned references across 15+ files including JavaScript, CSS, HTML templates, and Python backend.
+
+### Bug Fixes
+- **Excel export project filter fixed**: Fixed "No projects found" error in Excel export modal when projects exist. The `/api/tasks` endpoint returns an array directly, but the frontend was checking for `response.tasks`. Updated `loadProjectsForFilter()` to correctly handle the array response.
+
+### Technical Notes
+- **Task nesting still works**: Tasks can still have parent-child relationships in the database even without the Paranoid Mode view.
+- **Backend unchanged**: Only removed UI code; the backend functionality remains intact.
+
+---
+
+## Version 28 - Paranoid Mode: Hierarchical Task & Notes Management
+Release Date: 2026-05-05
+
+### Paranoid Mode - Workflow-Driven Task & Notes Organization
+- **Hierarchical task nesting**: Tasks now support parent-child relationships via `parent_id` column. Create nested subtasks by dragging a task onto another task to make it a child.
+- **Paranoid Mode view for tasks**: New "Paranoid Mode (Workflow View)" button on tasks page displays tasks in a Workflowy-style outline with bullet points, expand/collapse toggles, and nesting levels.
+- **Paranoid Mode view for notes**: New hierarchical notes view with the same outline style. Notes can be nested, expanded/collapsed, and organized into hierarchies.
+- **Drag-to-nest functionality**: Drag any task or note onto another to make it a child. Visual feedback shows drop targets and prevents circular references.
+- **Keyboard shortcuts for both tasks and notes**:
+  - **Arrow Up/Down**: Navigate between items
+  - **Arrow Left**: Collapse/outdent
+  - **Arrow Right**: Expand/indent
+  - **Enter**: Edit item (inline or modal)
+  - **Delete/Backspace**: Delete item
+- **Inline editing toggle**: New settings option "Paranoid Mode inline editing" for tasks and "Notes Paranoid Mode inline editing" for notes. When enabled, click item titles to edit inline. When disabled, click opens the modal.
+- **Child count badges**: Parent tasks and notes display a badge showing the number of child items (e.g., "3 children").
+- **List view enhancements**: Parent tasks in regular list view now show child count badges for quick visibility of nested items.
+
+### Backend Improvements
+- **PATCH endpoints for partial updates**: New `PATCH /api/tasks/<task_id>` and `PATCH /api/notes/<note_id>` endpoints support partial updates including `parent_id` for nesting.
+- **Circular reference prevention**: Both endpoints validate that a note/task cannot be its own parent and that parent items exist.
+- **Database migrations**: Migration 028 adds `parent_id` to tasks table; Migration 029 adds `parent_id` to notes table. Both include indexes for fast parent lookups.
+
+### Database
+- **Migration 028**: Adds `parent_id TEXT` column and index to tasks table for nesting support.
+- **Migration 029**: Adds `parent_id TEXT` column and index to notes table for nesting support.
+
+---
+
 ## Version 27.5 - Network Switching & Excel Export Enhancements
 Release Date: 2026-05-05
 

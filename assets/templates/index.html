@@ -9,7 +9,7 @@
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
     <link rel="shortcut icon" type="image/x-icon" href="{{ url_for('static', filename='images/icon.ico') }}">
     
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=6.2">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=28.8">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/auth/pin-auth.css') }}?v=6.2">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='fonts/fontawesome.css') }}?v=6.2">
@@ -272,14 +272,6 @@
                             <span class="mini-label">Tasks striked today:</span>
                             <span id="header-striked-today" class="mini-number">0</span>
                         </div>
-                        <div class="layout-toggle">
-                            <button class="layout-btn active" data-layout="list" title="List View">
-                                <i class="fas fa-list"></i>
-                            </button>
-                            <button class="layout-btn" data-layout="grid" title="Grid View">
-                                <i class="fas fa-th"></i>
-                            </button>
-                        </div>
                         <div class="action-buttons-group">
 <button class="btn-primary btn-icon" id="add-task-main" title="Add Task" onclick="showAddTaskOptions()">+</button>
                         </div>
@@ -347,6 +339,9 @@
                         <div class="notes-header-actions">
                             <button class="btn-primary btn-icon" id="notes-view-list-btn" title="View all notes">
                                 <i class="fas fa-book-open"></i>
+                            </button>
+                            <button class="btn-primary btn-icon" id="notes-fullscreen-toggle-btn" title="Toggle fullscreen">
+                                <i class="fas fa-expand"></i>
                             </button>
                             <button class="btn-primary btn-icon" id="notes-split-toggle-btn" title="Toggle split view">
                                 <i class="fas fa-columns"></i>

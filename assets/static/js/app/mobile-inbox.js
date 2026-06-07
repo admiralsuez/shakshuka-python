@@ -612,6 +612,16 @@
         startInboxPolling();
     }
 
+    // Function to display the mobile inbox modal with a pending submission
+    // Used by companion-sync.js to show incoming tasks from the companion app
+    function showMobileInboxModal(pending) {
+        if (!pending || !pending.id) return;
+        
+        currentPendingSubmissionId = pending.id;
+        renderInboxList(pending);
+        open('mobile-inbox-modal');
+    }
+
     function bindUi() {
         // Mobile inbox indicator click - open the inbox modal
         const inboxIndicator = getEl('mobile-inbox-indicator');
@@ -678,6 +688,7 @@
 
     // Expose for other modules (e.g. companion-sync.js Sync button)
     window.openPairPhoneModal = openPairPhoneModal;
+    window.showMobileInboxModal = showMobileInboxModal;
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', bindUi);

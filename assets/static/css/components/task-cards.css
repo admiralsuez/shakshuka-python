@@ -15,18 +15,6 @@
     width: 100% !important;
 }
 
-/* In grid layout, alternate cards use a slightly lighter gradient/background
-   so the board has more visual rhythm without breaking theme. */
-.tasks-grid .task-card:nth-child(2n) {
-    filter: brightness(1.04) saturate(0.96);
-}
-
-/* When Speedy theme is active, keep alternation very subtle to avoid any
-   extra visual noise while still giving a tiny separation cue. */
-body[data-theme="speedy"] .tasks-grid .task-card:nth-child(2n) {
-    filter: brightness(1.02) saturate(0.98);
-}
-
 .task-card:hover {
     transform: translateY(calc(-2px * var(--dpi-scale)));
     box-shadow: 0 calc(6px * var(--dpi-scale)) calc(16px * var(--dpi-scale)) var(--shadow-color);

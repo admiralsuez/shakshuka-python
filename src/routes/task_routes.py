@@ -244,6 +244,18 @@ def get_tasks(user_id, data_manager):
     return jsonify(tasks)
 
 
+@task_bp.route('/archived', methods=['GET'])
+@require_data_manager
+@handle_database_error
+def get_archived_tasks(user_id, data_manager):
+    """Get struck archived tasks for the current user (on-demand)"""
+    logger.info(f"API get_archived_tasks called with user_id: {user_id}")
+    
+    tasks = data_manager.load_struck_archived_tasks_for_user(user_id)
+    logger.info(f"Loaded {len(tasks)} struck archived tasks for user {user_id}")
+    return jsonify(tasks)
+
+
 @task_bp.route('/import', methods=['POST'])
 def import_tasks():
     """Import tasks from CSV or TXT file with batch operations and rate limiting"""
@@ -417,6 +429,59 @@ def update_task(task_id, user_id, data_manager):
         return jsonify({'error': 'Failed to update task'}), 500
 
 
+@task_bp.route('/<task_id>', methods=['PATCH'])
+@require_data_manager
+@handle_database_error
+def patch_task(task_id, user_id, data_manager):
+    """Partially update a task (supports parent_id for nesting)"""
+    logger.info(f"API patch_task called for task {task_id} with user_id: {user_id}")
+    
+    if not request.is_json:
+        return jsonify({'error': 'Content-Type must be application/json'}), 400
+    
+    task_data = request.json
+    if not task_data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    # Sanitize input data
+    if _sanitize_input_func:
+        task_data = _sanitize_input_func(task_data)
+    
+    # Validate parent_id if provided (must be a valid task or None)
+    if 'parent_id' in task_data:
+        parent_id = task_data.get('parent_id')
+        if parent_id is not None:
+            parent_task = data_manager.get_task_by_id(user_id, parent_id)
+            if not parent_task:
+                return jsonify({'error': f'Parent task {parent_id} not found'}), 404
+            # Prevent circular references (task cannot be its own parent)
+            if parent_id == task_id:
+                return jsonify({'error': 'A task cannot be its own parent'}), 400
+    
+    # Update task using data manager
+    success = data_manager.update_task_for_user(user_id, task_id, task_data)
+    
+    if success:
+        # Track edit in analytics
+        try:
+            from src.analytics_manager import increment_analytics_counter
+            increment_analytics_counter('tasks_edited')
+        except Exception:  # noqa: broad-except
+            logger.exception("Failed to increment analytics counter (tasks_edited)")
+        
+        # Return updated task directly from database
+        updated_task = data_manager.get_task_by_id(user_id, task_id)
+        if updated_task:
+            logger.info(f"Successfully patched task {task_id} for user {user_id}")
+            return jsonify(updated_task)
+        
+        logger.error(f"Task {task_id} not found after patch for user {user_id}")
+        return jsonify({'error': 'Task not found after update'}), 500
+    else:
+        logger.error(f"Failed to patch task {task_id} for user {user_id}")
+        return jsonify({'error': 'Failed to update task'}), 500
+
+
 @task_bp.route('/<task_id>', methods=['DELETE'])
 @require_data_manager
 @handle_database_error
@@ -457,6 +522,39 @@ def delete_task(task_id, user_id, data_manager):
     else:
         logger.error(f"Failed to delete task {task_id} for user {user_id}")
         return jsonify({'error': 'Failed to delete task'}), 500
+
+
+@task_bp.route('/<task_id>/archive', methods=['POST'])
+@require_data_manager
+@handle_database_error
+def archive_task(task_id, user_id, data_manager):
+    """Archive a completed or struck-forever task"""
+    logger.info(f"API archive_task called for task {task_id} with user_id: {user_id}")
+    
+    if not task_id or not isinstance(task_id, str):
+        return jsonify({'error': 'Invalid task ID'}), 400
+    
+    # Get task before archiving
+    task_to_archive = data_manager.get_task_by_id(user_id, task_id)
+    
+    if not task_to_archive:
+        logger.warning(f"Task {task_id} not found for user {user_id}")
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Verify task is completed or struck forever
+    if not (task_to_archive.get('completed') or task_to_archive.get('struck_forever')):
+        logger.warning(f"Cannot archive incomplete task {task_id}")
+        return jsonify({'error': 'Only completed or struck-forever tasks can be archived'}), 400
+    
+    # Archive task using data manager
+    success = data_manager.archive_task(user_id, task_id)
+    
+    if success:
+        logger.info(f"Successfully archived task {task_id} for user {user_id}")
+        return jsonify({'success': True, 'message': 'Task archived successfully', 'task_id': task_id})
+    else:
+        logger.error(f"Failed to archive task {task_id} for user {user_id}")
+        return jsonify({'error': 'Failed to archive task'}), 500
 
 
 @task_bp.route('/<task_id>/undo-delete', methods=['POST'])
@@ -589,7 +687,7 @@ def strike_task(task_id, user_id, data_manager):
     today = datetime.now().strftime('%Y-%m-%d')
     updates = {}
     
-    if strike_type == 'today':
+    if strike_type in ('today', 'till_days'):
         # Check if task has already been struck twice today
         daily_strikes = task.get('daily_strikes', {})
         strikes_today = daily_strikes.get(today, 0)
@@ -597,7 +695,7 @@ def strike_task(task_id, user_id, data_manager):
         if strikes_today >= 2:
             return jsonify({'error': 'Maximum strikes reached for today'}), 400
         
-        # Prepare updates for strike today
+        # Prepare updates for strike today / temporary multi-day strike
         strike_number = strikes_today + 1
         daily_strikes[today] = strike_number
         
@@ -608,6 +706,16 @@ def strike_task(task_id, user_id, data_manager):
             'strike_report': report,
             'strike_count': task.get('strike_count', 0) + 1
         }
+
+        if strike_type == 'till_days':
+            try:
+                days = int(strike_data.get('days', 0))
+            except (TypeError, ValueError):
+                days = 0
+            if days < 1 or days > 365:
+                return jsonify({'error': 'Strike till days must be between 1 and 365'}), 400
+            base_dt = datetime.strptime(today, '%Y-%m-%d')
+            updates['snoozed_until'] = (base_dt + timedelta(days=days)).strftime('%Y-%m-%d')
         
         # Compute recurrence snooze: hide task until its next occurrence.
         try:
@@ -759,7 +867,56 @@ def undo_strike(task_id, user_id, data_manager):
             return jsonify({'error': 'Task not found after update'}), 500
     else:
         logger.error(f"Failed to undo strike for task {task_id} for user {user_id}")
-        return jsonify({'error': 'Failed to undo strike'}), 500
+    return jsonify({'error': 'Failed to undo strike'}), 500
+
+
+@task_bp.route('/<task_id>/refresh', methods=['POST'])
+@require_data_manager
+@handle_database_error
+def refresh_task(task_id, user_id, data_manager):
+    """Refresh a temporarily struck task back to active status for the authenticated user"""
+    import time
+    from src.services.performance_monitor import log_task_operation
+
+    start_time = time.time()
+    
+    # Get specific task instead of loading all
+    task = data_manager.get_task_by_id(user_id, task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Only allow refresh for tasks that are struck but not forever
+    if not task.get('struck_today'):
+        return jsonify({'error': 'Task is not struck'}), 400
+    
+    if task.get('struck_forever'):
+        return jsonify({'error': 'Cannot refresh a task struck forever. Use undo-strike instead.'}), 400
+    
+    # Clear temporary strike flags and snooze
+    updates = {
+        'struck_today': False,
+        'struck_date': None,
+        'snoozed_until': None,
+        'strike_report': None
+        # Keep strike_count unchanged - it's a history counter
+    }
+    
+    # Direct update instead of load-all/save-all
+    success = data_manager.update_task_for_user(user_id, task_id, updates)
+    
+    if success:
+        updated_task = data_manager.get_task_by_id(user_id, task_id)
+        if updated_task:
+            duration_ms = (time.time() - start_time) * 1000
+            log_task_operation('refresh', user_id, task_id, duration_ms, query_count=2)
+            logger.info(f"Successfully refreshed task {task_id} for user {user_id}")
+            return jsonify(updated_task)
+        else:
+            logger.error(f"Task {task_id} not found after refresh for user {user_id}")
+            return jsonify({'error': 'Task not found after update'}), 500
+    else:
+        logger.error(f"Failed to refresh task {task_id} for user {user_id}")
+        return jsonify({'error': 'Failed to refresh task'}), 500
 
 
 @task_bp.route('/<task_id>/unschedule', methods=['POST'])

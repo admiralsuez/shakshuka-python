@@ -1072,6 +1072,76 @@ def stop_scheduler(timeout: float = 10.0) -> None:
             _STATE.stop_event = None
 
 
+class _SchedulerServiceCompat:
+    def schedule_job(
+        self,
+        job_name: str,
+        *,
+        job_func,
+        trigger: str,
+        replace_existing: bool = False,
+        **kwargs,
+    ) -> None:
+        if not job_name:
+            raise ValidationError(message="Scheduler job name is required")
+        if not callable(job_func):
+            raise ValidationError(message="Scheduler job function must be callable")
+
+        with _STATE.schedule_lock:
+            if replace_existing:
+                schedule.clear(job_name)
+
+            if trigger == 'interval':
+                hours = kwargs.get('hours')
+                minutes = kwargs.get('minutes')
+                seconds = kwargs.get('seconds')
+                if hours:
+                    job = schedule.every(int(hours)).hours
+                elif minutes:
+                    job = schedule.every(int(minutes)).minutes
+                elif seconds:
+                    job = schedule.every(int(seconds)).seconds
+                else:
+                    raise ValidationError(message="Interval scheduler jobs require hours, minutes, or seconds")
+                job.do(_run_job_with_correlation, job_name, job_func).tag(job_name)
+                return
+
+            if trigger == 'cron':
+                day_of_week = str(kwargs.get('day_of_week', '')).lower()
+                hour = int(kwargs.get('hour', 0))
+                minute = int(kwargs.get('minute', 0))
+                at_time = f"{hour:02d}:{minute:02d}"
+                weekdays = {
+                    'mon': schedule.every().monday,
+                    'monday': schedule.every().monday,
+                    'tue': schedule.every().tuesday,
+                    'tuesday': schedule.every().tuesday,
+                    'wed': schedule.every().wednesday,
+                    'wednesday': schedule.every().wednesday,
+                    'thu': schedule.every().thursday,
+                    'thursday': schedule.every().thursday,
+                    'fri': schedule.every().friday,
+                    'friday': schedule.every().friday,
+                    'sat': schedule.every().saturday,
+                    'saturday': schedule.every().saturday,
+                    'sun': schedule.every().sunday,
+                    'sunday': schedule.every().sunday,
+                }
+                if day_of_week:
+                    scheduled_job = weekdays.get(day_of_week)
+                    if scheduled_job is None:
+                        raise ValidationError(message="Invalid cron day_of_week", details={'day_of_week': day_of_week})
+                    scheduled_job.at(at_time).do(_run_job_with_correlation, job_name, job_func).tag(job_name)
+                    return
+                schedule.every().day.at(at_time).do(_run_job_with_correlation, job_name, job_func).tag(job_name)
+                return
+
+            raise ValidationError(message="Unsupported scheduler trigger", details={'trigger': trigger})
+
+
+scheduler_service = _SchedulerServiceCompat()
+
+
 # Deprecated: kept for backward compatibility
 def validate_reset_time(reset_time_str: str) -> str:
     """Deprecated - use _validate_and_normalize_reset_time instead."""

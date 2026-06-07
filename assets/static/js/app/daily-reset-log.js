@@ -39,7 +39,7 @@
             : 0;
 
         const hasReset = resetCount > 0;
-        const hasCleanerMessage = latestCleanerRun && cleanerCount > 0; // only show cleaner notification if it actually cleaned notes
+        const hasCleanerMessage = cleanerCount > 0; // only show cleaner notification if it actually cleaned notes
         const hasCompanionSync = latestCompanionSync && (latestCompanionSync.count > 0);
 
         const totalNotifications = (hasReset ? 1 : 0) + (hasCleanerMessage ? 1 : 0) + (hasCompanionSync ? 1 : 0);
@@ -117,7 +117,10 @@
             if (cleaner) {
                 const cleaned = typeof cleaner.cleaned_count === 'number' ? cleaner.cleaned_count : 0;
                 const ranAt = cleaner.ran_at || '';
-                secondaryEl.textContent = `Note cleaner ran at ${ranAt} and cleaned ${cleaned} empty note${cleaned === 1 ? '' : 's'}.`;
+                const formattedTime = typeof window.TimestampFormatter !== 'undefined'
+                    ? window.TimestampFormatter.format(ranAt)
+                    : ranAt;
+                secondaryEl.textContent = `Note cleaner ran at ${formattedTime} and cleaned ${cleaned} empty note${cleaned === 1 ? '' : 's'}.`;
             } else {
                 secondaryEl.textContent = '';
             }
@@ -178,6 +181,24 @@
         if (!modal) return;
         modal.classList.remove('active');
         modal.style.display = 'none';
+        
+        // Show daily recap as persistent notification after modal is dismissed
+        showDailyRecapNotification();
+    }
+    
+    function showDailyRecapNotification() {
+        if (!currentLog) return;
+        
+        const resetCount = currentLog.task_count || 0;
+        if (resetCount === 0) return;
+        
+        const reason = currentLog.reset_reason || 'scheduled';
+        const message = `Daily reset (${reason}) refreshed ${resetCount} task${resetCount === 1 ? '' : 's'}`;
+        
+        // Show as notification
+        if (typeof window.showNotification === 'function') {
+            window.showNotification(message, 'info');
+        }
     }
 
     async function loadLatestLog() {

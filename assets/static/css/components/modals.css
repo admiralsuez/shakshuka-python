@@ -161,10 +161,44 @@
 }
 .modal-footer {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: flex-start;
     gap: calc(1rem * var(--dpi-scale));
     padding-top: calc(1rem * var(--dpi-scale));
     border-top: 1px solid var(--border-color);
+    flex-wrap: wrap;
+}
+.strike-till-control {
+    display: flex;
+    align-items: center;
+    gap: calc(0.5rem * var(--dpi-scale));
+    margin-right: auto;
+}
+.strike-till-control input[type="number"] {
+    width: calc(60px * var(--dpi-scale));
+    padding: calc(0.5rem * var(--dpi-scale));
+    border: 1px solid var(--border-color);
+    border-radius: calc(5px * var(--dpi-scale));
+    background: var(--surface-color);
+    color: var(--text-color);
+    font-size: calc(0.95rem * var(--dpi-scale));
+    font-weight: 500;
+}
+.strike-till-control input[type="number"]:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(255, 140, 66, 0.2);
+}
+.strike-till-control .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
 }
 .form-group {
     margin-bottom: calc(1.5rem * var(--dpi-scale));

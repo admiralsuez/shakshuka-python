@@ -422,9 +422,43 @@ def get_analytics_summary():
             tasks = []
 
         total_tasks = len(tasks)
-        active_tasks = len([t for t in tasks if not t.get('completed') and not t.get('struck_forever') and not t.get('struck_today')])
-        expired_tasks = len([t for t in tasks if t.get('due_date') and not t.get('completed') and not t.get('struck_forever') and t.get('due_date') < datetime.now().strftime('%Y-%m-%d')])
-        completed_tasks = len([t for t in tasks if t.get('completed') or t.get('struck_forever')])
+        active_tasks = 0
+        expired_tasks = 0
+        completed_tasks = 0
+        completion_days = set()
+        tasks_with_dates_count = 0
+        tasks_with_time_count = 0
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        
+        for t in tasks:
+            if not isinstance(t, dict):
+                continue
+            
+            is_completed = t.get('completed') or t.get('struck_forever')
+            is_struck_today = t.get('struck_today')
+            
+            if is_completed:
+                completed_tasks += 1
+            elif not is_struck_today:
+                active_tasks += 1
+            
+            if t.get('due_date') and not is_completed and not t.get('struck_forever') and t.get('due_date') < today_str:
+                expired_tasks += 1
+            
+            if t.get('due_date'):
+                tasks_with_dates_count += 1
+            if t.get('estimated_duration') or t.get('duration'):
+                tasks_with_time_count += 1
+            
+            if is_completed:
+                completed_at = t.get('completed_at')
+                if completed_at:
+                    s = str(completed_at)
+                    d = s.split('T')[0] if 'T' in s else s
+                    try:
+                        completion_days.add(datetime.strptime(d, '%Y-%m-%d').date())
+                    except Exception:  # noqa: broad-except
+                        pass
 
         def _longest_consecutive_run(days_sorted):
             if not days_sorted:
@@ -472,21 +506,6 @@ def get_analytics_summary():
             return jsonify({'success': False, 'error': 'Error calculating streak'}), 500
 
         try:
-            completion_days = set()
-            for t in tasks:
-                if not t:
-                    continue
-                if not (t.get('completed') or t.get('struck_forever')):
-                    continue
-                completed_at = t.get('completed_at')
-                if not completed_at:
-                    continue
-                s = str(completed_at)
-                d = s.split('T')[0] if 'T' in s else s
-                try:
-                    completion_days.add(datetime.strptime(d, '%Y-%m-%d').date())
-                except Exception:  # noqa: broad-except
-                    continue
             completion_best = _longest_consecutive_run(sorted(completion_days))
         except Exception:  # noqa: broad-except
             completion_best = 0
@@ -559,8 +578,6 @@ def get_analytics_summary():
             logger.exception('Error fetching additional metrics')
             return jsonify({'success': False, 'error': 'Error fetching metrics'}), 500
 
-        tasks_with_dates_live = len([t for t in tasks if t.get('due_date')])
-        tasks_with_time_live = len([t for t in tasks if t.get('estimated_duration') or t.get('duration')])
         tasks_planned_all_time = analytics.get('tasks_planned', 0)
 
         daily_reset_count = user_settings.get('daily_reset_count', 0)
@@ -579,8 +596,8 @@ def get_analytics_summary():
                 'tasks_retried': tasks_retried,
                 'tasks_deleted': analytics.get('tasks_deleted', 0),
                 'tasks_edited': analytics.get('tasks_edited', 0),
-                'tasks_with_dates': tasks_with_dates_live,
-                'tasks_with_time': tasks_with_time_live,
+                'tasks_with_dates': tasks_with_dates_count,
+                'tasks_with_time': tasks_with_time_count,
                 'tasks_planned': tasks_planned_all_time,
                 'daily_reset_count': daily_reset_count,
             }
@@ -591,53 +608,54 @@ def get_analytics_summary():
         raise DatabaseError(message='Analytics summary error', cause=e)
 
 
-@core_bp.route('/api/analytics/heartbeat', methods=['POST'])
-def record_user_activity():
-    """Record user heartbeat to track active users. Call every 1 minute."""
-    user_id = _get_user_id()
-    if _ensure_data_manager_func and not _ensure_data_manager_func():
-        return jsonify({'success': False, 'error': 'Data manager not available'}), 500
-    try:
-        _app_context.data_manager.record_user_heartbeat(user_id)
-        return jsonify({'success': True}), 200
-    except DatabaseError:
-        logger.exception('Database error recording heartbeat for user %s', user_id)
-        return jsonify({'success': False, 'error': 'Database error'}), 503
-    except Exception:  # noqa: broad-except
-        logger.exception('Error recording heartbeat for user %s', user_id)
-        return jsonify({'success': False, 'error': 'Heartbeat error'}), 500
-
-
-@core_bp.route('/api/analytics/active-users', methods=['GET'])
-def get_active_users():
-    """Get count of users active in the last 2 minutes."""
-    if _ensure_data_manager_func and not _ensure_data_manager_func():
-        return jsonify({'success': False, 'error': 'Data manager not available', 'active_users': 0}), 500
-    try:
-        active_count = _app_context.data_manager.count_active_users(minutes=2)
-        return jsonify({'success': True, 'active_users': active_count}), 200
-    except DatabaseError:
-        logger.exception('Database error counting active users')
-        return jsonify({'success': False, 'error': 'Database error', 'active_users': 0}), 503
-    except Exception:  # noqa: broad-except
-        logger.exception('Error counting active users')
-        return jsonify({'success': False, 'error': 'Error', 'active_users': 0}), 500
-
-
-@core_bp.route('/api/analytics/installed-users', methods=['GET'])
-def get_installed_users():
-    """Get total count of all users who have installed/accessed the app."""
-    if _ensure_data_manager_func and not _ensure_data_manager_func():
-        return jsonify({'success': False, 'error': 'Data manager not available', 'installed_users': 0}), 500
-    try:
-        installed_count = _app_context.data_manager.count_installed_users()
-        return jsonify({'success': True, 'installed_users': installed_count}), 200
-    except DatabaseError:
-        logger.exception('Database error counting installed users')
-        return jsonify({'success': False, 'error': 'Database error', 'installed_users': 0}), 503
-    except Exception:  # noqa: broad-except
-        logger.exception('Error counting installed users')
-        return jsonify({'success': False, 'error': 'Error', 'installed_users': 0}), 500
+# DISABLED: Heartbeat and installed users analytics endpoints
+# @core_bp.route('/api/analytics/heartbeat', methods=['POST'])
+# def record_user_activity():
+#     """Record user heartbeat to track active users. Call every 1 minute."""
+#     user_id = _get_user_id()
+#     if _ensure_data_manager_func and not _ensure_data_manager_func():
+#         return jsonify({'success': False, 'error': 'Data manager not available'}), 500
+#     try:
+#         _app_context.data_manager.record_user_heartbeat(user_id)
+#         return jsonify({'success': True}), 200
+#     except DatabaseError:
+#         logger.exception('Database error recording heartbeat for user %s', user_id)
+#         return jsonify({'success': False, 'error': 'Database error'}), 503
+#     except Exception:  # noqa: broad-except
+#         logger.exception('Error recording heartbeat for user %s', user_id)
+#         return jsonify({'success': False, 'error': 'Heartbeat error'}), 500
+#
+#
+# @core_bp.route('/api/analytics/active-users', methods=['GET'])
+# def get_active_users():
+#     """Get count of users active in the last 2 minutes."""
+#     if _ensure_data_manager_func and not _ensure_data_manager_func():
+#         return jsonify({'success': False, 'error': 'Data manager not available', 'active_users': 0}), 500
+#     try:
+#         active_count = _app_context.data_manager.count_active_users(minutes=2)
+#         return jsonify({'success': True, 'active_users': active_count}), 200
+#     except DatabaseError:
+#         logger.exception('Database error counting active users')
+#         return jsonify({'success': False, 'error': 'Database error', 'active_users': 0}), 503
+#     except Exception:  # noqa: broad-except
+#         logger.exception('Error counting active users')
+#         return jsonify({'success': False, 'error': 'Error', 'active_users': 0}), 500
+#
+#
+# @core_bp.route('/api/analytics/installed-users', methods=['GET'])
+# def get_installed_users():
+#     """Get total count of all users who have installed/accessed the app."""
+#     if _ensure_data_manager_func and not _ensure_data_manager_func():
+#         return jsonify({'success': False, 'error': 'Data manager not available', 'installed_users': 0}), 500
+#     try:
+#         installed_count = _app_context.data_manager.count_installed_users()
+#         return jsonify({'success': True, 'installed_users': installed_count}), 200
+#     except DatabaseError:
+#         logger.exception('Database error counting installed users')
+#         return jsonify({'success': False, 'error': 'Database error', 'installed_users': 0}), 503
+#     except Exception:  # noqa: broad-except
+#         logger.exception('Error counting installed users')
+#         return jsonify({'success': False, 'error': 'Error', 'installed_users': 0}), 500
 
 
 @core_bp.route('/api/account', methods=['GET'])

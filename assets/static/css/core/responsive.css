@@ -2,32 +2,14 @@
 
 /* Large Desktop (1400px+) */
 @media (min-width: 1400px) {
-    .tasks-grid {
-        grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-        gap: calc(2rem * var(--dpi-scale));
-    }
-
     .desktop-layout {
         grid-template-columns: 1fr 350px;
         gap: calc(3rem * var(--dpi-scale));
     }
 }
 
-/* Desktop (1200px - 1399px) */
-@media (max-width: 1399px) and (min-width: 1200px) {
-    .tasks-grid {
-        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-        gap: calc(1.8rem * var(--dpi-scale));
-    }
-}
-
 /* Medium Desktop (992px - 1199px) */
 @media (max-width: 1199px) and (min-width: 992px) {
-    .tasks-grid {
-        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-        gap: calc(1.5rem * var(--dpi-scale));
-    }
-
     .desktop-layout {
         grid-template-columns: 1fr 280px;
         gap: calc(2rem * var(--dpi-scale));
@@ -42,11 +24,6 @@
 
     .main-content {
         margin-left: calc(220px * var(--dpi-scale));
-    }
-
-    .tasks-grid {
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: calc(1.2rem * var(--dpi-scale));
     }
 
     .desktop-layout {
@@ -76,12 +53,6 @@
         padding: calc(1rem * var(--dpi-scale));
     }
 
-    .tasks-grid {
-        grid-template-columns: 1fr;
-        gap: calc(1rem * var(--dpi-scale));
-        padding: calc(0.5rem * var(--dpi-scale));
-    }
-
     .task-item {
         padding: calc(1.5rem * var(--dpi-scale));
     }
@@ -101,12 +72,6 @@
     .main-content {
         margin-left: 0;
         padding: calc(0.8rem * var(--dpi-scale));
-    }
-
-    .tasks-grid {
-        grid-template-columns: 1fr;
-        gap: calc(0.8rem * var(--dpi-scale));
-        padding: 0;
     }
 
     .task-item {
@@ -217,7 +182,6 @@
 /* Print Styles */
 @media print {
     .sidebar,
-    .layout-toggle,
     .mobile-menu-toggle,
     .modal,
     .loading-overlay {
