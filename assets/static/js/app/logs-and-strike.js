@@ -350,6 +350,101 @@ async function strikeTaskForever() {
     }
 }
 
+async function strikeTaskTillDays() {
+    const report = document.getElementById('strike-report').value.trim();
+
+    if (!currentStrikeTaskId) {
+        showNotification('No task selected', 'error');
+        return;
+    }
+
+    // Get the number of days from the input
+    const daysInput = document.getElementById('strike-till-days');
+    if (!daysInput) {
+        showNotification('Days input not found', 'error');
+        return;
+    }
+
+    const days = parseInt(daysInput.value, 10) || 3; // Default to 3 days
+
+    if (days < 1 || days > 365) {
+        showNotification('Please enter a valid number of days (1-365)', 'error');
+        return;
+    }
+
+    // Use criticalOperation wrapper for proper error handling
+    const operation = async () => {
+        const response = await fetch(`/api/tasks/${currentStrikeTaskId}/strike`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                type: 'till_days',
+                days: days,
+                report: report
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Failed to strike task till days');
+        }
+
+        const updatedTask = await response.json().catch(() => null);
+        closeStrikeModal();
+        
+        try {
+            if (updatedTask && window.AppState && AppState.updateTask) {
+                await AppState.updateTask(currentStrikeTaskId, updatedTask).catch(async () => {
+                    if (AppState.addTask) {
+                        await AppState.addTask(updatedTask);
+                    }
+                });
+            }
+        } catch (e) { /* noop */ }
+        
+        await loadTasks();
+        updateDashboardStats();
+        
+        try {
+            if (window.DailyPlannerV2 && typeof window.DailyPlannerV2.refresh === 'function') {
+                window.DailyPlannerV2.refresh();
+            }
+        } catch (e) { /* noop */ }
+        
+        try {
+            if (AppState.get && AppState.get('currentPage') === 'tasks') {
+                const currentFilter = AppState.get('currentFilter') || 'active';
+                renderTasks(currentFilter);
+            }
+        } catch (e) { /* noop */ }
+        
+        addLog('success', `Task ${currentStrikeTaskId} struck for ${days} days: ${report}`);
+        return updatedTask;
+    };
+
+    if (typeof criticalOperation === 'function') {
+        await criticalOperation(operation, {
+            operationName: 'Strike Task Till Days',
+            successMessage: `Task struck for ${days} day${days !== 1 ? 's' : ''}! ⏰`,
+            onError: (error) => {
+                addLog('error', `Failed to strike task ${currentStrikeTaskId}: ${error.message}`);
+            }
+        });
+    } else {
+        // Fallback if ErrorHandler not loaded
+        try {
+            await operation();
+            showNotification(`Task struck for ${days} day${days !== 1 ? 's' : ''}! ⏰`, 'success');
+        } catch (error) {
+            console.error('Error striking task:', error);
+            addLog('error', `Failed to strike task ${currentStrikeTaskId}: ${error.message}`);
+            showNotification(`Error striking task: ${error.message}`, 'error');
+        }
+    }
+}
+
 async function undoStrike(taskId) {
     if (!confirm('Are you sure you want to undo this strike?')) {
         return;
