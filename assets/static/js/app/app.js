@@ -504,6 +504,33 @@ function setupEventListeners() {
     safeAddEventListener('save-quick-task', 'click', () => saveQuickTask());
     
     // Inline quick add
+    safeAddEventListener('inline-quick-add', 'focus', () => {
+        // Update placeholder based on enabled settings when user focuses on inline quick-add
+        const input = document.getElementById('inline-quick-add');
+        if (!input) return;
+        
+        // Check if quick project from title is enabled (this toggle enables both project AND owner parsing)
+        let quickProjectEnabled = false;
+        try {
+            const toggle = document.getElementById('quick-project-from-title');
+            quickProjectEnabled = toggle && toggle.checked;
+        } catch (e) { /* no-op */ }
+        
+        if (quickProjectEnabled) {
+            // Format: "project, owner, task" (matching the actual parsing order)
+            // When enabled, show format with both project and owner as the parser supports both
+            input.placeholder = 'E.g., Project, Owner, Task Name';
+        } else {
+            input.placeholder = 'Quick add and press enter';
+        }
+    });
+    
+    safeAddEventListener('inline-quick-add', 'blur', () => {
+        // Reset placeholder when user leaves the input
+        const input = document.getElementById('inline-quick-add');
+        if (input) input.placeholder = 'Quick add and press enter';
+    });
+    
     safeAddEventListener('inline-quick-add', 'keydown', async (e) => {
         if (e.key === 'Enter') {
             const input = e.target;

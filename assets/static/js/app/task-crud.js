@@ -388,9 +388,35 @@ function closeTaskModal() {
 function openQuickAddModal() {
     const modal = document.getElementById('quick-add-modal');
     if (modal) {
+        // Update placeholder text based on settings
+        const input = document.getElementById('quick-task-title');
+        const helpText = document.getElementById('quick-add-help-text');
+        
+        if (input) {
+            // Build placeholder based on enabled features
+            
+            // Check if quick project from title is enabled (this toggle enables both project AND owner parsing)
+            let quickProjectEnabled = false;
+            try {
+                const toggle = document.getElementById('quick-project-from-title');
+                quickProjectEnabled = toggle && toggle.checked;
+            } catch (e) { /* no-op */ }
+            
+            input.placeholder = 'What needs to be done?';
+            if (helpText) {
+                if (quickProjectEnabled) {
+                    // Format: "project, owner, task" (matching the actual parsing order)
+                    helpText.textContent = 'Format: Project, Owner, Task Name (comma-separated)';
+                } else {
+                    // Default format
+                    helpText.textContent = 'Format: Project, Owner, Task Name';
+                }
+            }
+        }
+        
         modal.classList.add('active');
         modal.style.display = 'flex';
-    document.getElementById('quick-task-title').focus();
+        if (input) input.focus();
     }
 }
 

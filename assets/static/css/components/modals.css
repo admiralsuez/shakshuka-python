@@ -337,3 +337,53 @@
     transform: translateY(calc(-2px * var(--dpi-scale)));
     box-shadow: 0 calc(8px * var(--dpi-scale)) calc(25px * var(--dpi-scale)) rgba(231, 76, 60, 0.3);
 }
+.btn-success {
+    background: linear-gradient(135deg, #66BB6A, #81C784);
+    color: white;
+    border: none;
+    padding: calc(0.8rem * var(--dpi-scale)) calc(1.5rem * var(--dpi-scale));
+    border-radius: calc(10px * var(--dpi-scale));
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: calc(0.5rem * var(--dpi-scale));
+}
+.btn-success:hover {
+    transform: translateY(calc(-2px * var(--dpi-scale)));
+    box-shadow: 0 calc(8px * var(--dpi-scale)) calc(25px * var(--dpi-scale)) rgba(102, 187, 106, 0.3);
+}
+/* Strike Modal Layout */
+.strike-modal-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: calc(1rem * var(--dpi-scale));
+}
+.strike-button-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: calc(1rem * var(--dpi-scale));
+    width: 100%;
+}
+.strike-button-row > button {
+    justify-content: center;
+    width: 100%;
+}
+.strike-till-days-control {
+    display: flex;
+    align-items: center;
+    gap: calc(0.5rem * var(--dpi-scale));
+    margin-right: 0 !important;
+    width: 100%;
+}
+.strike-till-days-control input[type="number"] {
+    flex: 1;
+    min-width: calc(60px * var(--dpi-scale));
+}
+.strike-till-days-text {
+    color: var(--text-secondary);
+    font-size: calc(0.9rem * var(--dpi-scale));
+    white-space: nowrap;
+}
