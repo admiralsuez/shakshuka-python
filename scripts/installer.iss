@@ -2,7 +2,7 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Shakshuka"
-#define MyAppVersion "32.3"
+#define MyAppVersion "34.1"
 #define MyAppPublisher "vibinandvanshika.in"
 #define MyAppURL "https://github.com/shakshuka-python"
 #define MyAppExeName "Shakshuka.exe"
@@ -21,12 +21,12 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 AppContact=support@vibinandvanshika.in
 AppCopyright=Copyright (C) 2025 vibinandvanshika.in
-VersionInfoVersion=32.3.0.0
+VersionInfoVersion=34.1.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Shakshuka Task Manager - Professional productivity tool
 VersionInfoCopyright=Copyright (C) 2025 vibinandvanshika.in
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=32.3.0.0
+VersionInfoProductVersion=34.1.0.0
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
@@ -77,6 +77,8 @@ Source: "Start-Shakshuka-Autostart.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Stop-Shakshuka.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "run.bat"; DestDir: "{app}"; Flags: ignoreversion
 ; Source: "build.bat"; DestDir: "{app}"; Flags: ignoreversion   ; developer build script, not needed at runtime
+; Cleanup script for legacy autostart entries
+Source: "..\tools\CleanupAutostart.ps1"; DestDir: "{app}"; Flags: ignoreversion
 ; Documentation
 Source: "..\\docs\\*"; DestDir: "{app}\\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -201,6 +203,18 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
 begin
+  if CurStep = ssInstall then
+  begin
+    // Run cleanup script to remove legacy autostart entries before installing new files
+    ShowShutdownForm('Cleaning up legacy autostart entries...');
+    if ShutdownProgress <> nil then ShutdownProgress.Position := 10;
+    
+    Exec('powershell', '-ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\CleanupAutostart.ps1') + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    
+    if ShutdownProgress <> nil then ShutdownProgress.Position := 30;
+    HideShutdownForm();
+  end;
+  
   if CurStep = ssPostInstall then
   begin
     // Create data directory in user's AppData

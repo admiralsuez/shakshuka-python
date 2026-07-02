@@ -1,3 +1,18 @@
+## Version 33.3 - Strike Till Days Bug Fixes & Refresh Button Enhancement
+Release Date: 2026-06-10
+
+### Tasks - Strike Management
+- **Fixed Strike Till Days validation**: Backend now properly accepts `type='till_days'` strike requests. Updated input validator to support till_days strike type with days parameter validation (1-365 range).
+- **Refresh button for snoozed tasks**: Tasks struck for X days now show a "Refresh Now" button, allowing users to bring them back to active immediately without waiting for the snooze to expire. The refresh button appears for both struck_today and snoozed_until tasks.
+- **Enhanced refresh logic**: Updated `refreshTask()` function to support both temporarily struck tasks and tasks with snoozed_until dates set by till_days strikes.
+
+### Technical Improvements
+- **Validation enhancement**: Added till_days validation in `validate_strike()` to accept the new strike type and validate days parameter (min 1, max 365).
+- **UI consistency**: Refresh button now shows for any task that can be brought back to active (either struck today or snoozed until a future date).
+- **Database**: Leverages existing `snoozed_until` column to determine when a till_days snoozed task should automatically return to active status.
+
+---
+
 ## Version 33.0 - Strike Till Days, Refresh Task, & Database Stability
 Release Date: 2026-06-07
 

@@ -50,8 +50,15 @@ class SecurityManager:
     # Unused update signature verification removed - was dead code  
     # Unused CSRF functions removed - duplicate implementations
     
-    def sanitize_input(self, text: str, max_length: int = 1000) -> str:
-        """Sanitize user input to prevent XSS attacks"""
+    def sanitize_input(self, text: str, max_length: int = 10000) -> str:
+        """Sanitize user input to prevent XSS attacks.
+
+        NOTE: max_length defaults to 10000 to match the application-level input
+        cap. A smaller value (previously 1000) silently truncated long-form
+        content such as notes and task descriptions, corrupting split-editor
+        payloads (``__SHAKSHUKA_SPLIT_B64_V1__`` base64 blobs) so they could no
+        longer be decoded.
+        """
         if not text:
             return ""
         

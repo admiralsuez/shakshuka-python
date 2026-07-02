@@ -555,8 +555,11 @@ async function refreshTask(taskId) {
         return;
     }
     
-    // Only allow refresh for temporarily struck tasks (not forever)
-    if (!task.struck_today || task.struck_forever) {
+    // Allow refresh for:
+    // 1. Tasks struck today (but not forever)
+    // 2. Tasks with snoozed_until (struck till X days)
+    const canRefresh = (task.struck_today && !task.struck_forever) || task.snoozed_until;
+    if (!canRefresh) {
         Utils.safeShowNotification('This task cannot be refreshed', 'error');
         return;
     }
@@ -784,8 +787,8 @@ function renderTasks(filterParam) {
     }
 
     // Sort based on filter type
-    if (filter === 'completed') {
-        // Completed filter: sort by struck/completed date (most recent first)
+    if (filter === 'completed' || filter === 'today') {
+        // Completed and Today filters: sort by struck/completed date (most recent first)
         const sortBy = (AppState && AppState.get) ? AppState.get('taskSort') || 'default' : 'default';
         
         // Helper to parse dates consistently
@@ -798,7 +801,7 @@ function renderTasks(filterParam) {
             return new Date(dateStr).getTime();
         };
         
-        // Sort completed tasks by struck/completed date (most recent first)
+        // Sort by struck/completed date (most recent first)
         if (sortBy === 'default') {
             filteredTasks.sort((a, b) => {
                 // Use struck_date if available, otherwise completed_at, otherwise created_at
@@ -1007,7 +1010,7 @@ function createTaskElement(task) {
             <button class="task-action" onclick="openStrikeReportHistoryModal('${task.id}')" title="Report History">
                 <i class="fas fa-clipboard-list"></i>
             </button>
-            ${(task.struck_today && !task.struck_forever) ? `
+            ${((task.struck_today && !task.struck_forever) || task.snoozed_until) ? `
                 <button class="task-action refresh-btn" onclick="refreshTask('${task.id}')" title="Refresh Now">
                     <i class="fas fa-sync-alt"></i>
                 </button>

@@ -45,43 +45,44 @@ class WindowsAutostart:
             return False
     
     def _enable_windows(self, app_path=None):
-        """Enable autostart on Windows using registry"""
+        """Enable autostart on Windows using registry (VBS no-console launcher only).
+        
+        Uses wscript.exe with the Start-Shakshuka-Silent.vbs script to launch
+        the app without any visible console window. This is the only autostart
+        method registered going forward.
+        """
         if winreg is None:
             print("Autostart is not available on Windows (winreg module missing)")
             return False
         
         try:
-            # Get the path to the autostart batch script
+            # Get the path to the VBS no-console launcher
             if getattr(sys, 'frozen', False):
-                # Running as compiled executable - find the batch script relative to the exe
+                # Running as compiled executable - find the VBS script relative to the exe
                 exe_dir = os.path.dirname(sys.executable)
-                autostart_script = os.path.join(exe_dir, "scripts", "Start-Shakshuka-Autostart.bat")
-                
-                # Fallback to looking in the same directory as the exe
-                if not os.path.exists(autostart_script):
-                    autostart_script = os.path.join(exe_dir, "Start-Shakshuka-Autostart.bat")
+                vbs_script = os.path.join(exe_dir, "Start-Shakshuka-Silent.vbs")
             else:
-                # Running as script - use the script from the scripts directory
+                # Running as script - use the VBS from the root directory
                 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                autostart_script = os.path.join(root_dir, "scripts", "Start-Shakshuka-Autostart.bat")
+                vbs_script = os.path.join(root_dir, "Start-Shakshuka-Silent.vbs")
             
-            # Ensure the batch script exists
-            if not os.path.exists(autostart_script):
-                print(f"Error: Autostart script not found: {autostart_script}")
+            # Ensure the VBS script exists
+            if not os.path.exists(vbs_script):
+                print(f"Error: VBS autostart script not found: {vbs_script}")
                 return False
             
             # Open the registry key
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.reg_key, 0, winreg.KEY_SET_VALUE)
             
-            # Use cmd.exe to run the batch script hidden
-            registry_value = f'cmd /c start /min "" "{autostart_script}"'
+            # Use wscript.exe to run the VBS script (no console window)
+            registry_value = f'wscript.exe "{vbs_script}"'
             
             winreg.SetValueEx(key, self.app_name, 0, winreg.REG_SZ, registry_value)
             
             # Close the key
             winreg.CloseKey(key)
             
-            print(f"Autostart enabled with delayed silent launch: {registry_value}")
+            print(f"Autostart enabled with no-console VBS launcher: {registry_value}")
             return True
         except Exception as e:
             print(f"Error enabling autostart: {e}")

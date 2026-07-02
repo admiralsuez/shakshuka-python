@@ -427,7 +427,7 @@ async function strikeTaskTillDays() {
     if (typeof criticalOperation === 'function') {
         await criticalOperation(operation, {
             operationName: 'Strike Task Till Days',
-            successMessage: `Task struck for ${days} day${days !== 1 ? 's' : ''}! ⏰`,
+            successMessage: `Task will reappear after ${days} day${days !== 1 ? 's' : ''}!`,
             onError: (error) => {
                 addLog('error', `Failed to strike task ${currentStrikeTaskId}: ${error.message}`);
             }
@@ -436,7 +436,7 @@ async function strikeTaskTillDays() {
         // Fallback if ErrorHandler not loaded
         try {
             await operation();
-            showNotification(`Task struck for ${days} day${days !== 1 ? 's' : ''}! ⏰`, 'success');
+            showNotification(`Task will reappear after ${days} day${days !== 1 ? 's' : ''}!`, 'success');
         } catch (error) {
             console.error('Error striking task:', error);
             addLog('error', `Failed to strike task ${currentStrikeTaskId}: ${error.message}`);

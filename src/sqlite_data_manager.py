@@ -28,6 +28,7 @@ from src.exceptions import (
     TaskNotFoundException,
     ValidationError,
 )
+from src.utils.content_decoder import is_split_encoded, normalize_content
 
 
 class SQLiteDataManager:
@@ -1102,6 +1103,18 @@ class SQLiteDataManager:
                             self._migration_030_archived_tasks_table(conn)
                         )
 
+                    # Migration 31: Add split content status tracking to tasks and notes
+                    if migration_version < 31:
+                        migrations_applied.extend(
+                            self._migration_031_split_content_tracking(conn)
+                        )
+
+                    # Migration 32: Decode existing split-encoded content in tasks and notes
+                    if migration_version < 32:
+                        migrations_applied.extend(
+                            self._migration_032_decode_split_content(conn)
+                        )
+
                     # Update migration version
                     if migrations_applied:
                         new_version = max([m["version"] for m in migrations_applied])
@@ -1191,9 +1204,13 @@ class SQLiteDataManager:
 
         normalized["id"] = self._sanitize_text(normalized.get("id"), 64)
         normalized["title"] = self._sanitize_text(normalized.get("title"), 200)
-        normalized["description"] = self._sanitize_text(
-            normalized.get("description", ""), 10000
+        # Decode any split-encoded content in description while preserving split status.
+        raw_description = normalized.get("description", "")
+        normalized["was_split_encoded"] = bool(
+            normalized.get("was_split_encoded") or is_split_encoded(raw_description)
         )
+        raw_description = normalize_content(raw_description)
+        normalized["description"] = self._sanitize_text(raw_description, 10000)
         normalized["project"] = self._sanitize_text(normalized.get("project", ""), 200)
         normalized["owner"] = self._sanitize_text(normalized.get("owner", ""), 200)
         normalized["priority"] = (
@@ -1282,9 +1299,9 @@ class SQLiteDataManager:
         normalized["updated_at"] = normalized.get("updated_at") or now_iso
 
         if "strike_report" in normalized:
-            normalized["strike_report"] = self._sanitize_text(
-                normalized.get("strike_report"), 5000
-            )
+            # Decode any split-encoded content in strike_report
+            raw_report = normalize_content(normalized.get("strike_report", ""))
+            normalized["strike_report"] = self._sanitize_text(raw_report, 5000)
 
         return normalized
 
@@ -2218,7 +2235,7 @@ class SQLiteDataManager:
         return {
             "id": row["id"],
             "title": row["title"],
-            "description": row["description"] or "",
+            "description": normalize_content(row["description"] or ""),
             "project": row["project"] or "",
             "owner": row["owner"] if "owner" in keys else "",
             "priority": row["priority"] or "medium",
@@ -2242,7 +2259,7 @@ class SQLiteDataManager:
                 row["struck_today"] if "struck_today" in keys else False
             ),
             "struck_date": row["struck_date"] if "struck_date" in keys else None,
-            "strike_report": row["strike_report"] if "strike_report" in keys else None,
+            "strike_report": normalize_content(row["strike_report"] if "strike_report" in keys else None),
             "strike_count": row["strike_count"] if "strike_count" in keys else 0,
             "daily_strikes": daily_strikes,
             "refreshed_at": row["refreshed_at"] if "refreshed_at" in keys else None,
@@ -2254,6 +2271,7 @@ class SQLiteDataManager:
             "updated_at": row["updated_at"],
             "archived_at": row["archived_at"] if "archived_at" in keys else None,
             "parent_id": row["parent_id"] if "parent_id" in keys else None,
+            "was_split_encoded": bool(row["was_split_encoded"] if "was_split_encoded" in keys else False),
         }
 
     # Task Management Methods
@@ -5491,6 +5509,157 @@ class SQLiteDataManager:
             return migrations_applied
         except Exception as e:
             self.logger.error(f"Migration 030 failed: {e}")
+            raise
+
+    def _migration_031_split_content_tracking(self, conn) -> List[Dict[str, Any]]:
+        """Migration 031: Add split content status tracking to tasks and notes.
+        
+        Adds was_split_encoded column to track whether content was originally saved
+        using split editor, allowing us to preserve and restore split structure.
+        """
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            # Add was_split_encoded to tasks table
+            cursor = conn.execute("PRAGMA table_info(tasks)")
+            task_columns = [row[1] for row in cursor.fetchall()]
+            
+            if "was_split_encoded" not in task_columns:
+                conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN was_split_encoded BOOLEAN DEFAULT 0"
+                )
+                self.logger.info("Added was_split_encoded column to tasks table")
+            
+            # Add was_split_encoded to notes table
+            cursor = conn.execute("PRAGMA table_info(notes)")
+            notes_columns = [row[1] for row in cursor.fetchall()]
+            
+            if "was_split_encoded" not in notes_columns:
+                conn.execute(
+                    "ALTER TABLE notes ADD COLUMN was_split_encoded BOOLEAN DEFAULT 0"
+                )
+                self.logger.info("Added was_split_encoded column to notes table")
+            
+            # Add was_split_encoded to archived_tasks table
+            cursor = conn.execute("PRAGMA table_info(archived_tasks)")
+            archived_columns = [row[1] for row in cursor.fetchall()]
+            
+            if "was_split_encoded" not in archived_columns:
+                conn.execute(
+                    "ALTER TABLE archived_tasks ADD COLUMN was_split_encoded BOOLEAN DEFAULT 0"
+                )
+                self.logger.info("Added was_split_encoded column to archived_tasks table")
+            
+            migrations_applied.append(
+                {
+                    "version": 31,
+                    "description": "Added split content tracking columns to tasks, notes, and archived_tasks",
+                    "sql": "ALTER TABLE tasks/notes/archived_tasks ADD COLUMN was_split_encoded BOOLEAN DEFAULT 0",
+                }
+            )
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 031 failed: {e}")
+            raise
+
+    def _migration_032_decode_split_content(self, conn) -> List[Dict[str, Any]]:
+        """Migration 032: Decode existing split-encoded content in tasks and notes.
+        
+        Converts all __SHAKSHUKA_SPLIT_B64_V1__ encoded descriptions and content
+        to combined plain text and sets was_split_encoded flag.
+        """
+        from src.utils.content_decoder import decode_split_b64_v1
+        
+        migrations_applied: List[Dict[str, Any]] = []
+        try:
+            # Process tasks table
+            cursor = conn.execute("SELECT id, description FROM tasks WHERE description LIKE '__SHAKSHUKA_SPLIT_B64_V1__%'")
+            tasks_to_update = cursor.fetchall()
+            
+            updated_count = 0
+            for task_row in tasks_to_update:
+                task_id = task_row[0]
+                encoded_desc = task_row[1]
+                
+                decoded_data = decode_split_b64_v1(encoded_desc)
+                if decoded_data:
+                    primary = decoded_data.get('primary', '')
+                    secondary = decoded_data.get('secondary', '')
+                    combined = primary
+                    if secondary.strip():
+                        combined = f"{primary}\n\n--- Split Editor ---\n\n{secondary}"
+                    
+                    conn.execute(
+                        "UPDATE tasks SET description = ?, was_split_encoded = 1 WHERE id = ?",
+                        (combined, task_id)
+                    )
+                    updated_count += 1
+            
+            if updated_count > 0:
+                self.logger.info(f"Decoded {updated_count} split-encoded task descriptions")
+            
+            # Process notes table
+            cursor = conn.execute("SELECT id, content FROM notes WHERE content LIKE '__SHAKSHUKA_SPLIT_B64_V1__%'")
+            notes_to_update = cursor.fetchall()
+            
+            notes_updated = 0
+            for note_row in notes_to_update:
+                note_id = note_row[0]
+                encoded_content = note_row[1]
+                
+                decoded_data = decode_split_b64_v1(encoded_content)
+                if decoded_data:
+                    primary = decoded_data.get('primary', '')
+                    secondary = decoded_data.get('secondary', '')
+                    combined = primary
+                    if secondary.strip():
+                        combined = f"{primary}\n\n--- Split Editor ---\n\n{secondary}"
+                    
+                    conn.execute(
+                        "UPDATE notes SET content = ?, was_split_encoded = 1 WHERE id = ?",
+                        (combined, note_id)
+                    )
+                    notes_updated += 1
+            
+            if notes_updated > 0:
+                self.logger.info(f"Decoded {notes_updated} split-encoded note contents")
+            
+            # Process archived_tasks table
+            cursor = conn.execute("SELECT id, description FROM archived_tasks WHERE description LIKE '__SHAKSHUKA_SPLIT_B64_V1__%'")
+            archived_to_update = cursor.fetchall()
+            
+            archived_updated = 0
+            for archived_row in archived_to_update:
+                archived_id = archived_row[0]
+                encoded_desc = archived_row[1]
+                
+                decoded_data = decode_split_b64_v1(encoded_desc)
+                if decoded_data:
+                    primary = decoded_data.get('primary', '')
+                    secondary = decoded_data.get('secondary', '')
+                    combined = primary
+                    if secondary.strip():
+                        combined = f"{primary}\n\n--- Split Editor ---\n\n{secondary}"
+                    
+                    conn.execute(
+                        "UPDATE archived_tasks SET description = ?, was_split_encoded = 1 WHERE id = ?",
+                        (combined, archived_id)
+                    )
+                    archived_updated += 1
+            
+            if archived_updated > 0:
+                self.logger.info(f"Decoded {archived_updated} split-encoded archived task descriptions")
+            
+            total_updated = updated_count + notes_updated + archived_updated
+            migrations_applied.append(
+                {
+                    "version": 32,
+                    "description": f"Decoded {total_updated} split-encoded content records",
+                    "sql": "UPDATE tasks/notes/archived_tasks SET description/content = combined, was_split_encoded = 1",
+                }
+            )
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 032 failed: {e}")
             raise
 
     # User Management Methods

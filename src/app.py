@@ -53,6 +53,20 @@ from src.routes.core_routes import core_bp, init_core_routes
 from src.services import scheduler as scheduler_service
 from src.services import autosave as autosave_service
 from src.services import tray as tray_service
+from src.services.route_registration import register_blueprints
+from src.services.scheduler_setup import (
+    start_scheduler,
+    stop_scheduler,
+    is_scheduler_running,
+    setup_daily_reset,
+)
+from src.services.tray_setup import (
+    check_system_tray_available,
+    start_system_tray,
+    stop_system_tray,
+    open_url_in_browser,
+    open_folder,
+)
 
 from src.exceptions import DatabaseError, ValidationError
 
@@ -75,32 +89,9 @@ configure_assets(app, root_dir)
 configure_working_dir(root_dir)
 
 
-# System tray availability - will be checked when needed
-# Don't import pystray at module level to avoid GTK errors on Linux
-SYSTEM_TRAY_AVAILABLE = None  # Will be determined when needed
+# System tray availability - moved to tray_setup.py
 scheduler_thread = None
 scheduler_stop_event = None
-def _check_system_tray_available():
-    """Check if system tray is available (lazy check)"""
-    global SYSTEM_TRAY_AVAILABLE
-    if SYSTEM_TRAY_AVAILABLE is not None:
-        return SYSTEM_TRAY_AVAILABLE
-    
-    try:
-        import pystray
-        from PIL import Image, ImageDraw
-        # Just importing pystray doesn't test GTK/AppIndicator availability
-        # We'll catch errors when actually creating the icon
-        SYSTEM_TRAY_AVAILABLE = True
-        return True
-    except ImportError:
-        SYSTEM_TRAY_AVAILABLE = False
-        return False
-    except Exception as e:
-        # GTK, AppIndicator, or other dependencies not available (Linux)
-        # Don't fail here - let it fail when creating icon
-        SYSTEM_TRAY_AVAILABLE = True  # Allow it to try, will fail gracefully
-        return True
 
 configure_logging(user_data_dir)
 logger = logging.getLogger(__name__)
@@ -123,17 +114,7 @@ def _get_app_version():
         logger.warning(f"Failed to read version.json, falling back to 1.0.0: {e}")
         return '1.0.0'
 
-def _is_newer_version(new_version: str, current_version: str) -> bool:
-    try:
-        new_parts = [int(x) for x in str(new_version).split('.')]
-        cur_parts = [int(x) for x in str(current_version).split('.')]
-        max_len = max(len(new_parts), len(cur_parts))
-        new_parts += [0] * (max_len - len(new_parts))
-        cur_parts += [0] * (max_len - len(cur_parts))
-        return new_parts > cur_parts
-    except (TypeError, ValueError):
-        logger.exception("Error comparing versions: %r vs %r", new_version, current_version)
-        return False
+# _is_newer_version moved to route_registration.py
 
 # Now that logging is ready, record the working directory
 try:
@@ -461,76 +442,25 @@ def sanitize_input(data):
     return data
 
 
-# Initialize and register core routes blueprint after helper functions
-init_core_routes(
-    app_context=app_context,
-    get_user_id_func=get_user_id,
-    ensure_data_manager_func=ensure_data_manager,
-    root_dir=root_dir,
-    config=config,
-    get_app_version_func=_get_app_version,
-    setup_daily_reset_func=lambda: scheduler_service.setup_daily_reset(),
-    stop_system_tray_func=lambda: stop_system_tray(),
-)
-app.register_blueprint(core_bp)
-
-# Initialize and register task + notes routes blueprints after helper functions
-init_task_routes(
+# Register all blueprints using centralized service
+register_blueprints(
+    app=app,
     app_context=app_context,
     get_user_id_func=get_user_id,
     ensure_data_manager_func=ensure_data_manager,
     sanitize_input_func=sanitize_input,
     validate_task_data_func=validate_task_data,
     rate_limit_decorator=rate_limit,
-)
-app.register_blueprint(task_bp)
-
-init_notes_routes(
-    app_context=app_context,
-    get_user_id_func=get_user_id,
-    ensure_data_manager_func=ensure_data_manager,
-    sanitize_input_func=sanitize_input,
-)
-app.register_blueprint(notes_bp)
-
-init_pin_routes(app_context=app_context)
-app.register_blueprint(pin_bp)
-
-init_mobile_routes(app_context=app_context, get_user_id_func=get_user_id, ensure_data_manager_func=ensure_data_manager)
-app.register_blueprint(mobile_bp)
-
-init_planner_routes(app_context=app_context, get_user_id_func=get_user_id, ensure_data_manager_func=ensure_data_manager)
-app.register_blueprint(planner_bp)
-
-init_monitoring_routes(
+    root_dir=root_dir,
+    config=config,
+    get_app_version_func=_get_app_version,
+    setup_daily_reset_func=lambda: setup_daily_reset(),
+    stop_system_tray_func=lambda: stop_system_tray(),
+    UpdateManager=UpdateManager,
+    get_user_data_dir_func=get_user_data_dir,
     monitor=monitor,
     security_manager=security_manager,
-    get_user_id_func=get_user_id,
-    get_user_data_dir_func=get_user_data_dir,
 )
-app.register_blueprint(monitoring_bp)
-
-init_updates_routes(
-    app_context=app_context,
-    update_manager_cls=UpdateManager,
-    get_user_data_dir_func=get_user_data_dir,
-)
-app.register_blueprint(updates_bp)
-
-init_backups_routes(
-    app_context=app_context,
-    update_manager_cls=UpdateManager,
-    get_user_data_dir_func=get_user_data_dir,
-)
-app.register_blueprint(backups_bp)
-
-init_github_update_routes(
-    get_app_version_func=_get_app_version,
-    is_newer_version_func=_is_newer_version,
-    repo_owner=GITHUB_REPO_OWNER,
-    repo_name=GITHUB_REPO_NAME,
-)
-app.register_blueprint(github_update_bp)
 
 
 # Add cache-control headers to prevent browser caching of static files
@@ -647,27 +577,6 @@ def stop_auto_save():
         
     except Exception as e:
         logger.error(f"Error stopping auto-save: {e}")
-
-def start_scheduler():
-    """Start the scheduler background thread with proper error handling"""
-    try:
-        scheduler_service.set_app_context(app_context)
-        scheduler_service.set_data_manager_getter(lambda: app_context.data_manager)
-        scheduler_service.start_scheduler()
-        logger.info("Scheduler thread started successfully")
-        
-    except Exception as e:
-        logger.error(f"Failed to start scheduler: {e}")
-
-
-def stop_scheduler(timeout: float = 10.0):
-    """Stop the scheduler background thread gracefully if it is running."""
-    try:
-        logger.info("Stopping scheduler thread...")
-        scheduler_service.stop_scheduler(timeout=timeout)
-        logger.info("Scheduler thread stopped successfully")
-    except Exception as e:
-        logger.error(f"Error stopping scheduler: {e}")
 
 # Removed: get_timezone_aware_time() - unused function.
 # App uses local time (datetime.now()) exclusively for consistency.
@@ -1748,7 +1657,7 @@ shutdown_requested = False
 def create_system_tray_icon() -> Optional[Any]:
     """Create and show system tray icon"""
     # Check availability lazily
-    if not _check_system_tray_available():
+    if not check_system_tray_available(lazy_check=True):
         logger.warning("System tray not available - skipping icon creation")
         return None
 
@@ -1878,26 +1787,8 @@ def create_icon_image() -> Any:
         except Exception:  # noqa: broad-except
             return None
 
-def start_system_tray() -> None:
-    """Start the system tray icon"""
-    try:
-        dashboard_url = f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}"
-        shutdown_url = f"http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}/api/shutdown"
-        tray_service.start_system_tray(
-            user_data_dir=user_data_dir,
-            dashboard_url=dashboard_url,
-            shutdown_url=shutdown_url,
-            check_available_func=_check_system_tray_available,
-        )
-    except Exception as e:
-        logger.warning(f"Error starting system tray: {e}")
-
-def stop_system_tray() -> None:
-    """Stop the system tray icon"""
-    try:
-        tray_service.stop_system_tray()
-    except Exception as e:
-        logger.error(f"Error stopping system tray: {e}")
+# Note: start_system_tray and stop_system_tray are now imported from tray_setup module
+# These wrappers are no longer needed as the new module functions handle everything
 
 # Shutdown function for graceful exit
 def shutdown_application() -> None:

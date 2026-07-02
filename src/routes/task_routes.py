@@ -111,7 +111,7 @@ def validate_strike(data):
     strike_type = data.get('type')
     report = data.get('report', '')
     
-    if not strike_type or strike_type not in ['today', 'forever']:
+    if not strike_type or strike_type not in ['today', 'forever', 'till_days']:
         return False, "Invalid strike type"
     
     if not isinstance(report, str):
@@ -119,6 +119,15 @@ def validate_strike(data):
     
     if len(report) > 2000:
         return False, "Report too long (max 2000 characters)"
+    
+    # If till_days, validate days parameter
+    if strike_type == 'till_days':
+        try:
+            days = int(data.get('days', 0))
+            if days < 1 or days > 365:
+                return False, "Strike till days must be between 1 and 365"
+        except (TypeError, ValueError):
+            return False, "Days must be an integer"
     
     return True, ""
 
@@ -433,7 +442,11 @@ def update_task(task_id, user_id, data_manager):
 @require_data_manager
 @handle_database_error
 def patch_task(task_id, user_id, data_manager):
-    """Partially update a task (supports parent_id for nesting)"""
+    """Partially update a task
+    
+    NOTE: parent_id field is accepted but nested tasks feature is disabled.
+    See src/features/nested_tasks_waitlist.py for feature details.
+    """
     logger.info(f"API patch_task called for task {task_id} with user_id: {user_id}")
     
     if not request.is_json:
@@ -447,16 +460,21 @@ def patch_task(task_id, user_id, data_manager):
     if _sanitize_input_func:
         task_data = _sanitize_input_func(task_data)
     
-    # Validate parent_id if provided (must be a valid task or None)
-    if 'parent_id' in task_data:
-        parent_id = task_data.get('parent_id')
-        if parent_id is not None:
-            parent_task = data_manager.get_task_by_id(user_id, parent_id)
-            if not parent_task:
-                return jsonify({'error': f'Parent task {parent_id} not found'}), 404
-            # Prevent circular references (task cannot be its own parent)
-            if parent_id == task_id:
-                return jsonify({'error': 'A task cannot be its own parent'}), 400
+    # NESTED TASKS VALIDATION - DISABLED
+    # The following code validates parent_id to prevent circular references.
+    # It has been moved to src/features/nested_tasks_waitlist.py for future use.
+    # To enable nested tasks, uncomment the code below and implement frontend UI.
+    # >>>>>> START DISABLED CODE <<<<<<
+    # if 'parent_id' in task_data:
+    #     parent_id = task_data.get('parent_id')
+    #     if parent_id is not None:
+    #         parent_task = data_manager.get_task_by_id(user_id, parent_id)
+    #         if not parent_task:
+    #             return jsonify({'error': f'Parent task {parent_id} not found'}), 404
+    #         # Prevent circular references (task cannot be its own parent)
+    #         if parent_id == task_id:
+    #             return jsonify({'error': 'A task cannot be its own parent'}), 400
+    # >>>>>> END DISABLED CODE <<<<<<
     
     # Update task using data manager
     success = data_manager.update_task_for_user(user_id, task_id, task_data)
