@@ -4088,6 +4088,8 @@
         init,
         addSelectionToTask,
         showDashboard: showNotesDashboard,
+        showEditor: showNoteEditorView,
+        createNewNote,
         render,
         decodeSplitContent: decodeSplitContent  // Used by mobile inbox to decode split-encoded note content
     };

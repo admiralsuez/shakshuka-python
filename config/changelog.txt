@@ -1,3 +1,58 @@
+## Version 35.4 - Archive Excel Export, Undo & Notification Feedback
+Release Date: 2026-09-26
+
+### Improvements
+- **Archived export is now Excel (.xlsx)**: the "Export & Clear All" button in the Archived folder downloads a formatted Excel workbook (title, project, owner, priority, completed/struck dates, strike report, strike count, archived date, created date) instead of a raw JSON file. The Excel file is generated server-side via GET /api/tasks/archived/export-excel.
+- **10-second Undo for archive clear**: after "Export & Clear All" deletes the archive, a toast offers "Click to undo" for 10 seconds. The server keeps a short snapshot and restores everything (with original archived dates) via POST /api/tasks/archived/undo-clear. Undo is one-shot; a second click reports the window has expired.
+- **Notification press feedback**: clicking a toast with an action (e.g. "Task deleted. Click to undo.") now gives immediate pressed visual feedback (scale/brightness pulse) and ignores accidental double-clicks. Toast duration now honors the requested length instead of a fixed 5 seconds.
+
+### Bug Fixes
+- **Archive criteria tightened**: auto-archival only moves permanently done tasks (struck forever / completed) and never tasks that are struck for today or snoozed for X days. Also handles completed tasks missing a completed_at by falling back to their struck date. Same criteria apply to the "Archive Now" trigger and the daily 03:15 job.
+
+---
+
+## Version 34.2 - Start Page Setting & Automatic Task Archival
+Release Date: 2026-09-23
+
+### New Features
+- **Start page preference (Settings)**: Choose which page the app opens on: My Tasks (default), Plan My Day, Notes, New Note (opens a blank note), or Analytics. The selection is now actually persisted to the database and applied on every launch (previously the setting existed in the UI but was never saved).
+- **Archived Tasks folder**: The Completed list now shows an "Archived Tasks" entry at the top. Clicking it lazy-loads archived tasks into a dedicated view (with Completed/Archived dates). Archived tasks keep their completed flag but no longer appear in the Completed list.
+- **Unarchive**: Each archived task can be restored to Completed with one click (new POST /api/tasks/<id>/unarchive endpoint).
+
+### Automatic Archival (bug fix)
+- **Auto-archive now actually runs**: completed tasks older than the configured period are moved to the archive automatically — once on startup and every day at 03:15. Previously the archiver worker existed but was never started, so the Completed list grew indefinitely.
+- **Configurable archive period**: new Settings field "Archive completed tasks after (days)" (7-365, default 60 = ~2 months).
+- **Archived API fix**: GET /api/tasks/archived now returns ALL archived tasks (it previously returned only struck ones).
+
+### Technical Notes
+- Persisted previously-unsaved settings (start_page, default_task_duration, notification_sound, week_start_day) plus new archive_after_days via lazy schema upgrades on user_preferences.
+- Archived tasks remain in the archived_tasks table with all original flags intact; deletion of archived tasks is supported (database already handled both tables).
+
+---
+Release Date: 2026-07-02
+
+### Performance Improvements
+- **Flask multi-threading**: Enabled `threaded=True` on Flask server for parallel request handling. Significant UX improvement when multiple tasks are processed simultaneously.
+- **Connection pool optimization**: Verified standardized connection pool usage across data layer for consistent concurrency handling.
+
+### Code Quality & Refactoring
+- **Removed duplicate AppContext**: Eliminated 145+ lines of duplicate AppContext class from app.py in favor of proper singleton pattern in src/core/app_context.py. Improves maintainability and ensures single source of truth.
+- **Improved decorator metadata**: Added `@functools.wraps` to `require_csrf()` and `rate_limit()` decorators to preserve function metadata (`__name__`, `__doc__`, etc). Enables better introspection and debugging.
+- **Cleaned up nested tasks PATCH**: Added `task_data.pop('parent_id', None)` to PATCH endpoint to prevent garbage writes while nested tasks validation is disabled. Protects data integrity during disabled feature.
+
+### Architecture & Documentation
+- **Data layer clarity**: Documented coexistence of legacy `SQLiteDataManager` (production) and modular `DataManager` (refactored) in src/db/__init__.py. Both layers are non-conflicting and well-separated.
+- **Analytics optimization**: Verified analytics queries already use efficient SQL with GROUP BY/COUNT instead of loading tasks in Python.
+- **Configuration externalization**: Confirmed GitHub repo config is externalized via environment variables with sensible defaults in src/constants.py.
+- **Startup stability**: Verified `pkg_resources` import is wrapped in try/except with fallback logic to avoid noisy tracebacks.
+
+### Technical Notes
+- All functions remain backward compatible. Changes are transparent to existing code.
+- No breaking changes to any API endpoints or database schema.
+- Multi-threading is transparent to request handlers and middleware.
+
+---
+
 ## Version 33.3 - Strike Till Days Bug Fixes & Refresh Button Enhancement
 Release Date: 2026-06-10
 

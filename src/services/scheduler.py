@@ -84,7 +84,16 @@ def _get_data_manager():
 
     if getter:
         return getter()
-    return app_context.data_manager if app_context else None
+    if app_context is not None:
+        return app_context.data_manager
+
+    # Fallback: the process-wide app context singleton
+    # (covers the launcher calling start_scheduler() without an explicit context)
+    try:
+        from src.core.app_context import app_context as global_app_context
+        return global_app_context.data_manager if global_app_context else None
+    except Exception:  # noqa: broad-except
+        return None
 
 
 def _get_job_lock(job_name: str) -> threading.Lock:
@@ -939,6 +948,51 @@ def _cleanup_stale_submissions_job() -> None:
         logger.exception("Error cleaning up stale submissions")
 
 
+def _archive_completed_tasks_job() -> None:
+    """Move completed tasks older than the configured threshold to archived_tasks.
+
+    The threshold comes from the user's 'archive_after_days' setting
+    (default: AUTO_ARCHIVE_COMPLETED_DAYS, 60 = ~2 months). Archived tasks keep
+    their completed flag, disappear from the Completed view, and can be viewed
+    or restored via the Archived folder in the UI.
+    """
+    from src.constants import AUTO_ARCHIVE_COMPLETED_DAYS, DEFAULT_USER_ID
+
+    data_manager = _get_data_manager()
+    if not data_manager:
+        logger.warning("Data manager not available for task archival")
+        return
+
+    days_old = AUTO_ARCHIVE_COMPLETED_DAYS
+    try:
+        settings = data_manager.load_settings(DEFAULT_USER_ID) or {}
+        days_setting = settings.get("archive_after_days")
+        if days_setting is not None:
+            days_old = int(days_setting)
+        if days_old < 7 or days_old > 365:
+            logger.warning(
+                "Invalid archive_after_days value %s, using default %d",
+                days_old,
+                AUTO_ARCHIVE_COMPLETED_DAYS,
+            )
+            days_old = AUTO_ARCHIVE_COMPLETED_DAYS
+    except Exception:  # noqa: broad-except
+        logger.exception("Error loading archive_after_days setting, using default")
+
+    try:
+        archived_count = data_manager.auto_archive_old_completed_tasks(
+            DEFAULT_USER_ID, days_old
+        )
+        if archived_count > 0:
+            logger.info(
+                "Auto-archived %d completed tasks older than %d days",
+                archived_count,
+                days_old,
+            )
+    except Exception:  # noqa: broad-except
+        logger.exception("Error running auto-archive for completed tasks")
+
+
 def _setup_weekly_maintenance_jobs() -> None:
     """Register weekly background maintenance jobs (e.g., empty-notes cleaner, notes export)."""
     try:
@@ -969,9 +1023,21 @@ def _setup_weekly_maintenance_jobs() -> None:
                 'cleanup_stale_submissions',
                 _cleanup_stale_submissions_job,
             ).tag('weekly_maintenance')
+            # Auto-archive old completed tasks: run daily at 03:15
+            schedule.every().day.at('03:15').do(
+                _run_job_with_correlation,
+                'archive_completed_tasks',
+                _archive_completed_tasks_job,
+            ).tag('weekly_maintenance')
         logger.info("✅ Weekly maintenance jobs scheduled (empty-notes cleaner, notes export, mobile sync cleanup)")
     except Exception:  # noqa: broad-except - Background job must handle all exceptions to prevent crash
         logger.exception("Error setting up weekly maintenance jobs")
+
+
+def _run_archive_once_at_startup(delay_seconds: int = 30) -> None:
+    """Sleep briefly, then run one archival pass (used at app startup)."""
+    time.sleep(delay_seconds)
+    _run_job_with_correlation("archive_completed_tasks_startup", _archive_completed_tasks_job)
 
 
 def scheduler_worker(stop_event: threading.Event):
@@ -1030,6 +1096,15 @@ def start_scheduler():
 
         # Setup weekly maintenance jobs (e.g., empty-notes cleaner)
         _setup_weekly_maintenance_jobs()
+
+        # Run one archival pass shortly after startup so overdue completed tasks
+        # are moved to the archive without waiting for the scheduled run.
+        threading.Thread(
+            target=_run_archive_once_at_startup,
+            args=(30,),
+            daemon=True,
+            name="StartupTaskArchiver",
+        ).start()
 
         # Start scheduler thread
         stop_event = threading.Event()

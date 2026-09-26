@@ -160,20 +160,28 @@ const Settings = {
             const startPageSelect = document.getElementById('start-page-select');
             const notificationSoundToggle = document.getElementById('notification-sound-toggle');
             const weekStartDaySelect = document.getElementById('week-start-day-select');
+            const archiveAfterDays = document.getElementById('archive-after-days');
             if (defaultTaskDuration) defaultTaskDuration.value = settings.default_task_duration || 60;
             if (startPageSelect) startPageSelect.value = settings.start_page || 'tasks';
             if (notificationSoundToggle) notificationSoundToggle.checked = !!settings.notification_sound;
             if (weekStartDaySelect) weekStartDaySelect.value = String(settings.week_start_day ?? 1);
+            if (archiveAfterDays) archiveAfterDays.value = settings.archive_after_days ?? 60;
 
             // Apply start page on initial load (navigate to the configured start page)
             try {
                 const sp = settings.start_page || 'tasks';
-                if (sp !== 'tasks' && typeof window.navigateTo === 'function') {
-                    window.navigateTo(sp);
-                } else if (sp !== 'tasks') {
-                    // Fallback: click the nav item
-                    const navItem = document.querySelector(`.nav-item[data-page="${sp}"]`);
-                    if (navItem) navItem.click();
+                // 'notes-new' lands on the Notes page and opens a blank note
+                const targetPage = (sp === 'notes-new') ? 'notes' : sp;
+                if (sp !== 'tasks') {
+                    if (typeof navigateToPage === 'function') {
+                        navigateToPage(targetPage);
+                    } else {
+                        const navItem = document.querySelector(`.nav-item[data-page="${targetPage}"]`);
+                        if (navItem) navItem.click();
+                    }
+                    if (sp === 'notes-new' && window.Notes && typeof window.Notes.createNewNote === 'function') {
+                        window.Notes.createNewNote();
+                    }
                 }
             } catch (e) { /* no-op */ }
 
@@ -1602,6 +1610,33 @@ window.bindTriggerButtons = function bindTriggerButtons() {
             if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
                 window.Utils.safeShowNotification(`Planner cleanup done — ${n} task${n !== 1 ? 's' : ''} unscheduled`, 'success');
             }
+        }));
+    }
+
+    // Archive completed tasks now
+    const archiveBtn = document.getElementById('trigger-archive-run-btn');
+    if (archiveBtn && !archiveBtn._triggerBound) {
+        archiveBtn._triggerBound = true;
+        archiveBtn.addEventListener('click', () => _runTrigger('trigger-archive-run-btn', async () => {
+            const caller = (typeof window.apiCall === 'function') ? window.apiCall
+                : (url, opts) => fetch(url, Object.assign({ credentials: 'include' }, opts));
+            const resp = await caller('/api/tasks/archive-run', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json().catch(() => ({}));
+            const n = data.archived_count || 0;
+            const days = data.days_old || 60;
+            if (window.Utils && typeof window.Utils.safeShowNotification === 'function') {
+                if (n > 0) {
+                    window.Utils.safeShowNotification(`Archived ${n} task${n !== 1 ? 's' : ''} (older than ${days} days) — see the Archived folder in Completed`, 'success');
+                } else {
+                    window.Utils.safeShowNotification(`Nothing to archive — no completed tasks older than ${days} days`, 'info');
+                }
+            }
+            // Refresh the task list so Completed shrinks immediately
+            try {
+                if (window.AppState && AppState.setSync) AppState.setSync('archivedTasksCache', null);
+                if (typeof loadTasks === 'function') await loadTasks();
+            } catch (e) { /* no-op */ }
         }));
     }
 

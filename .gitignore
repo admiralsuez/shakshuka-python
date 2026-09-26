@@ -228,6 +228,9 @@ config.py
 build_reports/
 scripts/dist/
 
+# doc files
+docs/
+
 # Sensitive data files
 data/.key
 data/.salt

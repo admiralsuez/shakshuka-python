@@ -142,11 +142,19 @@
                                 Start page:
                                 <select id="start-page-select" onchange="Settings._putSettings({ start_page: this.value }).then(s => Settings._setCurrentSettings(Settings._mergeSettings(s, { start_page: this.value }))).catch(() => {})">
                                     <option value="tasks" selected>My Tasks</option>
-                                    <option value="planner">Daily Planner</option>
+                                    <option value="planner">Plan My Day</option>
                                     <option value="notes">Notes</option>
+                                    <option value="notes-new">New Note (blank)</option>
                                     <option value="analytics">Analytics</option>
                                 </select>
                             </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                Archive completed tasks after (days):
+                                <input type="number" id="archive-after-days" min="7" max="365" step="1" value="60" style="width: 80px; margin-left: 0.5rem;" onchange="Settings._putSettings({ archive_after_days: parseInt(this.value, 10) }).then(s => Settings._setCurrentSettings(Settings._mergeSettings(s, { archive_after_days: parseInt(this.value, 10) }))).catch(err => { try { if (window.showNotification) showNotification('Failed to save archive period', 'error'); } catch (e) {} })">
+                            </label>
+                            <small class="form-text text-muted">Completed tasks older than this (default: 60 days ≈ 2 months) move to the Archived folder at the top of the Completed list.</small>
                         </div>
                         <div class="setting-item">
                             <label class="setting-label">
@@ -372,6 +380,10 @@
                                 <button class="btn-secondary" id="trigger-save-settings-btn" title="Re-persist current settings to the database">
                                     <i class="fas fa-save"></i>
                                     Save Settings
+                                </button>
+                                <button class="btn-secondary" id="trigger-archive-run-btn" title="Move completed tasks older than your archive period (Settings) to the Archived folder now">
+                                    <i class="fas fa-archive"></i>
+                                    Archive Now
                                 </button>
                             </div>
                         </div>

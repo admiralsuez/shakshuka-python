@@ -745,6 +745,11 @@ def get_settings():
             'finish': settings.get('finish', 'glossy'),
             'intensity': settings.get('intensity', '5'),
             'compact_mode': bool(settings.get('compact_mode', False)),
+            'start_page': settings.get('start_page', 'tasks'),
+            'default_task_duration': settings.get('default_task_duration', 60),
+            'notification_sound': bool(settings.get('notification_sound', False)),
+            'week_start_day': settings.get('week_start_day', 1),
+            'archive_after_days': max(7, min(365, settings.get('archive_after_days', 60) or 60)),
         }
 
         if validated_settings.get('settings_layout') not in ['scroll', 'tabs']:
@@ -899,8 +904,16 @@ def update_settings():
 
         if 'start_page' in settings_data:
             sp = settings_data['start_page']
-            if isinstance(sp, str) and sp in ('tasks', 'planner', 'notes', 'analytics'):
+            if isinstance(sp, str) and sp in ('tasks', 'planner', 'notes', 'notes-new', 'analytics'):
                 validated_updates['start_page'] = sp
+
+        if 'archive_after_days' in settings_data:
+            try:
+                aad = int(settings_data['archive_after_days'])
+                if 7 <= aad <= 365:
+                    validated_updates['archive_after_days'] = aad
+            except (TypeError, ValueError) as e:
+                logger.debug("Invalid archive_after_days value: %s", e)
 
         if 'notification_sound' in settings_data:
             if isinstance(settings_data['notification_sound'], bool):

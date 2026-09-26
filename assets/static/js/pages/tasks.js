@@ -1,5 +1,21 @@
 // Tasks Module
 
+// Archived folder state lives in AppState so the renderer that actually draws
+// the list (app.js _renderTasksNow) always sees it:
+//   'archivedTasksCache'  -> array | null  (only populated after user clicks the folder)
+//   'showingArchivedView' -> bool          (Archived folder open vs. Completed list)
+function _getArchivedCache() { return AppState.get('archivedTasksCache'); }
+function _isArchivedViewOpen() { return AppState.get('showingArchivedView') === true; }
+function _setArchiveState(cache, show) {
+    if (typeof AppState.setSync === 'function') {
+        AppState.setSync('archivedTasksCache', cache);
+        AppState.setSync('showingArchivedView', show);
+    } else {
+        AppState.set('archivedTasksCache', cache);
+        AppState.set('showingArchivedView', show);
+    }
+}
+
 // Task management functions
 async function loadTasks() {
     try {
@@ -853,33 +869,59 @@ function renderTasks(filterParam) {
 
     tasksContainer.innerHTML = '';
 
-    // For completed filter, show archived button even if no regular tasks
+    // Completed filter: the "Archived Tasks" folder entry sits at the TOP of
+    // the list and is only fetched from the server when the user clicks it.
     if (filter === 'completed') {
-        if (filteredTasks.length === 0) {
-            tasksContainer.innerHTML = `
-                <div class="no-tasks">
-                    <i class="fas fa-clipboard-list"></i>
-                    <h3>No completed tasks</h3>
-                    <p>Your completed tasks will appear here.</p>
-                </div>
+        if (_isArchivedViewOpen()) {
+            // Archived folder contents (dedicated view — not merged with Completed)
+            const backBar = document.createElement('div');
+            backBar.className = 'show-archived-button-container';
+            backBar.innerHTML = `
+                <button id="show-archived-tasks-btn" class="show-archived-button" onclick="hideArchivedTasksView()">
+                    <i class="fas fa-arrow-left"></i> Back to Completed
+                </button>
+                <span class="archived-view-title" style="margin-left: 0.6rem; color: var(--text-secondary); font-size: 0.85rem;">
+                    <i class="fas fa-archive"></i> Archived Tasks
+                </span>
             `;
+            tasksContainer.appendChild(backBar);
+
+            const archivedTasks = Array.isArray(_getArchivedCache()) ? _getArchivedCache() : [];
+            if (archivedTasks.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'no-tasks';
+                empty.innerHTML = '<i class="fas fa-archive"></i><h3>No archived tasks</h3><p>Completed tasks older than your archive period (Settings) will appear here.</p>';
+                tasksContainer.appendChild(empty);
+            } else {
+                archivedTasks.forEach(task => {
+                    tasksContainer.appendChild(createArchivedTaskElement(task));
+                });
+            }
         } else {
-            // List and Grid layouts
-            filteredTasks.forEach(task => {
-                const taskElement = createTaskElement(task);
-                tasksContainer.appendChild(taskElement);
-            });
+            const archivedEntry = document.createElement('div');
+            archivedEntry.className = 'show-archived-button-container';
+            const cachedArchived = _getArchivedCache();
+            const archivedCount = Array.isArray(cachedArchived) ? cachedArchived.length : null;
+            archivedEntry.innerHTML = `
+                <button id="show-archived-tasks-btn" class="show-archived-button" onclick="loadAndShowArchivedTasks()">
+                    <i class="fas fa-archive"></i> Archived Tasks${archivedCount !== null ? ` (${archivedCount})` : ''}
+                </button>
+            `;
+            tasksContainer.appendChild(archivedEntry);
+
+            if (filteredTasks.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'no-tasks';
+                empty.innerHTML = '<i class="fas fa-clipboard-list"></i><h3>No completed tasks</h3><p>Your completed tasks will appear here.</p>';
+                tasksContainer.appendChild(empty);
+            } else {
+                // List and Grid layouts
+                filteredTasks.forEach(task => {
+                    const taskElement = createTaskElement(task);
+                    tasksContainer.appendChild(taskElement);
+                });
+            }
         }
-        
-        // Always add "Show Archived Tasks" button for completed filter
-        const archivedButton = document.createElement('div');
-        archivedButton.className = 'show-archived-button-container';
-        archivedButton.innerHTML = `
-            <button id="show-archived-tasks-btn" class="show-archived-button" onclick="loadAndShowArchivedTasks()">
-                <i class="fas fa-archive"></i> Show Archived Tasks
-            </button>
-        `;
-        tasksContainer.appendChild(archivedButton);
     } else {
         // For other filters, show no-tasks message if empty
         if (filteredTasks.length === 0) {
@@ -1093,6 +1135,8 @@ function filterTasks(tasks, filter) {
 
 function setActiveFilter(filter) {
     AppState.set('currentFilter', filter);
+    // Leaving/back to a filter tab exits the Archived folder view
+    _setArchiveState(_getArchivedCache(), false);
 
     // Update UI
     document.querySelectorAll('.filter-tab').forEach(tab => {
@@ -1613,10 +1657,11 @@ function filterTasksBySearch() {
     });
 }
 
-// Load and display archived tasks on-demand
+// Load archived tasks on demand and show them in the dedicated Archived view.
+// They are NOT merged into AppState/the Completed list; unarchive to bring one back.
 async function loadAndShowArchivedTasks() {
+    const btn = document.getElementById('show-archived-tasks-btn');
     try {
-        const btn = document.getElementById('show-archived-tasks-btn');
         if (btn) {
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
@@ -1633,22 +1678,214 @@ async function loadAndShowArchivedTasks() {
             archivedTasks = await response.json();
         }
 
-        if (!Array.isArray(archivedTasks)) {
-            archivedTasks = [];
-        }
+        _setArchiveState(Array.isArray(archivedTasks) ? archivedTasks : [], true);
 
-        // Merge archived tasks with current tasks in AppState
-        const currentTasks = AppState.getTasks() || [];
-        const merged = [...currentTasks, ...archivedTasks];
-        await AppState.setTasks(merged);
-
-        // Re-render completed filter to show archived tasks
+        // Show the archived folder contents (re-uses the Completed list area)
         renderTasks('completed');
 
-        Utils.Logger.info(`Loaded ${archivedTasks.length} archived tasks`);
+        Utils.Logger.info(`Loaded ${_getArchivedCache().length} archived tasks`);
     } catch (error) {
         Utils.Logger.error('Failed to load archived tasks:', error);
         Utils.safeShowNotification('Failed to load archived tasks', 'error');
+        _setArchiveState(_getArchivedCache(), false);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-archive"></i> Archived Tasks';
+        }
+    }
+}
+
+// Leave the Archived view and return to the normal Completed list
+function hideArchivedTasksView() {
+    _setArchiveState(_getArchivedCache(), false);
+    renderTasks('completed');
+}
+
+// Render one archived task row (title, dates, Unarchive / Delete actions)
+function createArchivedTaskElement(task) {
+    const taskDiv = document.createElement('div');
+    taskDiv.className = 'task-item completed';
+    taskDiv.id = `task-${task.id}`;
+    taskDiv.setAttribute('data-task-id', task.id);
+
+    const fmtDate = (raw) => {
+        if (!raw) return '';
+        try {
+            const d = new Date(typeof raw === 'string' && raw.length === 10 && !raw.includes('T') ? raw + 'T12:00:00' : raw);
+            return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        } catch (e) { return ''; }
+    };
+    const completedOn = fmtDate(task.completed_at || task.struck_date);
+    const archivedOn = fmtDate(task.archived_at);
+    const meta = [
+        completedOn ? `Completed ${completedOn}` : '',
+        archivedOn ? `Archived ${archivedOn}` : '',
+    ].filter(Boolean).join(' · ');
+
+    taskDiv.innerHTML = `
+        <div class="task-project-tag">
+            <span class="project-tag ${task.project ? '' : 'project-tag--no-project no-project'}">
+                ${task.project ? Utils.sanitizeHTML(task.project) : 'No Project'}
+            </span>
+        </div>
+        <div class="task-content">
+            <h3 class="task-title struck">
+                ${Utils.sanitizeHTML(task.title)}
+            </h3>
+            ${task.strike_report ? `<p class="strike-report"><em>Last strike: ${Utils.sanitizeHTML(task.strike_report)}</em></p>` : ''}
+            ${meta ? `<p class="archived-meta" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px;">${meta}</p>` : ''}
+        </div>
+        <div class="task-actions">
+            <button class="task-action unarchive-btn" onclick="unarchiveTask('${task.id}')" title="Restore to Completed">
+                <i class="fas fa-undo"></i>
+            </button>
+            <button class="task-action" onclick="openStrikeReportHistoryModal('${task.id}')" title="Report History">
+                <i class="fas fa-clipboard-list"></i>
+            </button>
+            <button class="task-action" onclick="deleteArchivedTask('${task.id}')" title="Delete permanently">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    `;
+    return taskDiv;
+}
+
+// Restore an archived task back to the Completed list (completed flag is preserved)
+async function unarchiveTask(taskId) {
+    try {
+        let ok = false;
+        if (window.Utils && typeof window.Utils.apiCall === 'function') {
+            const response = await window.Utils.apiCall(`/api/tasks/${taskId}/unarchive`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            ok = response && response.ok;
+        } else {
+            const response = await apiCall(`/api/tasks/${taskId}/unarchive`, { method: 'POST' });
+            ok = response && response.ok;
+        }
+        if (!ok) throw new Error('Unarchive request failed');
+
+        _setArchiveState((_getArchivedCache() || []).filter(t => t.id !== taskId), true);
+        renderTasks('completed');
+        if (typeof loadTasks === 'function') loadTasks(); // task reappears in Completed
+        Utils.safeShowNotification('Task restored to Completed', 'success');
+    } catch (error) {
+        Utils.Logger.error('Failed to unarchive task:', error);
+        Utils.safeShowNotification('Failed to restore task', 'error');
+    }
+}
+
+// Permanently delete an archived task (server deletes from archived_tasks)
+async function deleteArchivedTask(taskId) {
+    if (!confirm('Permanently delete this archived task? This cannot be undone.')) return;
+    try {
+        let ok = false;
+        if (window.Utils && typeof window.Utils.apiCall === 'function') {
+            const response = await window.Utils.apiCall(`/api/tasks/${taskId}`, { method: 'DELETE' });
+            ok = response && response.ok;
+        } else {
+            const response = await apiCall(`/api/tasks/${taskId}`, { method: 'DELETE' });
+            ok = response && response.ok;
+        }
+        if (!ok) throw new Error('Delete request failed');
+
+        _setArchiveState((_getArchivedCache() || []).filter(t => t.id !== taskId), true);
+        renderTasks('completed');
+        Utils.safeShowNotification('Archived task deleted', 'success');
+    } catch (error) {
+        Utils.Logger.error('Failed to delete archived task:', error);
+        Utils.safeShowNotification('Failed to delete archived task', 'error');
+    }
+}
+
+// Export ALL archived tasks (download .xlsx) and ONLY THEN delete them from the archive.
+// Order matters: the download is triggered first; deletion happens only afterwards.
+async function exportAndDeleteArchivedTasks() {
+    const archived = _getArchivedCache() || [];
+    if (archived.length === 0) {
+        Utils.safeShowNotification('Nothing to export — the archive is empty', 'info');
+        return;
+    }
+    const proceed = confirm(
+        `This will first DOWNLOAD all ${archived.length} archived task${archived.length !== 1 ? 's' : ''} as an Excel file,\n` +
+        'then PERMANENTLY DELETE them from the archive.\n\n' +
+        'You get a 10-second Undo option afterwards. Continue?'
+    );
+    if (!proceed) return;
+
+    const btn = document.getElementById('archive-export-clear-btn');
+    try {
+        // 1) Download the archive contents as .xlsx
+        const exporter = (window.Utils && typeof window.Utils.apiCall === 'function') ? window.Utils.apiCall : apiCall;
+        const dlResp = await exporter('/api/tasks/archived/export-excel');
+        if (!dlResp.ok) throw new Error(`Export failed (${dlResp.status})`);
+        const blob = await dlResp.blob();
+        const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `Shakshuka_Archived_Tasks_${stamp}.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => { try { URL.revokeObjectURL(link.href); link.remove(); } catch (e) {} }, 1500);
+
+        // 2) Only after the download kicked off: delete every archived task server-side
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Clearing...'; }
+        let deletedCount = null;
+        if (window.Utils && typeof window.Utils.apiRequestJson === 'function') {
+            const data = await window.Utils.apiRequestJson('/api/tasks/archived/clear', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+            }, { expectObject: true, retries: 0 });
+            deletedCount = (data && data.deleted_count) ?? null;
+        } else {
+            const resp = await apiCall('/api/tasks/archived/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            if (!resp.ok) throw new Error(`Clear failed (${resp.status})`);
+            const data = await resp.json();
+            deletedCount = data.deleted_count ?? null;
+        }
+
+        _setArchiveState([], true);
+        renderTasks('completed');
+
+        // 3) Offer a 10-second undo window (server keeps the snapshot slightly longer)
+        if (typeof showNotification === 'function') {
+            showNotification(
+                `Exported & cleared ${deletedCount ?? archived.length} archived task${(deletedCount ?? archived.length) !== 1 ? 's' : ''}. Click to undo.`,
+                'info',
+                { durationMs: 10000, onClick: () => undoArchivedClear() }
+            );
+        } else {
+            Utils.safeShowNotification(`Exported & cleared ${deletedCount ?? archived.length} archived tasks`, 'success');
+        }
+    } catch (error) {
+        Utils.Logger.error('Export & clear archived tasks failed:', error);
+        Utils.safeShowNotification('Export & clear failed — the archive was left untouched after the download step', 'error');
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Export &amp; Clear All'; }
+    }
+}
+
+// Undo "Export & Clear All": server restores the snapshot taken when the clear ran
+async function undoArchivedClear() {
+    try {
+        const caller = (window.Utils && typeof window.Utils.apiCall === 'function') ? window.Utils.apiCall
+            : (url, opts) => fetch(url, Object.assign({ credentials: 'include' }, opts));
+        const resp = await caller('/api/tasks/archived/undo-clear', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json().catch(() => ({}));
+        const n = data.restored_count ?? 0;
+
+        // Refresh the archive view so restored tasks are visible again
+        const listResp = await caller('/api/tasks/archived');
+        if (listResp.ok) {
+            const latest = await listResp.json();
+            _setArchiveState(Array.isArray(latest) ? latest : [], true);
+        }
+        if (typeof renderTasks === 'function') renderTasks('completed');
+
+        Utils.safeShowNotification(`Restored ${n} archived task${n !== 1 ? 's' : ''}`, 'success');
+    } catch (error) {
+        Utils.Logger.error('Undo clear failed:', error);
+        Utils.safeShowNotification(error.message || 'Undo window has expired', 'error');
     }
 }
 
@@ -1710,6 +1947,12 @@ window.Tasks = {
     sortTasksForDisplay,
     syncStrikeClassesFromState,
     loadAndShowArchivedTasks,
+    hideArchivedTasksView,
+    createArchivedTaskElement,
+    unarchiveTask,
+    deleteArchivedTask,
+    exportAndDeleteArchivedTasks,
+    undoArchivedClear,
     initTaskSearch,
     openTaskSearch,
     closeTaskSearch,

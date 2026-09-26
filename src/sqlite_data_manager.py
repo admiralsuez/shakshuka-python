@@ -1115,6 +1115,13 @@ class SQLiteDataManager:
                             self._migration_032_decode_split_content(conn)
                         )
 
+                    # Migration 33: Repair archived_tasks schema drift (older DBs created
+                    # archived_tasks before parent_id existed, breaking auto-archival)
+                    if migration_version < 33:
+                        migrations_applied.extend(
+                            self._migration_033_archived_tasks_parent_id(conn)
+                        )
+
                     # Update migration version
                     if migrations_applied:
                         new_version = max([m["version"] for m in migrations_applied])
@@ -3355,6 +3362,162 @@ class SQLiteDataManager:
                 cause=e,
             )
 
+    def clear_archived_tasks_for_user(self, user_id: str) -> int:
+        """Permanently delete ALL archived tasks for a user. Returns the number deleted.
+
+        The UI exports (downloads) the archived tasks before calling this, so the
+        user always has a file backup before the archive is emptied.
+        """
+        try:
+            self._ensure_user_exists(user_id)
+
+            with self._get_connection() as conn:
+                conn.execute("BEGIN IMMEDIATE TRANSACTION")
+                try:
+                    count_row = conn.execute(
+                        "SELECT COUNT(*) FROM archived_tasks WHERE user_id = ?",
+                        (user_id,),
+                    ).fetchone()
+                    count = count_row[0] if count_row else 0
+
+                    if count > 0:
+                        conn.execute(
+                            "DELETE FROM archived_tasks WHERE user_id = ?",
+                            (user_id,),
+                        )
+                        verify = conn.execute(
+                            "SELECT COUNT(*) FROM archived_tasks WHERE user_id = ?",
+                            (user_id,),
+                        ).fetchone()[0]
+                        if verify != 0:
+                            raise Exception(
+                                "Clear archived tasks verification failed - rows remain"
+                            )
+
+                    conn.commit()
+                    self.logger.info(
+                        f"Cleared {count} archived tasks for user {user_id}"
+                    )
+                    return count
+                except Exception as inner_e:
+                    conn.rollback()
+                    self.logger.exception(
+                        "Transaction failed clearing archived tasks for user %s: %s",
+                        user_id,
+                        inner_e,
+                    )
+                    raise
+        except Exception as e:
+            self.logger.exception(
+                "Error clearing archived tasks for user %s", user_id
+            )
+            raise DatabaseError(
+                message="Error clearing archived tasks",
+                cause=e,
+            )
+
+    def restore_archived_tasks_snapshot(
+        self, user_id: str, tasks: List[Dict[str, Any]]
+    ) -> int:
+        """Restore a snapshot of archived tasks back into archived_tasks.
+
+        Used by the 10-second undo offered after "Export & Clear All". Original
+        archived_at timestamps are preserved. Returns the number restored.
+        """
+        if not tasks:
+            return 0
+
+        try:
+            self._ensure_user_exists(user_id)
+
+            with self._get_connection() as conn:
+                conn.execute("BEGIN IMMEDIATE TRANSACTION")
+                try:
+                    restored = 0
+                    for task_dict in tasks:
+                        if not isinstance(task_dict, dict) or not task_dict.get("id"):
+                            continue
+                        try:
+                            restore_row = (
+                                task_dict["id"],
+                                user_id,
+                                task_dict.get("title", ""),
+                                task_dict.get("description", ""),
+                                task_dict.get("project", ""),
+                                task_dict.get("owner", ""),
+                                task_dict.get("priority", "medium"),
+                                task_dict.get("status", "pending"),
+                                bool(task_dict.get("completed", False)),
+                                task_dict.get("completed_at"),
+                                task_dict.get("due_date"),
+                                task_dict.get("estimated_duration", 60),
+                                task_dict.get("scheduled_hour"),
+                                task_dict.get("scheduled_minute"),
+                                task_dict.get("scheduled_date"),
+                                task_dict.get("scheduled_duration"),
+                                bool(task_dict.get("struck_forever", False)),
+                                bool(task_dict.get("struck_today", False)),
+                                task_dict.get("struck_date"),
+                                task_dict.get("strike_report"),
+                                task_dict.get("strike_count", 0),
+                                json.dumps(task_dict.get("daily_strikes") or {}),
+                                task_dict.get("refreshed_at"),
+                                task_dict.get("recurrence_type") or None,
+                                task_dict.get("recurrence_param"),
+                                task_dict.get("snoozed_until"),
+                                json.dumps(task_dict.get("subtasks") or []),
+                                task_dict.get("parent_id"),
+                                task_dict.get("created_at", datetime.now().isoformat()),
+                                task_dict.get("updated_at", datetime.now().isoformat()),
+                                task_dict.get("archived_at")
+                                or datetime.now().isoformat(),
+                            )
+
+                            conn.execute(
+                                """
+                                INSERT OR REPLACE INTO archived_tasks (
+                                    id, user_id, title, description, project, owner, priority, status,
+                                    completed, completed_at, due_date, estimated_duration, scheduled_hour,
+                                    scheduled_minute, scheduled_date, scheduled_duration, struck_forever, struck_today, struck_date, strike_report, strike_count,
+                                    daily_strikes, refreshed_at, recurrence_type, recurrence_param, snoozed_until, subtasks, parent_id, created_at, updated_at, archived_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                                restore_row,
+                            )
+                            restored += 1
+                        except Exception as task_e:  # noqa: broad-except - skip corrupt snapshot rows
+                            self.logger.warning(
+                                "Failed to restore archived task %s for user %s: %s",
+                                task_dict.get("id"),
+                                user_id,
+                                task_e,
+                            )
+                            continue
+
+                    conn.commit()
+                    self.logger.info(
+                        "Restored %d archived tasks for user %s (undo of clear)",
+                        restored,
+                        user_id,
+                    )
+                    return restored
+                except Exception as inner_e:
+                    conn.rollback()
+                    self.logger.exception(
+                        "Transaction failed restoring archived snapshot for user %s: %s",
+                        user_id,
+                        inner_e,
+                    )
+                    raise
+        except Exception as e:
+            self.logger.exception(
+                "Error restoring archived snapshot for user %s", user_id
+            )
+            raise DatabaseError(
+                message="Error restoring archived tasks snapshot",
+                cause=e,
+            )
+
     def get_archived_task_count(self, user_id: str) -> int:
         """Get the count of archived tasks for a user.
 
@@ -3386,9 +3549,12 @@ class SQLiteDataManager:
 
         This is typically called by a background job. Returns the number of tasks archived.
         Only archives tasks that are:
-        - Completed (completed=True)
-        - Have a completed_at timestamp older than days_old days
-        - Are still in the tasks table (not already archived)
+        - PERMANENTLY done: completed=True or struck_forever=True
+          (never tasks that are merely struck for today / struck for X days,
+           even if those show as 'completed' in the UI)
+        - Not snoozed (a snoozed task is expected to come back on its own)
+        - Completed/struck longer ago than days_old days
+        - Still in the tasks table (not already archived)
         """
         try:
             self._ensure_user_exists(user_id)
@@ -3401,11 +3567,15 @@ class SQLiteDataManager:
                     cutoff_date = datetime.now() - timedelta(days=days_old)
                     cutoff_iso = cutoff_date.isoformat()
 
-                    # Find completed tasks older than cutoff
+                    # Find permanently-completed tasks older than cutoff.
+                    # Use struck_date as fallback when completed_at is missing.
                     cursor = conn.execute(
                         """
                         SELECT id FROM tasks
-                        WHERE user_id = ? AND completed = 1 AND completed_at < ?
+                        WHERE user_id = ?
+                          AND (completed = 1 OR struck_forever = 1)
+                          AND (snoozed_until IS NULL OR snoozed_until = '')
+                          AND COALESCE(completed_at, struck_date) < ?
                     """,
                         (user_id, cutoff_iso),
                     )
@@ -3572,6 +3742,13 @@ class SQLiteDataManager:
                                 )
                                 has_perf_disable_glow = "perf_disable_glow" in cols
                                 has_compact_mode = "compact_mode" in cols
+                                has_start_page = "start_page" in cols
+                                has_default_task_duration = (
+                                    "default_task_duration" in cols
+                                )
+                                has_notification_sound = "notification_sound" in cols
+                                has_week_start_day = "week_start_day" in cols
+                                has_archive_after_days = "archive_after_days" in cols
 
                                 select_cols = [
                                     "theme",
@@ -3607,6 +3784,20 @@ class SQLiteDataManager:
                                     select_cols.append("perf_disable_shadows")
                                 if has_perf_disable_animations:
                                     select_cols.append("perf_disable_animations")
+                                if has_perf_disable_glow:
+                                    select_cols.append("perf_disable_glow")
+                                if has_compact_mode:
+                                    select_cols.append("compact_mode")
+                                if has_start_page:
+                                    select_cols.append("start_page")
+                                if has_default_task_duration:
+                                    select_cols.append("default_task_duration")
+                                if has_notification_sound:
+                                    select_cols.append("notification_sound")
+                                if has_week_start_day:
+                                    select_cols.append("week_start_day")
+                                if has_archive_after_days:
+                                    select_cols.append("archive_after_days")
 
                                 cursor = conn.execute(
                                     f"SELECT {', '.join(select_cols)} FROM user_preferences WHERE user_id = ?",
@@ -3692,6 +3883,30 @@ class SQLiteDataManager:
                                         if "perf_disable_glow" in raw
                                         and raw.get("perf_disable_glow") is not None
                                         else False,
+                                        "compact_mode": bool(raw.get("compact_mode"))
+                                        if "compact_mode" in raw
+                                        and raw.get("compact_mode") is not None
+                                        else False,
+                                        "start_page": raw.get("start_page") or "tasks",
+                                        "default_task_duration": raw.get(
+                                            "default_task_duration"
+                                        )
+                                        if raw.get("default_task_duration") is not None
+                                        else 60,
+                                        "notification_sound": bool(
+                                            raw.get("notification_sound")
+                                        )
+                                        if "notification_sound" in raw
+                                        and raw.get("notification_sound") is not None
+                                        else False,
+                                        "week_start_day": raw.get("week_start_day")
+                                        if raw.get("week_start_day") is not None
+                                        else 1,
+                                        "archive_after_days": raw.get(
+                                            "archive_after_days"
+                                        )
+                                        if raw.get("archive_after_days") is not None
+                                        else 60,
                                         "created_at": raw.get("created_at"),
                                         "updated_at": raw.get("updated_at"),
                                     }
@@ -3712,21 +3927,50 @@ class SQLiteDataManager:
                                 has_mini_analytics_column = (
                                     "mini_analytics_interval" in cols
                                 )
+                                has_daily_reset_column = "daily_reset_time" in cols
                                 has_settings_layout = "settings_layout" in cols
+                                has_qp_column_legacy = "quick_project_from_title" in cols
+                                has_casual_column_legacy = "casual_dates" in cols
+                                has_start_page_legacy = "start_page" in cols
+                                has_default_task_duration_legacy = (
+                                    "default_task_duration" in cols
+                                )
+                                has_notification_sound_legacy = (
+                                    "notification_sound" in cols
+                                )
+                                has_week_start_day_legacy = "week_start_day" in cols
+                                has_archive_after_days_legacy = (
+                                    "archive_after_days" in cols
+                                )
 
                                 select_cols = [
                                     "theme",
                                     "dpi_scale",
                                     "autosave_interval",
                                     "notifications",
-                                    "daily_reset_time",
                                 ]
+                                if has_daily_reset_column:
+                                    select_cols.append("daily_reset_time")
                                 if has_last_reset_column:
                                     select_cols.append("last_daily_reset_at")
                                 if has_mini_analytics_column:
                                     select_cols.append("mini_analytics_interval")
                                 if has_settings_layout:
                                     select_cols.append("settings_layout")
+                                if has_qp_column_legacy:
+                                    select_cols.append("quick_project_from_title")
+                                if has_casual_column_legacy:
+                                    select_cols.append("casual_dates")
+                                if has_start_page_legacy:
+                                    select_cols.append("start_page")
+                                if has_default_task_duration_legacy:
+                                    select_cols.append("default_task_duration")
+                                if has_notification_sound_legacy:
+                                    select_cols.append("notification_sound")
+                                if has_week_start_day_legacy:
+                                    select_cols.append("week_start_day")
+                                if has_archive_after_days_legacy:
+                                    select_cols.append("archive_after_days")
                                 cursor = conn.execute(
                                     f"SELECT {', '.join(select_cols)} FROM settings WHERE user_id = ?",
                                     (user_id,),
@@ -3761,6 +4005,34 @@ class SQLiteDataManager:
                                         else 5,
                                         "settings_layout": raw.get("settings_layout")
                                         or "scroll",
+                                        "quick_project_from_title": bool(
+                                            raw.get("quick_project_from_title")
+                                        )
+                                        if raw.get("quick_project_from_title")
+                                        is not None
+                                        else False,
+                                        "casual_dates": bool(raw.get("casual_dates"))
+                                        if raw.get("casual_dates") is not None
+                                        else False,
+                                        "start_page": raw.get("start_page") or "tasks",
+                                        "default_task_duration": raw.get(
+                                            "default_task_duration"
+                                        )
+                                        if raw.get("default_task_duration") is not None
+                                        else 60,
+                                        "notification_sound": bool(
+                                            raw.get("notification_sound")
+                                        )
+                                        if raw.get("notification_sound") is not None
+                                        else False,
+                                        "week_start_day": raw.get("week_start_day")
+                                        if raw.get("week_start_day") is not None
+                                        else 1,
+                                        "archive_after_days": raw.get(
+                                            "archive_after_days"
+                                        )
+                                        if raw.get("archive_after_days") is not None
+                                        else 60,
                                         "timezone": "UTC",  # Default for old data
                                         "language": "en",  # Default for old data
                                     }
@@ -3841,6 +4113,8 @@ class SQLiteDataManager:
             "default_task_duration": 60,
             # Start page on app launch
             "start_page": "tasks",
+            # Auto-archive completed tasks older than this many days (2 months by default)
+            "archive_after_days": 60,
             # Play notification sounds
             "notification_sound": False,
             # Week start day (0=Sunday, 1=Monday)
@@ -3981,10 +4255,21 @@ class SQLiteDataManager:
             "tasks",
             "planner",
             "notes",
+            "notes-new",
             "analytics",
         ):
             sp = "tasks"
         validated["start_page"] = sp
+
+        # Auto-archive completed tasks after N days (7..365)
+        aad = settings.get("archive_after_days", 60)
+        try:
+            aad = int(aad)
+        except Exception:  # noqa: broad-except
+            aad = 60
+        if aad < 7 or aad > 365:
+            aad = 60
+        validated["archive_after_days"] = aad
 
         # Notification sound
         ns = settings.get("notification_sound", False)
@@ -4222,6 +4507,26 @@ class SQLiteDataManager:
                                         conn.execute(
                                             "ALTER TABLE user_preferences ADD COLUMN compact_mode INTEGER DEFAULT 0"
                                         )
+                                    if "start_page" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE user_preferences ADD COLUMN start_page TEXT DEFAULT 'tasks'"
+                                        )
+                                    if "default_task_duration" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE user_preferences ADD COLUMN default_task_duration INTEGER DEFAULT 60"
+                                        )
+                                    if "notification_sound" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE user_preferences ADD COLUMN notification_sound INTEGER DEFAULT 0"
+                                        )
+                                    if "week_start_day" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE user_preferences ADD COLUMN week_start_day INTEGER DEFAULT 1"
+                                        )
+                                    if "archive_after_days" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE user_preferences ADD COLUMN archive_after_days INTEGER DEFAULT 60"
+                                        )
                                 except Exception as schema_e:
                                     # Log but do not fail save if ALTER fails; feature will just fall back to default
                                     self.logger.warning(
@@ -4240,8 +4545,9 @@ class SQLiteDataManager:
                                         finish, intensity,
                                         perf_disable_blur, perf_disable_shadows, perf_disable_animations, perf_disable_glow,
                                         compact_mode,
+                                        start_page, default_task_duration, notification_sound, week_start_day, archive_after_days,
                                         updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                     (
                                         user_id,
@@ -4307,6 +4613,17 @@ class SQLiteDataManager:
                                         1
                                         if validated_settings.get("compact_mode", False)
                                         else 0,
+                                        validated_settings.get("start_page", "tasks"),
+                                        validated_settings.get(
+                                            "default_task_duration", 60
+                                        ),
+                                        1
+                                        if validated_settings.get(
+                                            "notification_sound", False
+                                        )
+                                        else 0,
+                                        validated_settings.get("week_start_day", 1),
+                                        validated_settings.get("archive_after_days", 60),
                                         datetime.now().isoformat(),
                                     ),
                                 )
@@ -4317,6 +4634,10 @@ class SQLiteDataManager:
                                         "PRAGMA table_info(settings)"
                                     )
                                     cols = [row[1] for row in col_cursor.fetchall()]
+                                    if "daily_reset_time" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE settings ADD COLUMN daily_reset_time TEXT DEFAULT '06:00'"
+                                        )
                                     if "mini_analytics_interval" not in cols:
                                         conn.execute(
                                             "ALTER TABLE settings ADD COLUMN mini_analytics_interval INTEGER DEFAULT 5"
@@ -4324,6 +4645,34 @@ class SQLiteDataManager:
                                     if "settings_layout" not in cols:
                                         conn.execute(
                                             "ALTER TABLE settings ADD COLUMN settings_layout TEXT DEFAULT 'scroll'"
+                                        )
+                                    if "quick_project_from_title" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE settings ADD COLUMN quick_project_from_title INTEGER DEFAULT 0"
+                                        )
+                                    if "casual_dates" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE settings ADD COLUMN casual_dates INTEGER DEFAULT 0"
+                                        )
+                                    if "start_page" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE settings ADD COLUMN start_page TEXT DEFAULT 'tasks'"
+                                        )
+                                    if "default_task_duration" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE settings ADD COLUMN default_task_duration INTEGER DEFAULT 60"
+                                        )
+                                    if "notification_sound" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE settings ADD COLUMN notification_sound INTEGER DEFAULT 0"
+                                        )
+                                    if "week_start_day" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE settings ADD COLUMN week_start_day INTEGER DEFAULT 1"
+                                        )
+                                    if "archive_after_days" not in cols:
+                                        conn.execute(
+                                            "ALTER TABLE settings ADD COLUMN archive_after_days INTEGER DEFAULT 60"
                                         )
                                 except Exception as schema_e:
                                     self.logger.exception(
@@ -4334,8 +4683,11 @@ class SQLiteDataManager:
                                     """
                                     INSERT OR REPLACE INTO settings (
                                         user_id, theme, dpi_scale, autosave_interval, notifications,
-                                        daily_reset_time, last_daily_reset_at, mini_analytics_interval, settings_layout, updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        daily_reset_time, last_daily_reset_at, mini_analytics_interval, settings_layout,
+                                        quick_project_from_title, casual_dates,
+                                        start_page, default_task_duration, notification_sound, week_start_day, archive_after_days,
+                                        updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                     (
                                         user_id,
@@ -4351,6 +4703,25 @@ class SQLiteDataManager:
                                         validated_settings.get(
                                             "settings_layout", "scroll"
                                         ),
+                                        1
+                                        if validated_settings.get(
+                                            "quick_project_from_title", False
+                                        )
+                                        else 0,
+                                        1
+                                        if validated_settings.get("casual_dates", False)
+                                        else 0,
+                                        validated_settings.get("start_page", "tasks"),
+                                        validated_settings.get(
+                                            "default_task_duration", 60
+                                        ),
+                                        1
+                                        if validated_settings.get(
+                                            "notification_sound", False
+                                        )
+                                        else 0,
+                                        validated_settings.get("week_start_day", 1),
+                                        validated_settings.get("archive_after_days", 60),
                                         datetime.now().isoformat(),
                                     ),
                                 )
@@ -5660,6 +6031,44 @@ class SQLiteDataManager:
             return migrations_applied
         except Exception as e:
             self.logger.error(f"Migration 032 failed: {e}")
+            raise
+
+    def _migration_033_archived_tasks_parent_id(self, conn) -> List[Dict[str, Any]]:
+        """Migration 33: Add parent_id/was_split_encoded to archived_tasks if missing.
+
+        Databases that ran migration 030 before nested tasks (028) was added have
+        an archived_tasks table without parent_id, which made every auto-archive
+        INSERT fail silently ('table archived_tasks has no column named parent_id').
+        """
+        migrations_applied = []
+
+        try:
+            table = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='archived_tasks'"
+            ).fetchone()
+            if table:
+                col_cursor = conn.execute("PRAGMA table_info(archived_tasks)")
+                cols = [row[1] for row in col_cursor.fetchall()]
+                if "parent_id" not in cols:
+                    conn.execute(
+                        "ALTER TABLE archived_tasks ADD COLUMN parent_id TEXT"
+                    )
+                    self.logger.info("Added parent_id column to archived_tasks table")
+                if "was_split_encoded" not in cols:
+                    conn.execute(
+                        "ALTER TABLE archived_tasks ADD COLUMN was_split_encoded BOOLEAN DEFAULT 0"
+                    )
+                    self.logger.info("Added was_split_encoded column to archived_tasks table")
+                migrations_applied.append(
+                    {
+                        "version": 33,
+                        "description": "Repaired archived_tasks schema drift (parent_id/was_split_encoded columns)",
+                        "sql": "ALTER TABLE archived_tasks ADD COLUMN parent_id TEXT / was_split_encoded BOOLEAN",
+                    }
+                )
+            return migrations_applied
+        except Exception as e:
+            self.logger.error(f"Migration 033 failed: {e}")
             raise
 
     # User Management Methods

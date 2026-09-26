@@ -1,7 +1,7 @@
 {
-  "version": "34.1",
-  "build": "281",
-  "release_date": "2026-06-26T03:26:16.721041",
+  "version": "35.5",
+  "build": "296",
+  "release_date": "2026-09-26T21:11:39.914376",
   "update_channel": "stable",
-  "build_notes": "Major Refactoring & Features: Phase 1 & 2 modularization complete (database layer extracted into 8 specialized repositories, application services refactored), nested tasks feature disabled and moved to waitlist for future implementation, comprehensive code cleanup with documentation preserved."
+  "build_notes": "Performance & Code Quality: Enabled Flask multi-threading for parallel requests, removed duplicate AppContext class, improved decorator metadata preservation with @functools.wraps, cleaned nested tasks PATCH endpoint, documented data layer coexistence, verified analytics optimization. All functions remain backward compatible."
 }

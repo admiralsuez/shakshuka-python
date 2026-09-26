@@ -999,6 +999,93 @@ const _renderTasksSchedule = (cb) => {
     return setTimeout(cb, 1000); // 1 second fallback
 };
 
+// ==== Archived Tasks folder (Completed filter) ====
+// Shared state lives in AppState so both renderers (this one and pages/tasks.js)
+// see it: 'archivedTasksCache' (array|null) and 'showingArchivedView' (bool).
+
+function _formatArchivedDate(raw) {
+    if (!raw) return '';
+    try {
+        const d = new Date(typeof raw === 'string' && raw.length === 10 && !raw.includes('T') ? raw + 'T12:00:00' : raw);
+        return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch (e) { return ''; }
+}
+
+function _buildArchivedEntryHTML() {
+    const cache = (typeof AppState !== 'undefined' && AppState.get) ? AppState.get('archivedTasksCache') : null;
+    const count = Array.isArray(cache) ? ` (${cache.length})` : '';
+    return `
+        <div class="show-archived-button-container">
+            <button id="show-archived-tasks-btn" class="show-archived-button" onclick="loadAndShowArchivedTasks()">
+                <i class="fas fa-archive"></i> Archived Tasks${count}
+            </button>
+        </div>
+    `;
+}
+
+function _buildArchivedViewHTML() {
+    const archivedTasks = ((typeof AppState !== 'undefined' && AppState.get) ? AppState.get('archivedTasksCache') : []) || [];
+
+    const backBar = `
+        <div class="show-archived-button-container">
+            <button id="show-archived-tasks-btn" class="show-archived-button" onclick="hideArchivedTasksView()">
+                <i class="fas fa-arrow-left"></i> Back to Completed
+            </button>
+            <span class="archived-view-title" style="margin-left: 0.6rem; color: var(--text-secondary); font-size: 0.85rem;">
+                <i class="fas fa-archive"></i> Archived Tasks
+            </span>
+            ${archivedTasks.length > 0 ? `
+            <button id="archive-export-clear-btn" class="show-archived-button" style="margin-left: auto;" onclick="exportAndDeleteArchivedTasks()" title="Download all archived tasks as a JSON file first, then delete them permanently from the archive">
+                <i class="fas fa-download"></i> Export &amp; Clear All
+            </button>
+            ` : ''}
+        </div>
+    `;
+
+    if (archivedTasks.length === 0) {
+        return backBar + `
+            <div class="empty-state">
+                <i class="fas fa-archive" style="font-size: 3rem; color: #FFB6C1; margin-bottom: 1rem;"></i>
+                <h3>No archived tasks</h3>
+                <p>Completed tasks older than your archive period (Settings) will appear here.</p>
+            </div>
+        `;
+    }
+
+    const rows = archivedTasks.map(task => {
+        const completedOn = _formatArchivedDate(task.completed_at || task.struck_date);
+        const archivedOn = _formatArchivedDate(task.archived_at);
+        const meta = [completedOn ? `Completed ${completedOn}` : '', archivedOn ? `Archived ${archivedOn}` : '']
+            .filter(Boolean).join(' · ');
+        return `
+        <div class="task-item completed" data-task-id="${sanitizeHTML(task.id)}">
+            <div class="task-project-tag">
+                ${task.project ? `<span class="project-tag">${sanitizeHTML(task.project)}</span>` : '<span class="project-tag project-tag--no-project no-project">No Project</span>'}
+            </div>
+            <div class="task-content">
+                <h3 class="task-title struck">${sanitizeHTML(task.title)}</h3>
+                ${task.strike_report ? `<p class="strike-report"><em>Last strike: ${sanitizeHTML(task.strike_report)}</em></p>` : ''}
+                ${meta ? `<p class="archived-meta" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px;">${sanitizeHTML(meta)}</p>` : ''}
+            </div>
+            <div class="task-actions">
+                <button class="task-action unarchive-btn" onclick="unarchiveTask('${sanitizeHTML(task.id)}')" title="Restore to Completed">
+                    <i class="fas fa-undo"></i>
+                </button>
+                <button class="task-action" onclick="openStrikeReportHistoryModal('${sanitizeHTML(task.id)}')" title="Report History">
+                    <i class="fas fa-clipboard-list"></i>
+                </button>
+                <button class="task-action" onclick="deleteArchivedTask('${sanitizeHTML(task.id)}')" title="Delete permanently">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+        `;
+    }).join('');
+
+    return backBar + rows;
+}
+// ==== End Archived Tasks folder ====
+
 function _renderTasksNow(filter, projectFilterArg) {
     const tasksList = document.getElementById('tasks-list');
 
@@ -1070,6 +1157,17 @@ function _renderTasksNow(filter, projectFilterArg) {
         });
     }
     
+    // Completed filter: when the Archived folder is open, render its contents instead
+    if (filter === 'completed'
+        && typeof AppState !== 'undefined' && AppState.get
+        && AppState.get('showingArchivedView') === true) {
+        tasksList.innerHTML = _buildArchivedViewHTML();
+        return;
+    }
+
+    // Archived folder entry pinned to the TOP of the Completed list (lazy-loaded on click)
+    const _archiveEntryHTML = (filter === 'completed') ? _buildArchivedEntryHTML() : '';
+
     if (sortedTasks.length === 0) {
         // Customize empty state message based on current filter
         let emptyMessage = 'No tasks found';
@@ -1090,7 +1188,7 @@ function _renderTasksNow(filter, projectFilterArg) {
             emptyIcon = 'fa-clipboard-list';
         }
         
-        tasksList.innerHTML = `
+        tasksList.innerHTML = _archiveEntryHTML + `
             <div class="empty-state">
                 <i class="fas ${emptyIcon}" style="font-size: 3rem; color: #FFB6C1; margin-bottom: 1rem;"></i>
                 <h3>${emptyMessage}</h3>
@@ -1158,6 +1256,11 @@ function _renderTasksNow(filter, projectFilterArg) {
                 <button class="task-action" onclick="editTask('${task.id}')" title="Edit">
                     <i class="fas fa-edit"></i>
                 </button>
+                ${(task.completed || task.struck_forever) ? `
+                    <button class="task-action archive-btn" onclick="archiveTask('${task.id}')" title="Move to Archived folder">
+                        <i class="fas fa-archive"></i>
+                    </button>
+                ` : ''}
                 <button class="task-action" onclick="deleteTask('${task.id}')" title="Delete">
                     <i class="fas fa-trash"></i>
                 </button>
@@ -1167,7 +1270,7 @@ function _renderTasksNow(filter, projectFilterArg) {
         </div>
     `;
     }).join('');
-    tasksList.innerHTML = listHTML;
+    tasksList.innerHTML = _archiveEntryHTML + listHTML;
 }
 
 // Public entry: schedule render work into the next animation frame

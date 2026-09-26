@@ -31,7 +31,7 @@ function _dismissActive(then) {
 function _showNext() {
     if (_notifActive || _notifQueue.length === 0) return;
     const item = _notifQueue.shift();
-    const { message, type, isPersistent, onClick, isAuthError, onAutoLogin } = item;
+    const { message, type, isPersistent, onClick, isAuthError, onAutoLogin, durationMs } = item;
 
     const container = _getNotifContainer();
     const notification = document.createElement('div');
@@ -59,9 +59,33 @@ function _showNext() {
     ].filter(Boolean).join(';');
 
     if (onClick) {
+        let _clicked = false;
         notification.addEventListener('click', (evt) => {
             if (evt.target && evt.target.closest && evt.target.closest('.notification-close')) return;
-            try { onClick(); } catch (e) { console.error('Notification onClick failed', e); }
+            if (_clicked) return;  // ignore double-clicks while the action runs
+            _clicked = true;
+
+            // Immediate tactile feedback so the user can see the press registered.
+            // (Previously the toast just sat there looking unresponsive.)
+            notification.style.transition = 'transform 90ms ease, filter 90ms ease';
+            notification.style.transform = 'scale(0.96)';
+            notification.style.filter = 'brightness(1.25)';
+            setTimeout(() => {
+                notification.style.transform = '';
+                notification.style.filter = '';
+            }, 160);
+
+            try {
+                const result = onClick();
+                // If the action returned a promise, we're already done showing feedback;
+                // the action itself reports success/failure via its own notification.
+                if (result && typeof result.catch === 'function') {
+                    result.catch((e) => { console.error('Notification onClick failed', e); });
+                }
+            } catch (e) { console.error('Notification onClick failed', e); }
+
+            // Re-enable so a failed action can be retried after the toast lingers
+            setTimeout(() => { _clicked = false; }, 800);
         });
     }
 
@@ -90,8 +114,8 @@ function _showNext() {
     }
 
     if (!isPersistent) {
-        // Default 5s; if more items are queued we'll cut it short when they arrive
-        const duration = 5000;
+        // Default 5s; honor an explicit per-toast durationMs when provided
+        const duration = (typeof durationMs === 'number' && durationMs > 0) ? durationMs : 5000;
         const timeoutId = setTimeout(() => {
             _notifActive = null;
             notification.style.animation = 'slideOutRight 0.3s ease-in-out';
@@ -129,7 +153,7 @@ function showNotification(message, type = 'info', options = {}) {
         _notifActive.timeoutId = newTimeoutId;
     }
 
-    _notifQueue.push({ message, type, isPersistent, onClick, isAuthError, onAutoLogin: options.autoOpenLogin });
+    _notifQueue.push({ message, type, isPersistent, onClick, isAuthError, onAutoLogin: options.autoOpenLogin, durationMs: options.durationMs });
     _showNext();
 }
 

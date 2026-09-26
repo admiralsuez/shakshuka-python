@@ -16,6 +16,13 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 import re
 
+from cachetools import TTLCache
+
+# Undo window for "Export & Clear All" on archived tasks: the UI counts a
+# 10-second toast; server keeps the snapshot a little longer to absorb latency.
+_ARCHIVE_UNDO_TTL_SECONDS = 30
+_archived_clear_snapshots = TTLCache(maxsize=10, ttl=_ARCHIVE_UNDO_TTL_SECONDS)
+
 # Import app context and utilities (will be injected)
 from src.constants import DEFAULT_USER_ID, TaskStatus
 from src.services.importer import parse_csv_tasks, parse_txt_tasks
@@ -99,10 +106,32 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # Validator functions for decorators
 def validate_schedule(data):
-    """Validate schedule input"""
-    hour = data.get('hour')
-    minute = data.get('minute', 0)
+    """Validate schedule input
+    
+    Accepts hour in two formats:
+    - Integer: hour=22, minute=30 (separate fields)
+    - String: hour="22:30" (HH:MM format)
+    """
+    hour_input = data.get('hour')
     duration = data.get('duration', 30)
+    
+    # Parse hour and minute from input
+    hour = None
+    minute = 0
+    
+    # Handle string format "HH:MM"
+    if isinstance(hour_input, str) and ':' in hour_input:
+        try:
+            parts = hour_input.split(':', 1)
+            hour = int(parts[0])
+            minute = int(parts[1])
+        except (ValueError, IndexError):
+            return False, "Hour must be an integer or 'HH:MM' format"
+    else:
+        # Handle integer format
+        hour = hour_input
+        minute = data.get('minute', 0)
+    
     return validate_schedule_input(hour, minute, duration)
 
 
@@ -257,12 +286,162 @@ def get_tasks(user_id, data_manager):
 @require_data_manager
 @handle_database_error
 def get_archived_tasks(user_id, data_manager):
-    """Get struck archived tasks for the current user (on-demand)"""
+    """Get all archived tasks for the current user (on-demand, lazy-loaded by UI)"""
     logger.info(f"API get_archived_tasks called with user_id: {user_id}")
-    
-    tasks = data_manager.load_struck_archived_tasks_for_user(user_id)
-    logger.info(f"Loaded {len(tasks)} struck archived tasks for user {user_id}")
+
+    tasks = data_manager.load_archived_tasks_for_user(user_id, limit=1000)
+    logger.info(f"Loaded {len(tasks)} archived tasks for user {user_id}")
     return jsonify(tasks)
+
+
+@task_bp.route('/archive-run', methods=['POST'])
+@require_data_manager
+@handle_database_error
+def run_archive_now(user_id, data_manager):
+    """Manually trigger auto-archival of completed tasks (Settings > Triggers).
+
+    Moves completed tasks older than the user's 'archive_after_days' setting
+    (default 60 ~ 2 months) to the archived_tasks table. Archived tasks keep
+    their completed flag and can be viewed/restored from the Archived folder.
+    """
+    from src.constants import AUTO_ARCHIVE_COMPLETED_DAYS
+
+    logger.info(f"API run_archive_now called for user: {user_id}")
+
+    days_old = AUTO_ARCHIVE_COMPLETED_DAYS
+    try:
+        settings = data_manager.load_settings(user_id) or {}
+        days_setting = settings.get('archive_after_days')
+        if days_setting is not None:
+            days_old = max(7, min(365, int(days_setting)))
+    except Exception:  # noqa: broad-except - settings read failure falls back to default
+        logger.exception("Error reading archive_after_days setting, using default")
+
+    archived_count = data_manager.auto_archive_old_completed_tasks(user_id, days_old)
+    logger.info(f"Manual archival archived {archived_count} tasks (>{days_old} days) for user {user_id}")
+    return jsonify({
+        'success': True,
+        'archived_count': archived_count,
+        'days_old': days_old,
+        'message': f'Archived {archived_count} completed task{"s" if archived_count != 1 else ""} older than {days_old} days',
+    })
+
+
+@task_bp.route('/archived/export-excel', methods=['GET'])
+@require_data_manager
+@handle_database_error
+def export_archived_tasks_excel(user_id, data_manager):
+    """Download ALL archived tasks as an .xlsx workbook."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    logger.info(f"API export_archived_tasks_excel called for user {user_id}")
+
+    tasks = data_manager.load_archived_tasks_for_user(user_id, limit=100000) or []
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Archived Tasks'
+
+    hdr_font = Font(name='Calibri', bold=True, color='FFFFFF', size=11)
+    hdr_fill = PatternFill(start_color='FF6B35', end_color='FF6B35', fill_type='solid')
+    hdr_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    border = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin'),
+    )
+    cell_align = Alignment(vertical='center', wrap_text=True)
+
+    headers = [
+        'Title', 'Project', 'Owner', 'Priority', 'Completed At', 'Struck Date',
+        'Strike Report', 'Strikes', 'Archived At', 'Created At',
+    ]
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=col, value=h)
+        c.font = hdr_font
+        c.fill = hdr_fill
+        c.alignment = hdr_align
+        c.border = border
+
+    def _fmt_date(raw):
+        if not raw:
+            return ''
+        try:
+            return datetime.fromisoformat(str(raw)).strftime('%d-%m-%Y %H:%M')
+        except Exception:  # noqa: broad-except
+            return str(raw)
+
+    for ridx, task in enumerate(tasks, 2):
+        values = [
+            task.get('title', ''),
+            task.get('project', ''),
+            task.get('owner', ''),
+            task.get('priority', ''),
+            _fmt_date(task.get('completed_at')),
+            task.get('struck_date', ''),
+            task.get('strike_report', ''),
+            task.get('strike_count', 0),
+            _fmt_date(task.get('archived_at')),
+            _fmt_date(task.get('created_at')),
+        ]
+        for col, v in enumerate(values, 1):
+            c = ws.cell(row=ridx, column=col, value=v)
+            c.border = border
+            c.alignment = cell_align
+
+    for letter, w in {'A': 40, 'B': 16, 'C': 14, 'D': 10, 'E': 18, 'F': 12, 'G': 40, 'H': 8, 'I': 18, 'J': 18}.items():
+        ws.column_dimensions[letter].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = f"Shakshuka_Archived_Tasks_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    logger.info(f"Exported {len(tasks)} archived tasks to Excel for user {user_id}")
+    return send_file(
+        buf, as_attachment=True, download_name=fname,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
+@task_bp.route('/archived/clear', methods=['POST'])
+@require_data_manager
+@handle_database_error
+def clear_archived_tasks(user_id, data_manager):
+    """Permanently delete ALL archived tasks for the user.
+
+    The UI downloads the archive contents first; this endpoint only runs after
+    the download has been triggered. Non-reversible.
+    """
+    logger.info(f"API clear_archived_tasks called for user: {user_id}")
+
+    # Snapshot before deleting so the UI can offer a short undo window
+    snapshot = data_manager.load_archived_tasks_for_user(user_id, limit=100000) or []
+    if snapshot:
+        _archived_clear_snapshots[user_id] = snapshot
+
+    deleted = data_manager.clear_archived_tasks_for_user(user_id)
+    logger.info(f"Cleared {deleted} archived tasks for user {user_id}")
+    return jsonify({'success': True, 'deleted_count': deleted})
+
+
+@task_bp.route('/archived/undo-clear', methods=['POST'])
+@require_data_manager
+@handle_database_error
+def undo_clear_archived_tasks(user_id, data_manager):
+    """Undo an archive clear: restores the snapshot taken when 'Export & Clear' ran.
+
+    The snapshot lives in a short TTL window (a few seconds past the UI's
+    10-second undo toast). Nothing stored persistently - a restart loses it.
+    """
+    logger.info(f"API undo_clear_archived_tasks called for user: {user_id}")
+    snapshot = _archived_clear_snapshots.pop(user_id, None)
+    if not snapshot:
+        return jsonify({'error': 'Nothing to undo - the undo window has expired'}), 404
+
+    restored = data_manager.restore_archived_tasks_snapshot(user_id, snapshot)
+    logger.info(f"Undo restored {restored} archived tasks for user {user_id}")
+    return jsonify({'success': True, 'restored_count': restored})
 
 
 @task_bp.route('/import', methods=['POST'])
@@ -476,6 +655,9 @@ def patch_task(task_id, user_id, data_manager):
     #             return jsonify({'error': 'A task cannot be its own parent'}), 400
     # >>>>>> END DISABLED CODE <<<<<<
     
+    # Strip parent_id to prevent garbage writes while nested tasks feature is disabled
+    task_data.pop('parent_id', None)
+    
     # Update task using data manager
     success = data_manager.update_task_for_user(user_id, task_id, task_data)
     
@@ -573,6 +755,26 @@ def archive_task(task_id, user_id, data_manager):
     else:
         logger.error(f"Failed to archive task {task_id} for user {user_id}")
         return jsonify({'error': 'Failed to archive task'}), 500
+
+
+@task_bp.route('/<task_id>/unarchive', methods=['POST'])
+@require_data_manager
+@handle_database_error
+def unarchive_task(task_id, user_id, data_manager):
+    """Restore an archived task back to Completed (keeps its completed flags)"""
+    logger.info(f"API unarchive_task called for task {task_id} with user_id: {user_id}")
+
+    if not task_id or not isinstance(task_id, str):
+        return jsonify({'error': 'Invalid task ID'}), 400
+
+    success = data_manager.unarchive_task(user_id, task_id)
+
+    if success:
+        logger.info(f"Successfully unarchived task {task_id} for user {user_id}")
+        return jsonify({'success': True, 'message': 'Task restored to Completed', 'task_id': task_id})
+    else:
+        logger.warning(f"Failed to unarchive task {task_id} for user {user_id} (not archived?)")
+        return jsonify({'error': 'Task not found in archive'}), 404
 
 
 @task_bp.route('/<task_id>/undo-delete', methods=['POST'])
@@ -986,10 +1188,28 @@ def schedule_task(task_id, user_id, data_manager):
     if schedule_data is None:
         schedule_data = {}
 
-    hour = schedule_data.get('hour')
+    hour_input = schedule_data.get('hour')
     minute = schedule_data.get('minute', 0)
     duration = schedule_data.get('duration', 30)
     date = schedule_data.get('date', datetime.now().strftime('%Y-%m-%d'))
+    
+    # Parse hour and minute from input
+    # Handle string format "HH:MM"
+    if isinstance(hour_input, str) and ':' in hour_input:
+        try:
+            parts = hour_input.split(':', 1)
+            hour = int(parts[0])
+            minute = int(parts[1])
+        except (ValueError, IndexError):
+            return jsonify({'error': 'Invalid hour format'}), 400
+    else:
+        # Handle integer format
+        hour = hour_input
+        if not isinstance(minute, int):
+            try:
+                minute = int(minute)
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid minute format'}), 400
 
     tasks = data_manager.load_tasks(user_id)
     

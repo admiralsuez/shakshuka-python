@@ -2,8 +2,9 @@
 Auto-archive service for completed tasks older than specified days.
 
 This module provides functionality to automatically archive completed tasks that
-are older than a configurable threshold (default: 40 days). Archived tasks are
-moved to a separate database table and are not included in active task count.
+are older than a configurable threshold (default: 60 days ~ 2 months). Archived
+tasks are moved to a separate database table and are not included in active task
+count.
 
 Features:
 - Configurable archival age threshold

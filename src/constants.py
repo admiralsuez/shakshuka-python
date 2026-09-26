@@ -100,7 +100,7 @@ MAX_DURATION_MINUTES = 480
 
 # Task management
 MAX_TASKS_PER_USER = 500  # Increased from 200
-AUTO_ARCHIVE_COMPLETED_DAYS = 40  # Auto-archive completed tasks older than 40 days
+AUTO_ARCHIVE_COMPLETED_DAYS = 60  # Default: auto-archive completed tasks older than ~2 months (user-configurable)
 
 # DPI scale limits
 MIN_DPI_SCALE = 50
@@ -118,7 +118,7 @@ MAX_LIST_SIZE = 100
 
 # Task management
 MAX_TASKS_PER_USER = 500  # Increased from 200
-AUTO_ARCHIVE_COMPLETED_DAYS = 40  # Auto-archive completed tasks older than 40 days
+AUTO_ARCHIVE_COMPLETED_DAYS = 60  # Default: auto-archive completed tasks older than ~2 months (user-configurable)
 
 # Backup configuration
 BACKUP_RETENTION_DAYS = 7

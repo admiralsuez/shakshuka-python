@@ -1,0 +1,166 @@
+name: Build Release (Windows / Linux / macOS)
+
+on:
+  push:
+    tags:
+      - 'v*'          # e.g. v35.1
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 35.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  # ── Windows: Shakshuka.exe + Inno Setup installer ──────────────────────────
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = if ('${{ github.event.inputs.version }}' -ne '') { '${{ github.event.inputs.version }}' } else { '${{ github.ref_name }}' -replace '^v', '' }
+          if ($v -notmatch '^\d+\.\d+$') { Write-Error "Version must look like X.Y (got: $v)"; exit 1 }
+          echo "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Output "Building version $v"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Pin version.json to the tag (no auto-bump in CI)
+        shell: pwsh
+        run: |
+          python -c "import json,datetime; p='config/version.json'; d=json.load(open(p)); d['version']='$env:VERSION'; d['release_date']=datetime.datetime.now().isoformat(); json.dump(d, open(p,'w'), indent=2)"
+
+      - name: Install Python deps
+        run: python -m pip install -r config/requirements.txt
+
+      - name: Install Inno Setup 6
+        run: choco install innosetup --no-progress -y
+
+      - name: Build exe + installer (without version bump)
+        shell: pwsh
+        run: |
+          python -c "
+          import sys; sys.path.insert(0, 'scripts')
+          from build.executable import build_executable, create_icon
+          create_icon()
+          assert build_executable(output_dir='scripts/dist'), 'exe build failed'
+          from build.installer import build_installer
+          assert build_installer(output_dir='dist-release'), 'installer build failed'
+          "
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ env.VERSION }}
+          path: |
+            dist-release/Shakshuka-Setup-*.exe
+            scripts/dist/Shakshuka.exe
+          if-no-files-found: error
+
+  # ── Linux: .deb + .rpm via fpm ─────────────────────────────────────────────
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          V="${{ github.event.inputs.version }}"
+          if [ -z "$V" ]; then V="${GITHUB_REF_NAME#v}"; fi
+          if ! echo "$V" | grep -qE '^[0-9]+\.[0-9]+$'; then echo "Version must look like X.Y (got: $V)"; exit 1; fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "Building version $V"
+
+      - name: Install fpm + rpm tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev build-essential rpm
+          sudo gem install --no-document fpm
+          fpm --version
+
+      - name: Install Python deps (Linux flavor)
+        run: python3 -m pip install -r config/requirements-linux.txt
+
+      - name: Build .deb package
+        run: python3 scripts/build-deb.py
+
+      - name: Build .rpm package
+        run: python3 scripts/build-rpm.py
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ env.VERSION }}
+          path: |
+            *shakshuka*.deb
+            *shakshuka*.rpm
+          if-no-files-found: error
+
+  # ── macOS: Shakshuka.app + .dmg ────────────────────────────────────────────
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          V="${{ github.event.inputs.version }}"
+          if [ -z "$V" ]; then V="${GITHUB_REF_NAME#v}"; fi
+          if ! echo "$V" | grep -qE '^[0-9]+\.[0-9]+$'; then echo "Version must look like X.Y (got: $V)"; exit 1; fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python deps (skip Windows-only packages)
+        run: |
+          grep -v -i -e pywin32 -e pyobjc config/requirements.txt > /tmp/requirements-mac.txt || true
+          python3 -m pip install -r /tmp/requirements-mac.txt pyinstaller
+
+      - name: Build .app bundle and .dmg
+        run: python3 scripts/build-mac.py
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ env.VERSION }}
+          path: |
+            dist/Shakshuka.app/
+            dist/*.dmg
+          if-no-files-found: error
+
+  # ── Attach everything to the tagged GitHub Release ─────────────────────────
+  release:
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Attach artifacts to the Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/*.dmg

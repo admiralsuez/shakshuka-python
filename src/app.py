@@ -19,6 +19,7 @@ import secrets
 import logging
 import subprocess
 import sqlite3
+from functools import wraps
 from werkzeug.utils import secure_filename
 
 # Add the parent directory to Python path for imports
@@ -125,151 +126,8 @@ except Exception:  # noqa: broad-except
 # Issue #5: Import TTL cache for CSRF tokens
 from cachetools import TTLCache
 
-# Application context class to replace global variables
-class AppContext:
-    """Centralized application context to replace global variables with thread safety"""
-
-    def __init__(self):
-        self._data_manager = None
-        self._autostart_manager = WindowsAutostart("Shakshuka")
-        self._update_manager = None
-        self._pin_manager = None
-        self._auto_save_enabled = True
-        self._auto_save_thread = None
-        self._session_secrets = {}
-        # Issue #5: Use TTL cache for CSRF tokens to prevent memory leaks
-        self._csrf_tokens = TTLCache(maxsize=10000, ttl=CSRF_TOKEN_EXPIRY_SECONDS)
-        
-        # Thread safety locks
-        self._lock = threading.RLock()
-        self._auto_save_lock = threading.RLock()
-        
-        # Auto-save state management
-        self._auto_save_running = False
-        self._auto_save_stop_event = threading.Event()
-        self._last_save_time = 0
-        self._save_in_progress = False
-        self._last_saved_tasks_signature = None
-
-    @property
-    def data_manager(self):
-        return self._data_manager
-
-    @data_manager.setter
-    def data_manager(self, value):
-        self._data_manager = value
-
-    @property
-    def autostart_manager(self):
-        return self._autostart_manager
-
-    @property
-    def update_manager(self):
-        return self._update_manager
-
-    @update_manager.setter
-    def update_manager(self, value):
-        self._update_manager = value
-
-    @property
-    def pin_manager(self):
-        return self._pin_manager
-
-    @pin_manager.setter
-    def pin_manager(self, value):
-        self._pin_manager = value
-
-    @property
-    def auto_save_enabled(self):
-        return self._auto_save_enabled
-
-    @auto_save_enabled.setter
-    def auto_save_enabled(self, value):
-        self._auto_save_enabled = value
-
-    @property
-    def auto_save_thread(self):
-        return self._auto_save_thread
-
-    @auto_save_thread.setter
-    def auto_save_thread(self, value):
-        self._auto_save_thread = value
-
-    def generate_session_secret(self, user_id):
-        """Generate and store session secret"""
-        secret = security_manager.generate_session_secret(user_id)
-        self._session_secrets[user_id] = secret
-        return secret
-
-    def validate_session_secret(self, user_id, secret):
-        """Validate session secret"""
-        return self._session_secrets.get(user_id) == secret
-
-    def generate_csrf_token(self):
-        """Generate CSRF token - TTL cache handles expiration (Issue #5)"""
-        token = secrets.token_urlsafe(32)
-        self._csrf_tokens[token] = True  # TTL cache handles expiration
-        return token
-
-    def validate_csrf_token(self, token):
-        """Validate CSRF token - TTL cache handles expiration (Issue #5)"""
-        if not token or len(token) < 10:
-            return False
-        return token in self._csrf_tokens
-
-    def is_auto_save_running(self):
-        """Check if auto-save is currently running"""
-        with self._auto_save_lock:
-            return self._auto_save_running
-
-    def set_auto_save_running(self, running):
-        """Set auto-save running state"""
-        with self._auto_save_lock:
-            self._auto_save_running = running
-
-    def is_save_in_progress(self):
-        """Check if a save operation is in progress"""
-        with self._auto_save_lock:
-            return self._save_in_progress
-
-    def set_save_in_progress(self, in_progress):
-        """Set save in progress state"""
-        with self._auto_save_lock:
-            self._save_in_progress = in_progress
-
-    def get_last_save_time(self):
-        """Get the last save time"""
-        with self._auto_save_lock:
-            return self._last_save_time
-
-    def set_last_save_time(self, save_time):
-        """Set the last save time"""
-        with self._auto_save_lock:
-            self._last_save_time = save_time
-
-    def get_last_saved_tasks_signature(self):
-        """Get signature of the last saved tasks snapshot"""
-        with self._auto_save_lock:
-            return self._last_saved_tasks_signature
-
-    def set_last_saved_tasks_signature(self, signature):
-        """Cache signature of the last saved tasks snapshot"""
-        with self._auto_save_lock:
-            self._last_saved_tasks_signature = signature
-
-    def stop_auto_save_event(self):
-        """Signal auto-save to stop"""
-        self._auto_save_stop_event.set()
-
-    def wait_for_auto_save_stop(self, timeout=None):
-        """Wait for auto-save stop event"""
-        return self._auto_save_stop_event.wait(timeout)
-
-    def clear_auto_save_stop_event(self):
-        """Clear the auto-save stop event"""
-        self._auto_save_stop_event.clear()
-
-    # Password hashing functions removed - were unused dead code
+# AppContext moved to src/core/app_context.py for proper singleton pattern
+# This imports the singleton below at line 275
 
 # Initialize application context
 from src.core.app_context import app_context
@@ -335,10 +193,10 @@ set_extension(app, 'get_user_id', get_user_id)
 
 def require_csrf(f):
     """Decorator to require CSRF token validation - DISABLED"""
+    @wraps(f)
     def decorated_function(*args, **kwargs):
         # CSRF validation disabled - bypass all checks
         return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
     return decorated_function
 
 def rate_limit(f):
@@ -348,6 +206,7 @@ def rate_limit(f):
     `error_code` to make debugging easier in logs and on the frontend
     without leaking internal details.
     """
+    @wraps(f)
     def decorated_function(*args, **kwargs):
         start_time = time.time()
         client_ip = request.remote_addr or 'unknown'
@@ -395,7 +254,6 @@ def rate_limit(f):
             logger.error(f"Error in rate-limited endpoint {request.endpoint}: {e}")
             return jsonify({'error': 'Internal server error', 'error_code': 'UNEXPECTED_ENDPOINT_ERROR'}), 500
     
-    decorated_function.__name__ = f.__name__
     return decorated_function
 
 def sanitize_input(data):
@@ -1638,11 +1496,11 @@ if __name__ == '__main__':
         try:
             from werkzeug.serving import run_simple
             print(f"Server starting on http://{config.DEFAULT_HOST}:{config.DEFAULT_PORT}")
-            run_simple(config.DEFAULT_HOST, config.DEFAULT_PORT, app, use_reloader=False, use_debugger=False)
+            run_simple(config.DEFAULT_HOST, config.DEFAULT_PORT, app, use_reloader=False, use_debugger=False, threaded=True)
         except Exception as e:
             print(f"Error starting server: {e}")
             # Fallback to standard Flask run
-            app.run(host=config.DEFAULT_HOST, port=config.DEFAULT_PORT, debug=False, use_reloader=False)
+            app.run(host=config.DEFAULT_HOST, port=config.DEFAULT_PORT, debug=False, use_reloader=False, threaded=True)
             
     except Exception as e:
         print(f"Fatal error starting application: {e}")

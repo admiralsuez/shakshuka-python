@@ -112,9 +112,21 @@ class ApplicationLauncher:
         """Start the system tray icon"""
         try:
             from src.app import start_system_tray
-            
+            from src.utils.paths import get_user_data_dir
+
+            ui_url = f"http://127.0.0.1:{config.DEFAULT_PORT}"
+
             logger.info("Starting system tray...")
-            start_system_tray()
+            logger.info(
+                "Tray binding: user_data_dir=%s dashboard_url=%s",
+                get_user_data_dir(),
+                ui_url,
+            )
+            start_system_tray(
+                user_data_dir=get_user_data_dir(),
+                dashboard_url=ui_url,
+                shutdown_url=f"{ui_url}/api/shutdown",
+            )
             logger.info("System tray started successfully")
             return True
         except Exception as e:
@@ -187,7 +199,8 @@ class ApplicationLauncher:
                 config.DEFAULT_PORT,
                 app,
                 use_reloader=False,
-                use_debugger=False
+                use_debugger=False,
+                threaded=True
             )
             
         except Exception as e:
