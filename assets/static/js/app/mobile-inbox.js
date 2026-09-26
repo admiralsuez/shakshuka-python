@@ -412,6 +412,28 @@
         }
     }
 
+    // Show "phone needs re-pairing" at most once per failure episode
+    function maybeNotifyMobileRepair(attention) {
+        try {
+            const flagged = !!(attention && attention.needs_repair);
+            const markerKey = 'shakshuka_mobile_repair_shown_for';
+            const since = (attention && attention.since) || '';
+            if (!flagged) {
+                window.localStorage.removeItem(markerKey);
+                return;
+            }
+            if (window.localStorage.getItem(markerKey) === since) return; // already shown for this episode
+            window.localStorage.setItem(markerKey, since);
+            if (typeof showNotification === 'function') {
+                showNotification(
+                    'A paired phone tried to sync but its pairing is no longer valid. Open Settings → Pair Phone to re-pair it.',
+                    'warning',
+                    { durationMs: 12000 }
+                );
+            }
+        } catch (e) { /* non-fatal */ }
+    }
+
     async function pollInboxOnce() {
         if (pollingInFlight) return;
         if (document.hidden) return;
@@ -426,6 +448,10 @@
                 inboxPollingInterval = Math.min(inboxPollingInterval * 1.5, 30000);
                 return;
             }
+
+            // Surface "phone needs re-pairing" if the desktop observed failed
+            // bearer-token attempts (stale/revoked phone pairing).
+            maybeNotifyMobileRepair(data.attention);
 
             const pending = data.pending;
             if (!pending || !pending.id) {

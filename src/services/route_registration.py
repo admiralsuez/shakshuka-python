@@ -6,6 +6,7 @@ Centralizes blueprint registration and initialization to keep app.py clean.
 import logging
 from typing import Callable, Any
 
+from src.constants import GITHUB_REPO_OWNER, GITHUB_REPO_NAME
 from src.routes.task_routes import task_bp, init_task_routes
 from src.routes.notes_routes import notes_bp, init_notes_routes
 from src.routes.pin_routes import pin_bp, init_pin_routes
@@ -160,8 +161,8 @@ def register_blueprints(
         init_github_update_routes(
             get_app_version_func=get_app_version_func,
             is_newer_version_func=_is_newer_version,
-            repo_owner="vibin23",
-            repo_name="shakshuka-python",
+            repo_owner=GITHUB_REPO_OWNER,
+            repo_name=GITHUB_REPO_NAME,
         )
         app.register_blueprint(github_update_bp)
         logger.info("GitHub update routes registered")

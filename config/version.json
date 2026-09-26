@@ -1,7 +1,7 @@
 {
-  "version": "35.5",
-  "build": "296",
-  "release_date": "2026-09-26T21:11:39.914376",
+  "version": "35.8",
+  "build": "299",
+  "release_date": "2026-09-27T01:08:04.056216",
   "update_channel": "stable",
   "build_notes": "Performance & Code Quality: Enabled Flask multi-threading for parallel requests, removed duplicate AppContext class, improved decorator metadata preservation with @functools.wraps, cleaned nested tasks PATCH endpoint, documented data layer coexistence, verified analytics optimization. All functions remain backward compatible."
 }

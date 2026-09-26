@@ -273,7 +273,7 @@ class StorageService {
   }
 
   // Offline notes queue
-  Future<void> queueOfflineNote(String title, String content) async {
+  Future<void> queueOfflineNote(String title, String content, {String? folder}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final queue = await getOfflineNotesQueue();
@@ -283,6 +283,7 @@ class StorageService {
         'title': title,
         'content': content,
         'created_at': DateTime.now().toIso8601String(),
+        if (folder != null && folder.isNotEmpty) 'folder': folder,
       };
       
       queue.add(note);

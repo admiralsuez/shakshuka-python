@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'          # e.g. v35.1
+      - '[0-9]*'      # this repo's convention: bare version tags like 35.1
   workflow_dispatch:
     inputs:
       version:

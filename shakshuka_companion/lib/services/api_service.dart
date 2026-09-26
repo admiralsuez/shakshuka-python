@@ -408,11 +408,11 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> createNote(String title, String content) async {
+  Future<Map<String, dynamic>> createNote(String title, String content, {String? folder}) async {
     final device = _storage.getPairedDevice();
     if (device == null) {
       // Queue note for offline sync
-      await _storage.queueOfflineNote(title, content);
+      await _storage.queueOfflineNote(title, content, folder: folder);
       return {
         'success': true,
         'message': 'Note queued for sync when online',
@@ -432,6 +432,7 @@ class ApiService {
             body: jsonEncode({
               'title': title,
               'content': content,
+              if (folder != null && folder.isNotEmpty) 'folder': folder,
             }),
           )
           .timeout(const Duration(seconds: 15));
@@ -517,6 +518,7 @@ class ApiService {
       final result = await createNote(
         note['title'] as String,
         note['content'] as String,
+        folder: note['folder'] as String?,
       );
       if (result['success'] == true && result['offline'] != true) {
         successful.add(note['id'] as String);

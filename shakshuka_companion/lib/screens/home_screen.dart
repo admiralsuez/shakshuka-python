@@ -237,6 +237,16 @@ class _HomeScreenState extends State<HomeScreen> {
     await _notifications.checkTaskStatusUpdates();
   }
 
+  /// Upload to the PC immediately after an add when the desktop is reachable,
+  /// instead of waiting for the 1-minute sync-request debounce — the desktop
+  /// inbox lights up right away. Uses the cached connection check (30 s TTL).
+  Future<void> _maybeUploadNow() async {
+    if (!_storage.isPaired || _isUploading) return;
+    final online = await _api.testConnection();
+    if (!online) return;
+    await _autoUploadAllTasks();
+  }
+
   Future<void> _quickAddTask(String title) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) return;
@@ -246,6 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _quickAddController.clear();
     _loadTasks();
     _schedulePostAddSyncCheck();
+    _maybeUploadNow();
   }
 
   Future<void> _addTask() async {
@@ -257,6 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await _storage.addTask(result);
       _loadTasks();
       _schedulePostAddSyncCheck();
+      _maybeUploadNow();
     }
   }
 

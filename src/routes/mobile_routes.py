@@ -10,8 +10,11 @@ import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
+from cachetools import TTLCache
+
 from src.constants import DEFAULT_USER_ID
 from src.utils.validators import validate_task_data
+from src.utils.content_decoder import normalize_content
 
 # Import decorators
 from src.routes.route_decorators import (
@@ -32,6 +35,59 @@ _ensure_data_manager_func = None
 _pairing_attempts = {}  # IP -> {count, first_attempt_time}
 MAX_PAIRING_ATTEMPTS = 5
 PAIRING_LOCKOUT_SECONDS = 300  # 5 minutes
+
+# Failed bearer-token attempts (a phone holding a stale/unknown token needs
+# to be re-paired, but the desktop had no signal for it). Short in-memory
+# window: enough for the desktop UI to notify once, harmless across restarts.
+_mobile_auth_failures = TTLCache(maxsize=50, ttl=600)  # ip -> int count
+_MOBILE_AUTH_FAIL_SINCE = None  # datetime of first failure in current window
+_MOBILE_AUTH_FAIL_THRESHOLD = 2
+
+
+def _record_mobile_auth_failure(reason: str) -> None:
+    """Track a failed bearer-token attempt so the desktop UI can surface it."""
+    global _MOBILE_AUTH_FAIL_SINCE
+    client_ip = request.remote_addr or "unknown"
+    try:
+        _mobile_auth_failures[client_ip] = int(
+            _mobile_auth_failures.get(client_ip, 0)
+        ) + 1
+        if _MOBILE_AUTH_FAIL_SINCE is None:
+            _MOBILE_AUTH_FAIL_SINCE = datetime.now()
+        logger.warning(
+            "Mobile auth failure from %s (%s), count=%s",
+            client_ip, reason, _mobile_auth_failures[client_ip],
+        )
+    except Exception:  # noqa: broad-except
+        logger.exception("Failed to record mobile auth failure")
+
+
+def _get_mobile_attention() -> Dict[str, Any]:
+    """Whether the desktop should warn the user that a phone needs re-pairing."""
+    total = 0
+    try:
+        for key in list(_mobile_auth_failures.keys()):
+            total += int(_mobile_auth_failures.get(key) or 0)
+    except Exception:  # noqa: broad-except
+        total = 0
+    return {
+        "needs_repair": total >= _MOBILE_AUTH_FAIL_THRESHOLD,
+        "failed_attempts": total,
+        "since": _MOBILE_AUTH_FAIL_SINCE.isoformat() if _MOBILE_AUTH_FAIL_SINCE else None,
+    }
+
+
+def dismiss_mobile_attention() -> None:
+    """Clear the attention flag (user re-paired or acknowledged)."""
+    global _MOBILE_AUTH_FAIL_SINCE
+    with threading.Lock():
+        keys = list(_mobile_auth_failures.keys())
+        for k in keys:
+            try:
+                del _mobile_auth_failures[k]
+            except KeyError:
+                logger.debug("Mobile auth failure key already removed: %s", k)
+        _MOBILE_AUTH_FAIL_SINCE = None
 
 # Sync request state: now backed by database with TTL
 # Lock for atomic operations on sync requests
@@ -109,6 +165,10 @@ def _require_mobile_token() -> Tuple[bool, Optional[Dict[str, Any]], str]:
         return False, None, "Token validation failed"
 
     if not record:
+        # A bearer token we don't recognize = phone with a stale pairing.
+        # Count it so the desktop can surface "phone needs to be re-paired".
+        if token:
+            _record_mobile_auth_failure("unknown token")
         return False, None, "Invalid token"
 
     device = {
@@ -282,7 +342,10 @@ def pair_device():
 
     # Clear rate limit on successful pairing
     _clear_rate_limit(client_ip)
-    
+
+    # A successful re-pair clears the "phone needs repair" attention flag
+    dismiss_mobile_attention()
+
     return jsonify({"success": True, "token": token, "device_id": device_id, "device_name": device_name})
 
 
@@ -397,9 +460,10 @@ def get_pending_inbox(user_id, data_manager):
     # Since we use a single default user, all requests are for the same user
     # This allows both local desktop app and browser requests to access pending submissions
     pending = data_manager.load_next_pending_mobile_inbox(user_id)
+    attention = _get_mobile_attention()
     if not pending:
-        return jsonify({"success": True, "pending": None})
-    return jsonify({"success": True, "pending": pending})
+        return jsonify({"success": True, "pending": None, "attention": attention})
+    return jsonify({"success": True, "pending": pending, "attention": attention})
 
 
 def _map_mobile_task_to_task_payload(mobile_task: Dict[str, Any]) -> Tuple[bool, Dict[str, Any], str]:
@@ -549,7 +613,10 @@ def approve_inbox(submission_id: str):
                 
                 # Check if a note with this client_note_id already exists locally
                 # to avoid duplication when notes are sent multiple times
-                existing_notes = dm.get_all_notes_for_user(user_id)
+                # (load_notes_for_user is the data-layer method; an old call
+                #  here referenced a non-existent get_all_notes_for_user and
+                #  made note approvals fail entirely)
+                existing_notes = dm.load_notes_for_user(user_id)
                 existing_note = None
                 if isinstance(existing_notes, list):
                     for note in existing_notes:
@@ -570,8 +637,12 @@ def approve_inbox(submission_id: str):
                     else:
                         skipped.append({"client_note_id": client_note_id, "error": "Existing note has no ID"})
                 else:
-                    # New note: create it
-                    created_note = dm.create_note_for_user(user_id, {"title": title, "content": content, "client_note_id": client_note_id})
+                    # New note: create it (carry the phone-side folder if set)
+                    note_folder = (n.get("folder") or "").strip()
+                    note_payload = {"title": title, "content": content, "client_note_id": client_note_id}
+                    if note_folder:
+                        note_payload["folder"] = note_folder
+                    created_note = dm.create_note_for_user(user_id, note_payload)
                     if created_note:
                         created_notes.append(created_note)
                         created_notes_count += 1
@@ -773,21 +844,38 @@ def get_notes():
     try:
         notes = dm.load_notes_for_user(user_id)
         if not notes:
-            return jsonify({"success": True, "notes": []})
+            return jsonify({"success": True, "notes": [], "folders": []})
 
-        # Return notes data for mobile
+        # Return notes data for mobile:
+        # - skip trashed/archived notes (phone shouldn't include them)
+        # - decode split-encoded content so phones see plain text
+        def _is_trashed(n):
+            return bool(n.get("deleted_at"))
+
+        def _is_archived_flag(n):
+            return bool(n.get("archived"))
+
         mobile_notes = [
             {
                 "id": n.get("id"),
                 "title": n.get("title"),
-                "content": n.get("content", ""),
+                "content": normalize_content(n.get("content", "")),
+                "folder": n.get("folder") or "",
                 "created_at": n.get("created_at"),
                 "updated_at": n.get("updated_at"),
             }
             for n in notes
+            if not _is_trashed(n) and not _is_archived_flag(n)
         ]
 
-        return jsonify({"success": True, "notes": mobile_notes, "count": len(mobile_notes)})
+        # Expose existing folder names so the phone can offer them when creating notes
+        folders = sorted({
+            (n.get("folder") or "").strip()
+            for n in mobile_notes
+            if (n.get("folder") or "").strip()
+        })
+
+        return jsonify({"success": True, "notes": mobile_notes, "count": len(mobile_notes), "folders": folders})
     except Exception:  # noqa: broad-except
         logger.exception("Failed to fetch notes for mobile")
         return jsonify({"success": False, "error": "Failed to fetch notes"}), 500
@@ -809,7 +897,8 @@ def create_note():
         return jsonify({"success": False, "error": "Request must contain JSON object"}), 400
 
     title = str(data.get("title", "")).strip()
-    content = str(data.get("content", "")).strip()
+    content = normalize_content(str(data.get("content", "")).strip())
+    folder = str(data.get("folder") or "").strip()
 
     if not title:
         return jsonify({"success": False, "error": "Title is required"}), 400
@@ -817,7 +906,40 @@ def create_note():
     user_id = device.get("user_id")
 
     try:
-        note = dm.create_note_for_user(user_id, {"title": title, "content": content})
+        # Idempotent create: an identical non-trashed note (same title+content)
+        # means this is a re-push (retry/offline replay), not a new note.
+        try:
+            existing_notes = dm.load_notes_for_user(user_id) or []
+        except Exception:  # noqa: broad-except
+            existing_notes = []
+        existing_match = None
+        for n in existing_notes:
+            if not isinstance(n, dict):
+                continue
+            if n.get("deleted_at"):
+                continue
+            if (n.get("title") or "").strip() == title and (n.get("content") or "").strip() == content:
+                existing_match = n
+                break
+
+        if existing_match:
+            return jsonify({
+                "success": True,
+                "note": {
+                    "id": existing_match.get("id"),
+                    "title": existing_match.get("title"),
+                    "content": existing_match.get("content"),
+                    "created_at": existing_match.get("created_at"),
+                    "updated_at": existing_match.get("updated_at"),
+                },
+                "existing": True,
+            })
+
+        note_payload = {"title": title, "content": content}
+        if folder:
+            note_payload["folder"] = folder
+
+        note = dm.create_note_for_user(user_id, note_payload)
         if note:
             return jsonify({
                 "success": True,

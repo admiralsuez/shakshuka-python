@@ -2,7 +2,7 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Shakshuka"
-#define MyAppVersion "35.4"
+#define MyAppVersion "35.8"
 #define MyAppPublisher "vibinandvanshika.in"
 #define MyAppURL "https://github.com/shakshuka-python"
 #define MyAppExeName "Shakshuka.exe"
@@ -21,12 +21,12 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 AppContact=support@vibinandvanshika.in
 AppCopyright=Copyright (C) 2025 vibinandvanshika.in
-VersionInfoVersion=35.4.0.0
+VersionInfoVersion=35.8.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Shakshuka Task Manager - Professional productivity tool
 VersionInfoCopyright=Copyright (C) 2025 vibinandvanshika.in
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=35.4.0.0
+VersionInfoProductVersion=35.8.0.0
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
@@ -296,7 +296,7 @@ begin
   // Check for existing installation
   if HasExistingInstall then
   begin
-    if MsgBox('Shakshuka is already installed. Do you want to update to the latest version?', mbConfirmation, MB_YESNO) = IDYES then
+    if SuppressibleMsgBox('Shakshuka is already installed. Do you want to update to the latest version?', mbConfirmation, MB_YESNO, IDYES) = IDYES then
     begin
       // Uninstall existing version first
       Exec(UninstallString, '/SILENT', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -321,8 +321,8 @@ begin
     Exec('netsh', 'advfirewall firewall delete rule name="Shakshuka Phone Pairing"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Exec('netsh', 'advfirewall firewall delete rule name="Shakshuka Outbound"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     
-    // Ask if user wants to keep data
-    if MsgBox('Do you want to keep your Shakshuka data (tasks, settings, etc.)?', mbConfirmation, MB_YESNO) = IDNO then
+    // Ask if user wants to keep data (defaults to keeping it when running silently)
+    if SuppressibleMsgBox('Do you want to keep your Shakshuka data (tasks, settings, etc.)?', mbConfirmation, MB_YESNO, IDYES) = IDNO then
     begin
       DelTree(ExpandConstant('{userappdata}\Shakshuka'), True, True, True);
     end;

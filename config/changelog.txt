@@ -1,3 +1,26 @@
+## Version 35.8 - Phone-Sync Reliability & Re-Pair Alerts
+Release Date: 2026-09-27
+
+### New Features
+- **Desktop tells you when the phone needs re-pairing**: if a paired phone syncs with a stale token (e.g. after a reinstall or network change), the desktop now shows a notification: "A paired phone tried to sync but its pairing is no longer valid. Open Settings → Pair Phone". Previously the phone showed an error while the desktop stayed silent. The alert clears automatically after a successful re-pair.
+- **Instant task push from phone**: adding a task on the companion app uploads immediately when the PC is reachable (previously waited up to a minute for a sync check).
+
+### Bug Fixes
+- **Note folders survive phone → PC**: notes sent from the phone now keep their folder on the desktop (the upload/approval pipeline dropped it). Offers the phone live folder names from your desktop notes when creating new notes.
+- **No more duplicate notes on retry**: creating the same note twice from the phone now returns the existing note instead of duplicating it.
+- **Phone note list is clean**: the pull now excludes trashed/archived notes and decodes large split blobs instead of showing raw `__SHAKSHUKA_SPLIT_B64_V1__` text.
+- **Re-pair failures are counted**: failed bearer-token attempts are tracked (10-minute window) and surface in the pending-inbox response for the desktop UI.
+
+---
+
+## Version 35.7 - GitHub Auto-Update Fix
+Release Date: 2026-09-26
+
+### Bug Fixes
+- **GitHub update check works again**: the updater was querying a non-existent repo (`vibin23/shakshuka-python`) hardcoded in route registration and returned a confusing 503. It now uses the configured repository constants (admiralsuez/shakshuka-python, overridable via GITHUB_REPO_OWNER/GITHUB_REPO_NAME env vars). A repo with no published releases now shows a friendly "No releases published yet" instead of an error, and network problems say "Could not reach GitHub".
+
+---
+
 ## Version 35.4 - Archive Excel Export, Undo & Notification Feedback
 Release Date: 2026-09-26
 

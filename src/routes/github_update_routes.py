@@ -56,9 +56,16 @@ def check_github_update():
 
     try:
         response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 404:
+            # Repo has no published releases (or wrong owner/name). Not an
+            # error for the user — just means there is nothing to update to.
+            return jsonify({
+                'update_available': False,
+                'message': 'No releases published yet on GitHub',
+            }), 200
         response.raise_for_status()
     except Exception as e:
-        raise DatabaseError(message='Failed to connect to GitHub', cause=e)
+        raise DatabaseError(message='Could not reach GitHub (network error)', cause=e)
 
     try:
         if branch == 'main':
@@ -141,9 +148,11 @@ def download_github_update():
 
     try:
         response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 404:
+            return jsonify({'success': False, 'error': 'No releases published yet on GitHub'}), 404
         response.raise_for_status()
     except Exception as e:
-        raise DatabaseError(message='Failed to connect to GitHub', cause=e)
+        raise DatabaseError(message='Could not reach GitHub (network error)', cause=e)
 
     try:
         if branch == 'main':
