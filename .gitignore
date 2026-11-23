@@ -228,8 +228,8 @@ config.py
 build_reports/
 scripts/dist/
 
-# doc files
-docs/
+# doc files (working notes; shipped docs re-included at the bottom)
+docs/*
 
 # Sensitive data files
 data/.key
@@ -244,3 +244,7 @@ debug_scripts/
 *.jks
 *.keystore
 shakshuka_companion/android/key.properties
+
+# Intentionally shipped documentation (overrides *.md and docs/* above)
+!docs/OPENCLAW.md
+!integrations/openclaw/SKILL.md
