@@ -1,103 +1,105 @@
-# Building Debian Package (.deb) for Linux
+# Building Linux packages (.deb / .rpm) for Shakshuka
 
-This guide explains how to create a native Debian package (.deb) for Shakshuka using fpm.
+Shakshuka ships as a **self-contained** package: the project source lives under
+`/opt/shakshuka/` together with a vendored Python venv (dependencies installed
+at build time), a launcher script, and a desktop menu entry.
+
+> Note: the old `fpm -s python setup.py` packaging is gone. It installed Python
+> modules into site-packages without the app's runtime assets, which crashed on
+> launch (`jinja2.exceptions.TemplateNotFound: index.html`, missing
+> `config/version.json`). The new layout avoids that entirely.
 
 ## Prerequisites
 
-1. **Install fpm** (Effing Package Manager):
+These steps must run **on Linux** (Debian/Ubuntu or Fedora/RHEL). On other
+platforms, use the GitHub Actions `release.yml` workflow instead.
+
+1. **Build tools + fpm:**
    ```bash
    sudo apt-get update
-   sudo apt-get install ruby-dev build-essential
+   sudo apt-get install ruby ruby-dev build-essential python3-venv
    sudo gem install fpm
    ```
-
-2. **Install Python dependencies** (for Linux):
+2. **For .rpm additionally:**
    ```bash
-   pip3 install -r config/requirements-linux.txt
+   sudo apt-get install rpm rpm-build      # Debian/Ubuntu
+   # sudo dnf install rpm-build            # Fedora/RHEL/openSUSE
    ```
 
-## Building the .deb Package
+No separate `pip install -r` needed — the builder creates the venv and installs
+`config/requirements-linux.txt` into the package itself.
 
-### Method 1: Using the Build Script (Recommended)
-
-**Bash Script:**
-```bash
-chmod +x scripts/build-deb.sh
-./scripts/build-deb.sh
-```
-
-**Python Script:**
-```bash
-python3 scripts/build-deb.py
-```
-
-### Method 2: Using fpm Directly
+## Building
 
 ```bash
-fpm -s python -t deb \
-    --python-bin python3 \
-    --python-pip pip3 \
-    --python-package-name-prefix python3 \
-    --no-python-dependencies \
-    --name shakshuka \
-    --version 8.3 \
-    --description "Shakshuka application" \
-    --depends python3 \
-    --depends python3-pip \
-    setup.py
-```
+# .deb (Debian/Ubuntu)
+python3 scripts/build-deb.py        # or: ./scripts/build-deb.sh
 
-**Note:** Replace `8.3` with the version from `config/version.json` if different.
+# .rpm (Fedora/RHEL/openSUSE)
+python3 scripts/build-rpm.py        # or: ./scripts/build-rpm.sh
+
+# both at once
+python3 scripts/build_linux_pkg.py both
+```
 
 ## Output
 
-The build script will create:
-- `dist/python3-shakshuka_8.3_all.deb` - The Debian package
+- `dist/shakshuka_<version>_amd64.deb`
+- `dist/shakshuka-<version>-1.x86_64.rpm`
 
-## Installing the Package
+## Installing
 
 ```bash
-sudo dpkg -i dist/python3-shakshuka_8.3_all.deb
-sudo apt-get install -f  # Fix dependencies if needed
+# Debian/Ubuntu
+sudo dpkg -i dist/shakshuka_<version>_amd64.deb
+
+# Fedora/RHEL/openSUSE
+sudo dnf install dist/shakshuka-<version>-1.x86_64.rpm
 ```
 
-## Running the Application
+Then launch with `shakshuka` (terminal starter) or from your app menu.
+User data goes to `~/.shakshuka/` in every case.
 
-After installation, run:
-```bash
-shakshuka
-```
+## Notes
 
-Or access via the console script that will be installed.
+- The venv is built on the build machine — the package targets the given
+  architecture/glibc (CI builds: `ubuntu-latest` x86_64 wheels).
+- System tray requires a desktop environment with AppIndicator
+  (`sudo apt install gir1.2-ayatanaappindicator3-0.1` on modern Ubuntu).
+  Under WSL there is no tray/notification area, which is expected.
 
 ## Uninstalling
 
 ```bash
-sudo apt-get remove shakshuka
+sudo apt-get remove shakshuka        # Debian/Ubuntu
+sudo dnf remove shakshuka            # Fedora/RHEL/openSUSE
 ```
 
+Removing the package also removes the `/usr/bin/shakshuka` symlink
+(see `scripts/pkgscripts/prerm.sh`). User data at `~/.shakshuka/` is kept.
+
 ## Troubleshooting
+
+### Missing templates / `version.json` after install
+You have an old `fpm -s python` build installed. Remove it and reinstall the
+self-contained package:
+```bash
+sudo apt-get remove --purge shakshuka && sudo dpkg -i dist/shakshuka_*_amd64.deb
+```
 
 ### fpm not found
 - Make sure fpm is installed: `gem list fpm`
 - Check PATH: `which fpm`
 
-### Package build fails
-- Ensure `setup.py` exists in the project root
-- Check that all Python dependencies are installed
-- Verify version in `config/version.json` is correct
-
-### Installation fails
-- Check dependencies: `sudo apt-get install -f`
-- Verify Python 3 is installed: `python3 --version`
-- Check package info: `dpkg-deb -I dist/python3-shakshuka_*.deb`
+### RPM build fails with "rpmbuild not found"
+- Install it: `sudo apt install rpm rpm-build` (host building for RPM)
 
 ## Files Created
 
-- `setup.py` - Python package setup file for fpm
-- `config/requirements-linux.txt` - Linux dependencies (without Windows-specific packages)
-- `scripts/build-deb.sh` - Bash build script
-- `scripts/build-deb.py` - Python build script
+- `scripts/build_linux_pkg.py` - Generic self-contained .deb/.rpm builder
+- `scripts/build-deb.py` / `scripts/build-rpm.py` - thin wrappers
+- `scripts/build-deb.sh` / `scripts/build-rpm.sh` - bash wrappers
+- `config/requirements-linux.txt` - Linux dependencies (vendored into the package)
 
 ## Version Management
 
