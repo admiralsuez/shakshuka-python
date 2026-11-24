@@ -213,3 +213,32 @@ def handle_database_error(func):
             return error_response(str(e), 503, {'error_type': 'DatabaseError'})
     
     return wrapper
+
+
+def is_local_request():
+    """Return True if the request originates from the local machine (loopback).
+
+    Note: if the app is ever placed behind a reverse proxy, remote_addr will
+    be the proxy's address — proxy deployments must forward and trust
+    X-Forwarded-For explicitly before relying on this check.
+    """
+    from flask import request
+
+    addr = (request.remote_addr or "").lower()
+    return addr in ("127.0.0.1", "::1", "localhost")
+
+
+def require_local_request(func):
+    """Decorator to restrict an endpoint to requests from the local machine.
+
+    Desktop-only endpoints (shutting the app down, opening file-manager
+    windows, downloading/installing updates) must never be reachable from
+    other devices on the network, even though the task API itself may be.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if not is_local_request():
+            return error_response('This endpoint is only available on the machine running Shakshuka', 403)
+        return func(*args, **kwargs)
+
+    return wrapper

@@ -15,6 +15,7 @@ from flask import Blueprint, current_app, jsonify, redirect, render_template, re
 from src.constants import DEFAULT_USER_ID
 from src.exceptions import DatabaseError, ValidationError
 from src.routes.api_utils import get_json_object, register_api_error_handlers
+from src.routes.route_decorators import require_local_request
 from src.utils.paths import get_logs_dir
 
 logger = logging.getLogger(__name__)
@@ -243,6 +244,7 @@ def get_changelog():
 
 
 @core_bp.route('/api/logs/open-folder', methods=['POST'])
+@require_local_request
 def open_logs_folder():
     """Open the logs directory on the host machine (desktop-only helper)."""
     try:
@@ -1097,6 +1099,7 @@ def clear_data():
 
 
 @core_bp.route('/api/shutdown', methods=['POST'])
+@require_local_request
 def shutdown_server():
     logger.info('Shutdown requested via API')
 

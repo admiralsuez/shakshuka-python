@@ -7,6 +7,7 @@ import tempfile
 
 from src.exceptions import DatabaseError, ValidationError
 from src.routes.api_utils import get_json_object, register_api_error_handlers
+from src.routes.route_decorators import require_local_request
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,7 @@ def check_github_update():
 
 
 @github_update_bp.route('/download-update', methods=['POST'])
+@require_local_request
 def download_github_update():
     """Download and prepare update from GitHub."""
     try:
@@ -226,6 +228,7 @@ def download_github_update():
 
 
 @github_update_bp.route('/open-downloads-folder', methods=['POST'])
+@require_local_request
 def open_downloads_folder():
     """Open the folder where GitHub installers are downloaded.
 

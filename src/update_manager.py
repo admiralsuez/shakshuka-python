@@ -17,8 +17,20 @@ from typing import Dict, List, Optional, Tuple
 import hashlib
 import subprocess
 import sys
+from urllib.parse import urlparse
 
 from src.exceptions import ValidationError
+
+# Update packages are only ever fetched from the official release hosts.
+# The download endpoint previously accepted arbitrary URLs, and whatever is
+# downloaded can later be executed by the install step — so the URL host
+# must be locked down at this layer, not just at the HTTP route layer.
+ALLOWED_UPDATE_HOSTS = {
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "api.github.com",
+}
 
 # Try to import requests, but handle gracefully if not available
 try:
@@ -327,6 +339,12 @@ class UpdateManager:
             download_url = update_info.get("download_url")
             if not download_url or not isinstance(download_url, str):
                 raise ValidationError(message='download_url required')
+
+            parsed = urlparse(download_url)
+            if parsed.scheme != "https" or (parsed.hostname or "").lower() not in ALLOWED_UPDATE_HOSTS:
+                raise ValidationError(
+                    message='download_url must be an https URL on an official update host (github.com)'
+                )
 
             version = update_info.get("version", "unknown")
             if not isinstance(version, str) or not version.strip():

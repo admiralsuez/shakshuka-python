@@ -9,6 +9,7 @@ from src.update_manager import UpdateIOError, UpdateIntegrityError
 # Import decorators
 from src.routes.route_decorators import (
     require_json_body,
+    require_local_request,
     handle_database_error
 )
 
@@ -70,6 +71,7 @@ def check_for_updates():
 
 
 @updates_bp.route('/download', methods=['POST'])
+@require_local_request
 @require_json_body
 @handle_database_error
 def download_update():
@@ -94,6 +96,7 @@ def download_update():
 
 
 @updates_bp.route('/install', methods=['POST'])
+@require_local_request
 @require_json_body
 @handle_database_error
 def install_update():

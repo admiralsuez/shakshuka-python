@@ -33,7 +33,9 @@ import tempfile
 from pathlib import Path
 
 # Files/dirs shipped inside /opt/shakshuka/
-INCLUDE = ["main.py", "src", "assets", "config", "tools", "docs"]
+# tools/autostart.py is the only tools module imported at runtime
+# (src/app.py); docs/ is internal working notes and stays out of packages.
+INCLUDE = ["main.py", "src", "assets", "config", "tools/autostart.py"]
 
 
 def load_version(root: Path) -> str:

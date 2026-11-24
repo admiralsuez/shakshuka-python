@@ -137,7 +137,12 @@ GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "admiralsuez")
 GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "shakshuka-python")
 
 # CORS configuration
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+# The frontend is served by the same Flask server (same-origin), so CORS is
+# only needed for local tooling. Never default to "*": with credentials
+# enabled that lets any website read the API from a user's browser.
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS", "http://127.0.0.1:8989,http://localhost:8989"
+).split(",")
 
 # Default user
 DEFAULT_USER_ID = "default_user"
