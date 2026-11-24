@@ -2,14 +2,22 @@
 Release Date: 2026-09-27
 
 ### New Features
+- **AI bot integration (OpenClaw)**: AI agents like OpenClaw can now manage your tasks — add, edit, complete, list and delete — through the built-in REST API. A ready-made agent skill ships at integrations/openclaw/SKILL.md; see docs/OPENCLAW.md for setup (same machine, same-network, or secure remote options).
 - **Desktop tells you when the phone needs re-pairing**: if a paired phone syncs with a stale token (e.g. after a reinstall or network change), the desktop now shows a notification: "A paired phone tried to sync but its pairing is no longer valid. Open Settings → Pair Phone". Previously the phone showed an error while the desktop stayed silent. The alert clears automatically after a successful re-pair.
 - **Instant task push from phone**: adding a task on the companion app uploads immediately when the PC is reachable (previously waited up to a minute for a sync check).
 
 ### Bug Fixes
+- **Linux packages now actually work**: the .deb/.rpm no longer install a broken copy that crashed with "TemplateNotFound: index.html" — packages are now self-contained under /opt/shakshuka with a bundled Python environment, a `shakshuka` launcher command, and an app-menu entry.
 - **Note folders survive phone → PC**: notes sent from the phone now keep their folder on the desktop (the upload/approval pipeline dropped it). Offers the phone live folder names from your desktop notes when creating new notes.
 - **No more duplicate notes on retry**: creating the same note twice from the phone now returns the existing note instead of duplicating it.
 - **Phone note list is clean**: the pull now excludes trashed/archived notes and decodes large split blobs instead of showing raw `__SHAKSHUKA_SPLIT_B64_V1__` text.
 - **Re-pair failures are counted**: failed bearer-token attempts are tracked (10-minute window) and surface in the pending-inbox response for the desktop UI.
+
+### Security Hardening
+- **Desktop-only endpoints locked to localhost**: shutting down the app, opening file-manager folders and downloading/installing updates now return 403 when called from another device on your network. Previously anyone on the same Wi-Fi could silently shut down your app or trigger an update install.
+- **Update downloads restricted to official GitHub hosts**: the updater only accepts https downloads from github.com release hosts, so a crafted request can no longer point it at an arbitrary file and get it installed.
+- **CORS no longer wide open by default**: the API now only accepts browser requests from the app itself instead of any website (which could read your tasks from your browser).
+- **Dependency security updates**: Werkzeug 2.3.8, Jinja2 3.1.6, requests 2.32.3, urllib3 2.2.2 (fixes known CVEs); releases are now automatically audited for known vulnerabilities in CI.
 
 ---
 
