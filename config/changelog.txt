@@ -17,7 +17,7 @@ Release Date: 2026-11-25
 - **Desktop-only endpoints locked to localhost**: shutting down the app, opening file-manager folders and downloading/installing updates now return 403 when called from another device on your network. Previously anyone on the same Wi-Fi could silently shut down your app or trigger an update install.
 - **Update downloads restricted to official GitHub hosts**: the updater only accepts https downloads from github.com release hosts, so a crafted request can no longer point it at an arbitrary file and get it installed.
 - **CORS no longer wide open by default**: the API now only accepts browser requests from the app itself instead of any website (which could read your tasks from your browser).
-- **Dependency security updates**: Werkzeug 2.3.8, Jinja2 3.1.6, requests 2.32.3, urllib3 2.2.2 (fixes known CVEs); releases are now automatically audited for known vulnerabilities in CI.
+- **Dependency security upgrade**: the whole web stack was upgraded to fix 67 known vulnerabilities — Flask 3.1.3, Werkzeug 3.1.9, Flask-CORS 6.0.0, cryptography 49.0.0, requests 2.33.0, urllib3 2.8.0 and more; releases are now automatically audited for known vulnerabilities in CI (verified with a full task CRUD regression test).
 
 ---
 

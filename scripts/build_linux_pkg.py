@@ -63,6 +63,7 @@ def stage_source_tree(root: Path, staging: Path) -> Path:
             shutil.copytree(src, dst, ignore=_ignore)
             print(f"  copied {item}/")
         else:
+            dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             print(f"  copied {item}")
 
