@@ -1,5 +1,5 @@
-## Version 35.8 - Phone-Sync Reliability & Re-Pair Alerts
-Release Date: 2026-09-27
+## Version 35.9 - Bot Integration, Working Linux Packages & Security Hardening
+Release Date: 2026-11-25
 
 ### New Features
 - **AI bot integration (OpenClaw)**: AI agents like OpenClaw can now manage your tasks — add, edit, complete, list and delete — through the built-in REST API. A ready-made agent skill ships at integrations/openclaw/SKILL.md; see docs/OPENCLAW.md for setup (same machine, same-network, or secure remote options).
