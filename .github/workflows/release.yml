@@ -108,8 +108,8 @@ jobs:
         with:
           name: linux-${{ env.VERSION }}
           path: |
-            *shakshuka*.deb
-            *shakshuka*.rpm
+            dist/*shakshuka*.deb
+            dist/*shakshuka*.rpm
           if-no-files-found: error
 
   # ── macOS: Shakshuka.app + .dmg ────────────────────────────────────────────
