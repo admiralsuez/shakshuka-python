@@ -52,7 +52,9 @@ jobs:
           python -m pip_audit -r config/requirements.txt --progress-spinner off
 
       - name: Install Inno Setup 6
-        run: choco install innosetup --no-progress -y
+        # Pin to 6.5.4: Inno 6.6+ removed/renamed PascalScript support
+        # functions (CreateCustomForm etc.) and breaks scripts/installer.iss.
+        run: choco install innosetup --version=6.5.4 --no-progress --force -y
 
       - name: Build exe + installer (without version bump)
         shell: pwsh
