@@ -1,3 +1,12 @@
+## Version 36.0 - Apostrophes & Special Characters Fixed Everywhere
+Release Date: 2026-11-25
+
+### Bug Fixes
+- **Apostrophes saved correctly in quick add (and everywhere else)**: typing `it's`, `"quotes"` or `<angles>` in tasks no longer turns into `&#x27;` / `&quot;`. The app was HTML-escaping text before saving it (on top of the display layer's own escaping, which doubled the damage on every edit). Storage now keeps your raw text; escaping happens only when rendering, where it belongs.
+- **Old tasks self-heal**: tasks saved by older versions with mangled entities (`&#x27;`, `&quot;`, `&amp;`, including doubly-escaped ones from repeated edits) are automatically un-mangled when loaded — no migration needed.
+
+---
+
 ## Version 35.9 - Bot Integration, Working Linux Packages & Security Hardening
 Release Date: 2026-11-25
 

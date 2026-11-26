@@ -29,6 +29,7 @@ from src.exceptions import (
     ValidationError,
 )
 from src.utils.content_decoder import is_split_encoded, normalize_content
+from src.utils.sanitizers import normalize_task_text_fields
 
 
 class SQLiteDataManager:
@@ -2239,7 +2240,7 @@ class SQLiteDataManager:
         except Exception:  # noqa: broad-except
             subtasks = []
 
-        return {
+        task = {
             "id": row["id"],
             "title": row["title"],
             "description": normalize_content(row["description"] or ""),
@@ -2280,6 +2281,9 @@ class SQLiteDataManager:
             "parent_id": row["parent_id"] if "parent_id" in keys else None,
             "was_split_encoded": bool(row["was_split_encoded"] if "was_split_encoded" in keys else False),
         }
+        # Heal text fields written by pre-35.9 versions that HTML-escaped
+        # input before storing it (apostrophes persisted as '&#x27;' etc.).
+        return normalize_task_text_fields(task)
 
     # Task Management Methods
     def load_tasks_for_user(self, user_id: str) -> Optional[List[Dict[str, Any]]]:

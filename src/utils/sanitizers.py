@@ -28,32 +28,73 @@ def sanitize_input(data: Any) -> Any:
 
 def sanitize_string(text: str, max_length: int = 10000) -> str:
     """
-    Sanitize a string by escaping HTML and removing dangerous characters.
-    
+    Sanitize a string by removing dangerous characters.
+
+    NOTE: this deliberately does NOT HTML-escape. Stored text must stay raw;
+    the display layer (Utils.sanitizeHTML in JS, Jinja auto-escaping, and the
+    companion app) is responsible for escaping at render time. Escaping here
+    corrupted apostrophes (&#x27;) and quotes (&quot;) in saved tasks.
+
     Args:
         text: String to sanitize
         max_length: Maximum allowed length
-        
+
     Returns:
         Sanitized string
     """
     if not isinstance(text, str):
         return text
-    
+
     # Truncate if too long
     if len(text) > max_length:
         text = text[:max_length]
-    
-    # Escape HTML entities
-    text = html.escape(text)
-    
+
     # Remove null bytes
     text = text.replace('\x00', '')
-    
+
     # Remove other control characters except newlines, tabs, and carriage returns
     text = ''.join(char for char in text if ord(char) >= 32 or char in '\n\r\t')
-    
+
     return text
+
+
+# Task fields that hold user-typed text and may contain legacy HTML entities
+# written by versions that escaped input before storing it (pre-35.9).
+LEGACY_TEXT_TASK_FIELDS = ("title", "description", "strike_report", "project", "owner")
+
+
+def unescape_legacy_html(text: str) -> str:
+    """
+    Reverse over-eager html.escape() applied at save time by older versions.
+
+    Pre-35.9 releases HTML-escaped user input before storing it, so
+    apostrophes were persisted as '&#x27;', quotes as '&quot;' and ampersands
+    as '&amp;' — and every edit compounded the escaping. The display layer
+    now escapes at render time, so stored text must be raw. Unescape
+    repeatedly (bounded) to undo the compounding.
+    """
+    if not isinstance(text, str) or "&" not in text:
+        return text
+    for _ in range(5):
+        unescaped = html.unescape(text)
+        if unescaped == text:
+            break
+        text = unescaped
+    return text
+
+
+def normalize_task_text_fields(task: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Heal task text fields that may contain legacy HTML entities.
+
+    Applied at the data-layer read path so previously stored tasks display
+    correctly without a one-time migration. Idempotent for clean data.
+    """
+    for field in LEGACY_TEXT_TASK_FIELDS:
+        value = task.get(field)
+        if isinstance(value, str) and "&" in value:
+            task[field] = unescape_legacy_html(value)
+    return task
 
 
 def sanitize_filename(filename: str) -> str:

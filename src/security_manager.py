@@ -51,7 +51,12 @@ class SecurityManager:
     # Unused CSRF functions removed - duplicate implementations
     
     def sanitize_input(self, text: str, max_length: int = 10000) -> str:
-        """Sanitize user input to prevent XSS attacks.
+        """Harden user input for storage.
+
+        XSS prevention happens at the display layer (JS Utils.sanitizeHTML,
+        Jinja auto-escaping). This function must NOT HTML-escape: escaping
+        here corrupted apostrophes (') into '&#x27;' and stripped quotes and
+        angle brackets from stored task titles and notes.
 
         NOTE: max_length defaults to 10000 to match the application-level input
         cap. A smaller value (previously 1000) silently truncated long-form
@@ -61,22 +66,17 @@ class SecurityManager:
         """
         if not text:
             return ""
-        
+
         # Limit length
         text = text[:max_length]
-        
-        # HTML escape
-        text = html.escape(text, quote=True)
-        
-        # Remove potentially dangerous characters
-        # Note: use a valid regex that strips angle brackets and quotes
-        text = re.sub(r"[<>\"']", "", text)
-        
-        # Remove script tags and javascript: protocols
-        text = re.sub(r'<script.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
-        text = re.sub(r'javascript:', '', text, flags=re.IGNORECASE)
-        
-        return text.strip()
+
+        # Remove null bytes
+        text = text.replace('\x00', '')
+
+        # Remove control characters except newlines, tabs, and carriage returns
+        text = ''.join(char for char in text if ord(char) >= 32 or char in '\n\r\t')
+
+        return text
     
     def check_rate_limit(self, client_ip: str) -> bool:
         """Enhanced rate limiting with memory management and performance monitoring"""
